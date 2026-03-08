@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // Store file data in IndexedDB for transfer to reader page
+// Maintains a maximum of 5 books to prevent excessive disk space usage
 function storeFileData(filename, uint8Array) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('EpubReaderDB', 1);
@@ -96,7 +97,22 @@ function storeFileData(filename, uint8Array) {
       const db = e.target.result;
       const tx = db.transaction('files', 'readwrite');
       const store = tx.objectStore('files');
+      
+      // Put the new file
       store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
+      
+      // Cleanup old files (keep only the 5 most recent)
+      const getAllReq = store.getAll();
+      getAllReq.onsuccess = () => {
+        const files = getAllReq.result;
+        if (files.length > 5) {
+          files.sort((a, b) => b.timestamp - a.timestamp);
+          for (let i = 5; i < files.length; i++) {
+            store.delete(files[i].name);
+          }
+        }
+      };
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     };

@@ -281,8 +281,10 @@
 
       const arrayBuffer = await file.arrayBuffer();
 
-      // Store file in IndexedDB so it can be reopened from recent books list
-      await storeFileInIndexedDB(file.name, new Uint8Array(arrayBuffer));
+      // Store file in IndexedDB asynchronously so it doesn't block loading the book
+      storeFileInIndexedDB(file.name, new Uint8Array(arrayBuffer)).catch(e => {
+        console.warn('Failed to store book in IndexedDB:', e);
+      });
 
       await openBook(arrayBuffer);
     } catch (err) {
@@ -293,7 +295,8 @@
   }
 
   /**
-   * Store file data in IndexedDB for later reopening via recent books
+   * Store file data in IndexedDB for later reopening via recent books.
+   * Maintains a maximum of 5 books to prevent excessive disk space usage.
    */
   function storeFileInIndexedDB(filename, uint8Array) {
     return new Promise((resolve, reject) => {
@@ -308,7 +311,24 @@
         const db = e.target.result;
         const tx = db.transaction('files', 'readwrite');
         const store = tx.objectStore('files');
+        
+        // Put the new file
         store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
+        
+        // Cleanup old files (keep only the 5 most recent)
+        const getAllReq = store.getAll();
+        getAllReq.onsuccess = () => {
+          const files = getAllReq.result;
+          if (files.length > 5) {
+            // Sort by timestamp descending (newest first)
+            files.sort((a, b) => b.timestamp - a.timestamp);
+            // Delete anything beyond the first 5
+            for (let i = 5; i < files.length; i++) {
+              store.delete(files[i].name);
+            }
+          }
+        };
+
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       };
@@ -328,6 +348,7 @@
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) {
+          alert('找不到该书籍的缓存数据。请重新通过"打开文件"按钮加载该电子书。');
           resolve();
           return;
         }
@@ -341,13 +362,20 @@
             currentBookId = EpubStorage.generateBookId(fileName, data.byteLength);
             showLoading(true);
             await openBook(data.buffer);
-            // Keep file in IndexedDB so it can be reopened from recent list
+          } else {
+            alert('由于浏览器限制，该书籍的本地缓存已被自动清理（或您在旧版本中打开此书）。请重新通过"打开文件"按钮加载该电子书，重新加载后可从历史记录打开。');
           }
           resolve();
         };
-        getReq.onerror = () => resolve();
+        getReq.onerror = () => {
+          alert('读取数据失败。请重新加载该电子书。');
+          resolve();
+        };
       };
-      request.onerror = () => resolve();
+      request.onerror = () => {
+        alert('读取数据失败。请重新加载该电子书。');
+        resolve();
+      };
     });
   }
 
