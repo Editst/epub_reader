@@ -405,6 +405,11 @@
   }
 
   async function openBook(arrayBuffer) {
+    // Show reader UI early so container has dimensions for epub.js to measure
+    welcomeScreen.style.display = 'none';
+    readerMain.style.display = 'flex';
+    bottomBar.style.display = 'flex';
+    
     // Destroy previous book
     if (book) {
       book.destroy();
@@ -423,14 +428,9 @@
       allowScriptedContent: false
     });
 
-    // Apply default theme for Chinese typography
+    // Apply default theme
     rendition.themes.default({
-      'html': {
-        'font-size': (prefs.fontSize || 18) + 'px !important'
-      },
       'body': {
-        'font-family': prefs.fontFamily || "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif",
-        'line-height': (prefs.lineHeight || 1.8) + ' !important',
         'color': 'var(--reader-text, #2d2d2d)',
         'text-align': 'justify',
         '-webkit-font-smoothing': 'antialiased',
@@ -502,10 +502,7 @@
     // Init bookmarks for this book
     Bookmarks.setBook(currentBookId, book, rendition);
 
-    // Show reader UI immediately - book is already visible
-    welcomeScreen.style.display = 'none';
-    readerMain.style.display = 'flex';
-    bottomBar.style.display = 'flex';
+    // Hide loading overlay now that book is visible
     showLoading(false);
     isBookLoaded = true;
 

@@ -121,6 +121,7 @@ const Annotations = {
     try {
       let targetId = '';
       let sectionHref = '';
+      let displayHref = href; // The reliable loc to pass to rendition.display()
 
       if (href.startsWith('#')) {
         // Same-document reference
@@ -129,7 +130,13 @@ const Annotations = {
         const doc = contents.document;
         const target = doc.getElementById(targetId);
         if (target) {
-          this._displayContent(target.innerHTML, href);
+          try {
+            // Use CFI for perfect reliability within the same document
+            displayHref = contents.cfiFromNode(target) || href;
+          } catch(e) {
+            console.warn("Could not generate CFI for target", e);
+          }
+          this._displayContent(target.innerHTML, displayHref);
           return true;
         }
       } else if (href.includes('#')) {
@@ -142,12 +149,17 @@ const Annotations = {
       }
 
       // Try to load from another section in the book
-      if (this.book && (sectionHref || targetId)) {
-        const content = await this._loadFromBook(sectionHref, targetId);
-        if (content) {
-          this._displayContent(content, href);
-          return true;
+      const html = await this._loadFromBook(sectionHref, targetId);
+      if (html) {
+        // If we found it via spine, sectionHref might be relative. Let's just use the section.href from spine if we can.
+        let resolvedSectionHref = sectionHref;
+        const section = this.book.spine.get(sectionHref);
+        if (section && section.href) {
+            resolvedSectionHref = section.href;
         }
+        displayHref = targetId ? `${resolvedSectionHref}#${targetId}` : resolvedSectionHref;
+        this._displayContent(html, displayHref);
+        return true;
       }
 
       return false;
