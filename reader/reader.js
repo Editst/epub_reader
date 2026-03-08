@@ -13,6 +13,10 @@
   let isBookLoaded = false;
   let _navLock = false; // Debounce lock to prevent double page-turn
 
+  // --- Reading Stats State ---
+  let readingTimer = null;
+  let activeReadingSeconds = 0;
+
   // --- DOM Elements ---
   const welcomeScreen = document.getElementById('welcome-screen');
   const loadingOverlay = document.getElementById('loading-overlay');
@@ -26,6 +30,7 @@
   const progressSlider = document.getElementById('progress-slider');
   const progressCurrent = document.getElementById('progress-current');
   const progressLocation = document.getElementById('progress-location');
+  const progressTime = document.getElementById('progress-time');
 
   const fontSizeSlider = document.getElementById('font-size-slider');
   const fontSizeValue = document.getElementById('font-size-value');
@@ -33,12 +38,17 @@
   const lineHeightValue = document.getElementById('line-height-value');
   const fontFamilySelect = document.getElementById('font-family-select');
   const settingsPanel = document.getElementById('settings-panel');
+  
+  const customThemeOptions = document.getElementById('custom-theme-options');
+  const customBgColor = document.getElementById('custom-bg-color');
+  const customTextColor = document.getElementById('custom-text-color');
 
   // --- Initialize Modules ---
   document.addEventListener('DOMContentLoaded', async () => {
     ImageViewer.init();
     Annotations.init();
     TOC.init();
+    Search.init();
     Bookmarks.init();
 
     await loadPreferences();
@@ -100,6 +110,25 @@
         setTheme(theme);
       });
     });
+
+    // Custom Theme Color Pickers
+    if (customBgColor && customTextColor) {
+      customBgColor.addEventListener('input', (e) => {
+        currentPrefs.customBg = e.target.value;
+        if (currentPrefs.theme === 'custom') applyThemeToRendition('custom');
+      });
+      customBgColor.addEventListener('change', (e) => {
+        EpubStorage.savePreferences({ customBg: e.target.value });
+      });
+      
+      customTextColor.addEventListener('input', (e) => {
+        currentPrefs.customText = e.target.value;
+        if (currentPrefs.theme === 'custom') applyThemeToRendition('custom');
+      });
+      customTextColor.addEventListener('change', (e) => {
+        EpubStorage.savePreferences({ customText: e.target.value });
+      });
+    }
 
     // Layout buttons
     document.querySelectorAll('.layout-btn').forEach((btn) => {
@@ -417,10 +446,14 @@
     
     // Explicitly target all major text containing elements to crush embedded EPUB styles
     return `
+      html, body {
+        ${currentPrefs.theme === 'custom' && currentPrefs.customBg ? `background-color: ${currentPrefs.customBg} !important;` : ''}
+      }
       html, body, p, div, span, a, li, blockquote, td, th {
         font-size: ${currentPrefs.fontSize}px !important;
         line-height: ${currentPrefs.lineHeight} !important;
         font-family: ${fontFamily} !important;
+        ${currentPrefs.theme === 'custom' && currentPrefs.customText ? `color: ${currentPrefs.customText} !important;` : ''}
       }
     `;
   }
@@ -464,6 +497,10 @@
     currentPrefs.fontSize = prefs.fontSize || 18;
     currentPrefs.lineHeight = prefs.lineHeight || 1.8;
     currentPrefs.fontFamily = prefs.fontFamily || '';
+
+    // Load reading time
+    activeReadingSeconds = await EpubStorage.getReadingTime(currentBookId);
+    startReadingTimer();
 
     // Create rendition
     rendition = book.renderTo('epub-viewer', {
@@ -553,6 +590,9 @@
 
     // Init bookmarks for this book
     Bookmarks.setBook(currentBookId, book, rendition);
+    
+    // Init search for this book
+    Search.setBook(book, rendition);
 
     // Hide loading overlay now that book is visible
     showLoading(false);
@@ -607,6 +647,8 @@
       progressCurrent.textContent = percent.toFixed(1) + '%';
     }
 
+    updateReadingStats();
+
     // Update chapter title
     const currentSection = location.start.href;
     if (currentSection) {
@@ -620,6 +662,60 @@
 
     // Update bookmark button state
     updateBookmarkButtonState();
+  }
+
+  // --- Reading Stats Logic ---
+  function startReadingTimer() {
+    if (readingTimer) clearInterval(readingTimer);
+    
+    readingTimer = setInterval(() => {
+      // Only increment if document is active (not hidden)
+      if (!document.hidden && currentBookId && isBookLoaded) {
+        activeReadingSeconds++;
+        // Save to storage every 10 seconds
+        if (activeReadingSeconds % 10 === 0) {
+          EpubStorage.saveReadingTime(currentBookId, activeReadingSeconds);
+        }
+        // Update UI every minute or continuously
+        if (activeReadingSeconds % 60 === 0) {
+          updateReadingStats();
+        }
+      }
+    }, 1000);
+  }
+
+  function updateReadingStats() {
+    if (!progressTime || !rendition || !book) return;
+
+    // Formatting active read time
+    const hours = Math.floor(activeReadingSeconds / 3600);
+    const minutes = Math.floor((activeReadingSeconds % 3600) / 60);
+    const readStr = hours > 0 ? `${hours}小时${minutes}分钟` : `${minutes}分钟`;
+
+    // Estimation logic
+    let remainingStr = '--';
+    if (book.locations && book.locations.length()) {
+      const totalLocations = book.locations.length();
+      // Estimate total characters: default location size is 150 chars
+      const charsTotal = totalLocations * 150;
+      // Assume reading speed of Chinese/English mix approx 400 chars per minute
+      const estTotalMinutes = charsTotal / 400;
+
+      const currentLoc = rendition.currentLocation();
+      let progress = 0;
+      if (currentLoc && currentLoc.start) {
+        progress = book.locations.percentageFromCfi(currentLoc.start.cfi);
+      }
+
+      if (progress >= 0 && progress <= 1) {
+        const remainingMinutes = Math.max(0, Math.round(estTotalMinutes * (1 - progress)));
+        const remHours = Math.floor(remainingMinutes / 60);
+        const remMins = remainingMinutes % 60;
+        remainingStr = remHours > 0 ? `${remHours}小时${remMins}分钟` : `${remMins}分钟`;
+      }
+    }
+
+    progressTime.textContent = `阅读时长: ${readStr} | 预计剩余: ${remainingStr}`;
   }
 
   function findTocItem(items, href) {
@@ -673,8 +769,15 @@
   async function loadPreferences() {
     const prefs = await EpubStorage.getPreferences();
 
+    currentPrefs.theme = prefs.theme || 'light';
+    currentPrefs.customBg = prefs.customBg || '#ffffff';
+    currentPrefs.customText = prefs.customText || '#333333';
+
+    if (customBgColor) customBgColor.value = currentPrefs.customBg;
+    if (customTextColor) customTextColor.value = currentPrefs.customText;
+
     // Apply theme
-    setTheme(prefs.theme || 'light', false);
+    setTheme(currentPrefs.theme, false);
 
     // Sync UI controls
     fontSizeSlider.value = prefs.fontSize || 18;
@@ -695,11 +798,16 @@
 
   function setTheme(theme, save = true) {
     document.documentElement.setAttribute('data-theme', theme);
+    currentPrefs.theme = theme;
 
     // Update theme buttons
     document.querySelectorAll('.theme-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.theme === theme);
     });
+
+    if (customThemeOptions) {
+      customThemeOptions.style.display = theme === 'custom' ? 'block' : 'none';
+    }
 
     // Apply to epub rendition
     if (rendition) {
@@ -718,13 +826,18 @@
       light: { bg: '#ffffff', color: '#2d2d2d' },
       dark: { bg: '#1a1a1a', color: '#d4d0c8' },
       sepia: { bg: '#f8f0dc', color: '#3e2f1c' },
-      green: { bg: '#c7e6c1', color: '#2b3a2b' }
+      green: { bg: '#c7e6c1', color: '#2b3a2b' },
+      custom: { bg: currentPrefs.customBg || '#ffffff', color: currentPrefs.customText || '#333333' }
     };
 
     const t = themes[theme] || themes.light;
 
     rendition.themes.override('color', t.color);
     rendition.themes.override('background', t.bg);
+    
+    // Update the custom CSS hook to either crush inline styles (for custom theme) 
+    // or remove the custom color overrides (for standard themes).
+    updateCustomStyles();
   }
 
   function setLayout(layout) {

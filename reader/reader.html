@@ -33,7 +33,10 @@
   <header class="toolbar" id="toolbar">
     <div class="toolbar-left">
       <button class="toolbar-btn" id="btn-toc" title="目录 (T)">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      </button>
+      <button class="toolbar-btn" id="btn-search" title="搜索 (F)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       </button>
       <div class="toolbar-book-info">
         <span class="book-title" id="book-title">EPUB Reader</span>
@@ -93,6 +96,19 @@
           <button class="theme-btn" data-theme="green" title="护眼">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
+          <button class="theme-btn" data-theme="custom" title="自定义颜色">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h3.016C21.606 16.394 24 13.593 24 10.51 24 5.8 18.627 2 12 2z"/></svg>
+          </button>
+        </div>
+        <div id="custom-theme-options" style="display: none; margin-top: 12px; padding: 12px; background: var(--reader-bg); border-radius: 8px; border: 1px solid var(--border-color);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <label style="font-size: 13px; color: var(--text-secondary);">背景颜色</label>
+            <input type="color" id="custom-bg-color" value="#ffffff" style="width: 28px; height: 28px; border: none; padding: 0; cursor: pointer; border-radius: 4px; overflow: hidden;">
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <label style="font-size: 13px; color: var(--text-secondary);">文字颜色</label>
+            <input type="color" id="custom-text-color" value="#333333" style="width: 28px; height: 28px; border: none; padding: 0; cursor: pointer; border-radius: 4px; overflow: hidden;">
+          </div>
         </div>
       </div>
 
@@ -157,6 +173,22 @@
     <div class="bookmarks-list" id="bookmarks-list"></div>
   </div>
 
+  <!-- Search Panel -->
+  <div class="bookmarks-panel" id="search-panel">
+    <div class="settings-header">
+      <h2>全文搜索</h2>
+      <button class="sidebar-close" id="btn-search-close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div style="padding: 10px 20px; display: flex; gap: 8px;">
+      <input type="text" id="search-input" placeholder="输入关键词 (Enter 搜索)" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--reader-bg); color: var(--text-primary); font-size: 14px; outline: none;">
+      <button id="btn-do-search" style="padding: 8px 16px; background: var(--text-accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap;">搜索</button>
+    </div>
+    <div id="search-status" style="padding: 0 20px 10px; font-size: 12px; color: var(--text-muted);"></div>
+    <div class="bookmarks-list" id="search-results-list" style="padding-top: 0;"></div>
+  </div>
+
   <!-- Main Reader Area -->
   <main class="reader-main" id="reader-main" style="display:none;">
     <!-- Navigation arrows -->
@@ -176,8 +208,9 @@
     <div class="progress-container">
       <input type="range" class="progress-slider" id="progress-slider" min="0" max="100" value="0" step="0.1">
       <div class="progress-info">
-        <span id="progress-current">0%</span>
+        <span id="progress-time"></span>
         <span id="progress-location"></span>
+        <span id="progress-current">0%</span>
       </div>
     </div>
   </footer>
@@ -225,6 +258,7 @@
   <script src="image-viewer.js"></script>
   <script src="annotations.js"></script>
   <script src="toc.js"></script>
+  <script src="search.js"></script>
   <script src="bookmarks.js"></script>
   <script src="reader.js"></script>
 </body>

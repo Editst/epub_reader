@@ -85,6 +85,26 @@ const EpubStorage = {
   },
 
   /**
+   * Remove a book's saved position
+   * @param {string} bookId
+   */
+  async removePosition(bookId) {
+    return new Promise((resolve) => {
+      chrome.storage.local.remove(['pos_' + bookId], resolve);
+    });
+  },
+
+  async getReadingTime(bookId) {
+    const data = await this._get('time_' + bookId);
+    return data || 0; // seconds
+  },
+
+  async saveReadingTime(bookId, seconds) {
+    if (!bookId) return;
+    await this._set({ ['time_' + bookId]: seconds });
+  },
+
+  /**
    * Generate a simple hash ID for a book
    * @param {string} filename
    * @param {number} size
