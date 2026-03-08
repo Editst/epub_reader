@@ -163,11 +163,11 @@
     document.addEventListener('click', (e) => {
       const isSettingsBtn = e.target.closest('#btn-settings');
       const isBookmarksBtn = e.target.closest('#btn-bookmarks');
-      
+
       if (!isSettingsBtn && settingsPanel.classList.contains('open') && !e.target.closest('#settings-panel')) {
         closeSettings();
       }
-      
+
       if (!isBookmarksBtn && Bookmarks.panel && Bookmarks.panel.classList.contains('open') && !e.target.closest('#bookmarks-panel')) {
         Bookmarks.closePanel();
       }
@@ -336,10 +336,10 @@
         const db = e.target.result;
         const tx = db.transaction('files', 'readwrite');
         const store = tx.objectStore('files');
-        
+
         // Put the new file
         store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
-        
+
         // Cleanup old files (keep only the 5 most recent)
         const getAllReq = store.getAll();
         getAllReq.onsuccess = () => {
@@ -404,12 +404,54 @@
     });
   }
 
+  // --- Robust Styling Overrides ---
+  let currentPrefs = {
+    fontSize: 18,
+    lineHeight: 1.8,
+    fontFamily: ''
+  };
+
+  function generateCustomCss() {
+    const fallbackFont = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
+    const fontFamily = currentPrefs.fontFamily ? `${currentPrefs.fontFamily}, ${fallbackFont}` : fallbackFont;
+    
+    // Explicitly target all major text containing elements to crush embedded EPUB styles
+    return `
+      html, body, p, div, span, a, li, blockquote, td, th {
+        font-size: ${currentPrefs.fontSize}px !important;
+        line-height: ${currentPrefs.lineHeight} !important;
+        font-family: ${fontFamily} !important;
+      }
+    `;
+  }
+
+  function injectCustomStyleElement(contents) {
+    if (!contents || !contents.document) return;
+    const doc = contents.document;
+    let styleEl = doc.getElementById('epub-reader-custom-styles');
+    if (!styleEl) {
+      // CRITICAL: EPUB sub-documents use XHTML. Regular createElement creates inert, ignored tags.
+      styleEl = doc.createElementNS('http://www.w3.org/1999/xhtml', 'style');
+      styleEl.setAttribute('id', 'epub-reader-custom-styles');
+      const target = doc.head || doc.documentElement || doc.body;
+      if (target) target.appendChild(styleEl);
+    }
+    styleEl.textContent = generateCustomCss();
+  }
+
+  function updateCustomStyles() {
+    if (!rendition || !rendition.getContents) return;
+    rendition.getContents().forEach(contents => {
+      injectCustomStyleElement(contents);
+    });
+  }
+
   async function openBook(arrayBuffer) {
     // Show reader UI early so container has dimensions for epub.js to measure
     welcomeScreen.style.display = 'none';
     readerMain.style.display = 'flex';
     bottomBar.style.display = 'flex';
-    
+
     // Destroy previous book
     if (book) {
       book.destroy();
@@ -417,6 +459,11 @@
 
     book = ePub(arrayBuffer);
     const prefs = await EpubStorage.getPreferences();
+
+    // Cache preferences for synchronous style injections
+    currentPrefs.fontSize = prefs.fontSize || 18;
+    currentPrefs.lineHeight = prefs.lineHeight || 1.8;
+    currentPrefs.fontFamily = prefs.fontFamily || '';
 
     // Create rendition
     rendition = book.renderTo('epub-viewer', {
@@ -426,6 +473,11 @@
       flow: prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
       manager: prefs.layout === 'scrolled' ? 'continuous' : 'default',
       allowScriptedContent: false
+    });
+
+    // Inject our bulletproof custom styles into every new chapter iframe
+    rendition.hooks.content.register((contents) => {
+      injectCustomStyleElement(contents);
     });
 
     // Apply default theme
@@ -701,13 +753,14 @@
 
       // Re-apply everything
       EpubStorage.getPreferences().then((prefs) => {
+        // Inject our bulletproof custom styles into every new chapter iframe
+        rendition.hooks.content.register((contents) => {
+          injectCustomStyleElement(contents);
+        });
+
         rendition.themes.default({
-          'html': {
-            'font-size': (prefs.fontSize || 18) + 'px !important'
-          },
           'body': {
-            'font-family': prefs.fontFamily || "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif",
-            'line-height': (prefs.lineHeight || 1.8) + ' !important',
+            'color': 'var(--reader-text, #2d2d2d)',
             'text-align': 'justify',
             '-webkit-font-smoothing': 'antialiased',
             '-moz-osx-font-smoothing': 'grayscale'
@@ -750,21 +803,20 @@
 
   function applyFontSize(size) {
     if (!rendition) return;
-    rendition.themes.fontSize(size + 'px');
+    currentPrefs.fontSize = size;
+    updateCustomStyles();
   }
 
   function applyLineHeight(val) {
     if (!rendition) return;
-    rendition.themes.override('line-height', val.toString());
+    currentPrefs.lineHeight = val;
+    updateCustomStyles();
   }
 
   function applyFontFamily(family) {
     if (!rendition) return;
-    if (family) {
-      rendition.themes.override('font-family', family);
-    } else {
-      rendition.themes.override('font-family', "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif");
-    }
+    currentPrefs.fontFamily = family;
+    updateCustomStyles();
   }
 
   // --- Helpers ---
