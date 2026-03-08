@@ -112,6 +112,47 @@ const Annotations = {
   },
 
   /**
+   * Check if a link is actually a back-link from a footnote to the main text
+   * @param {Element} link - The a tag
+   * @returns {boolean}
+   */
+  isBackLink(link) {
+    const href = link.getAttribute('href') || '';
+    const cls = link.className || '';
+    const rel = link.getAttribute('rel') || '';
+    const role = link.getAttribute('role') || '';
+
+    if (cls.includes('footnote-backref') || cls.includes('back-link') || cls.includes('return-link')) return true;
+    if (role.includes('doc-backlink')) return true;
+    if (href.includes('backref') || href.includes('fnref')) return true;
+    
+    const text = link.textContent.trim();
+    if (text.match(/^[↑^]$/)) return true;
+    
+    // Chinese or common explicit back-link texts
+    if (/返回|回到正文|跳回|Back|Return/i.test(text)) return true;
+
+    // Structural Heuristic for handling symmetrical footnotes: 
+    // If the link text is just a number/symbol, AND it appears at the EXACT BEGINNING 
+    // of its container paragraph/block, it's highly likely to be the back-link inside the endnote/footnote itself!
+    // (In contrast, footnote links in the main text are usually IN THE MIDDLE or END of a paragraph).
+    if (/^[\[(【]?\d+[\])】]?$/.test(text) || /^[*†‡§‖¶]$/.test(text)) {
+      // Find the parent block (p, div, li, dd)
+      const blockBase = link.closest('p, div, li, dd') || link.parentElement;
+      if (blockBase) {
+        const blockText = blockBase.textContent.trim();
+        // If the entire paragraph literally starts with this link's text (e.g., "[1] This is a note..."),
+        // it serves as the return link for the footnote payload.
+        if (blockText.startsWith(text)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  },
+
+  /**
    * Attempt to resolve and display a footnote
    * @param {string} href - The href from the link
    * @param {object} contents - epub.js contents object
@@ -132,11 +173,18 @@ const Annotations = {
         if (target) {
           try {
             // Use CFI for perfect reliability within the same document
-            displayHref = contents.cfiFromNode(target) || href;
+            displayHref = contents.cfiFromNode(target);
           } catch(e) {
             console.warn("Could not generate CFI for target", e);
           }
-          this._displayContent(target.innerHTML, displayHref);
+          if (!displayHref && this.book && this.rendition) {
+            // Fallback to absolute spine href if CFI fails
+            try {
+              const currentSpineHref = this.rendition.currentLocation().start.href.split('#')[0];
+              displayHref = `${currentSpineHref}#${targetId}`;
+            } catch (e) {}
+          }
+          this._displayContent(target.innerHTML, displayHref || href);
           return true;
         }
       } else if (href.includes('#')) {
@@ -149,16 +197,11 @@ const Annotations = {
       }
 
       // Try to load from another section in the book
-      const html = await this._loadFromBook(sectionHref, targetId);
-      if (html) {
-        // If we found it via spine, sectionHref might be relative. Let's just use the section.href from spine if we can.
-        let resolvedSectionHref = sectionHref;
-        const section = this.book.spine.get(sectionHref);
-        if (section && section.href) {
-            resolvedSectionHref = section.href;
-        }
-        displayHref = targetId ? `${resolvedSectionHref}#${targetId}` : resolvedSectionHref;
-        this._displayContent(html, displayHref);
+      // _loadFromBook now returns an object { html, href } to guarantee we have the absolute spine target
+      const result = await this._loadFromBook(sectionHref, targetId);
+      if (result && result.html) {
+        displayHref = targetId ? `${result.href}#${targetId}` : result.href;
+        this._displayContent(result.html, displayHref);
         return true;
       }
 
@@ -200,7 +243,7 @@ const Annotations = {
             if (el) {
               const html = el.innerHTML;
               s.unload();
-              return html;
+              return { html, href: s.href };
             }
             s.unload();
           }
@@ -215,13 +258,13 @@ const Annotations = {
           if (el) {
             const html = el.innerHTML;
             section.unload();
-            return html;
+            return { html, href: section.href };
           }
         }
         // Return a portion of the section content
         const html = loaded.querySelector('body')?.innerHTML || loaded.innerHTML;
         section.unload();
-        return html;
+        return { html, href: section.href };
       }
     } catch (err) {
       console.warn('Annotation: error loading from book', err);
