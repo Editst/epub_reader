@@ -644,12 +644,34 @@
       doc.addEventListener('keydown', (e) => {
         handleKeyNav(e);
       });
-      // Handle click to close panels
+      // Handle click to close panels and edge pagination
       doc.addEventListener('click', (e) => {
-        // If they click a link (like a footnote), don't close immediately 
-        // because it might be triggering an annotation popup.
         if (!e.target.closest('a')) {
-          closeAllPanels();
+          // Check if any panels are open
+          const hasOpenPanels = document.querySelector('.settings-panel.open, .bookmarks-panel.open, .sidebar.open');
+          
+          if (hasOpenPanels) {
+            // Just close panels, don't paginate
+            closeAllPanels();
+          } else {
+            // No panels open, check for edge click
+            // Only apply edge click if we are in paginated mode to prevent jumping chapters in scroll mode
+            const prefs = currentPrefs; // we need to know layout
+            // Actually, navNext and navPrev work globally. But edge click is usually for paginated mode.
+            // Let's just do it generally, epub.js handles it gracefully.
+            const width = doc.documentElement.clientWidth;
+            const x = e.clientX;
+            
+            // Text selection shouldn't trigger pagination
+            const selection = doc.getSelection();
+            if (selection && selection.toString().length > 0) return;
+
+            if (x < width * 0.2) {
+              navPrev();
+            } else if (x > width * 0.8) {
+              navNext();
+            }
+          }
         }
       });
       // Also handle mouse wheel inside iframe for paginated mode

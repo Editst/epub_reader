@@ -11,6 +11,21 @@ const Search = (function() {
   let resultsList = null;
   let statusEl = null;
   let isSearching = false;
+  let currentSearchId = 0;
+
+  // Escape HTML utility to prevent XSS
+  function escapeHtml(unsafe) {
+    return (unsafe || '').replace(/[&<"'>]/g, function (match) {
+      const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      };
+      return map[match];
+    });
+  }
 
   function init() {
     panel = document.getElementById('search-panel');
@@ -100,12 +115,15 @@ const Search = (function() {
          overlay.style.display = 'none';
       }
     }
-    // We don't automatically clear highlights on close, letting user keep them while reading
+    // Cancel any active searches if panel is closed
+    isSearching = false;
+    currentSearchId++;
   }
 
   async function doSearch(query) {
-    if (!book || isSearching) return;
+    if (!book) return;
     
+    const searchId = ++currentSearchId;
     isSearching = true;
     resultsList.innerHTML = '';
     statusEl.textContent = '准备搜索...';
@@ -116,15 +134,23 @@ const Search = (function() {
       const spine = book.spine;
       
       for (let i = 0; i < spine.length; i++) {
+        if (searchId !== currentSearchId || !isSearching) break;
+
         const item = spine.get(i);
         statusEl.textContent = `搜索中... (章节 ${i + 1}/${spine.length})`;
         
         // Yield to browser UI thread to allow status text to render
         await new Promise(r => setTimeout(r, 10));
         
+        if (searchId !== currentSearchId || !isSearching) break;
+
         let itemResults = [];
         try {
           await item.load(book.load.bind(book));
+          if (searchId !== currentSearchId || !isSearching) {
+            item.unload();
+            break;
+          }
           // item.find returns array of { cfi, excerpt }
           itemResults = item.find(query);
           item.unload();
@@ -138,13 +164,23 @@ const Search = (function() {
         }
       }
 
-      statusEl.textContent = `搜索完成，共找到 ${results.length} 个结果`;
+      if (searchId === currentSearchId) {
+        if (results.length === 0) {
+          statusEl.innerHTML = '<span style="color:var(--text-muted)">暂无结果</span>';
+        } else {
+          statusEl.textContent = `搜索完成，共找到 ${results.length} 个结果`;
+        }
+      }
     } catch (err) {
-      console.error(err);
-      statusEl.textContent = '搜索出错';
+      if (searchId === currentSearchId) {
+        console.error(err);
+        statusEl.textContent = '搜索出错';
+      }
     } finally {
-      isSearching = false;
-      searchBtn.disabled = false;
+      if (searchId === currentSearchId) {
+        isSearching = false;
+        searchBtn.disabled = false;
+      }
     }
   }
 
@@ -163,12 +199,16 @@ const Search = (function() {
       textEl.style.whiteSpace = 'normal'; // Allow wrapping for context
       textEl.style.fontSize = '13px';
       
-      // Highlight the exact query match in the excerpt
-      const excerpt = res.excerpt.trim();
+      // Sanitize the excerpt to prevent XSS
+      const excerpt = escapeHtml(res.excerpt.trim());
       
-      // Escape query for regex
-      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(${safeQuery})`, 'gi');
+      // Escape query for regex and highlight safe query
+      const rawSafeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const escapedSafeQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      
+      // Since `escapeHtml` might turn `<` into `&lt;`, the query string itself should be matched either as raw or escaped
+      // For simplicity, we just use the escaped safe query, assuming the excerpt is already purely text or escaped.
+      const regex = new RegExp(`(${escapedSafeQuery})`, 'gi');
       
       // Use CSS variables for highlight colors
       textEl.innerHTML = excerpt.replace(regex, '<mark style="background:var(--text-accent);color:#fff;padding:0 2px;border-radius:2px;">$1</mark>');

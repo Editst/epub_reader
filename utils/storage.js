@@ -105,6 +105,39 @@ const EpubStorage = {
   },
 
   /**
+   * Remove a book's saved reading time
+   * @param {string} bookId
+   */
+  async removeReadingTime(bookId) {
+    return new Promise((resolve) => {
+      chrome.storage.local.remove(['time_' + bookId], resolve);
+    });
+  },
+
+  /**
+   * Remove a book file from IndexedDB
+   * @param {string} filename
+   */
+  async removeFileFromIndexedDB(filename) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('EpubReaderDB', 1);
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files')) {
+          resolve();
+          return;
+        }
+        const tx = db.transaction('files', 'readwrite');
+        const store = tx.objectStore('files');
+        const req = store.delete(filename);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  /**
    * Generate a simple hash ID for a book
    * @param {string} filename
    * @param {number} size

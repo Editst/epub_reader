@@ -69,6 +69,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.querySelector('.recent-item-remove').addEventListener('click', async (e) => {
         e.stopPropagation();
         await EpubStorage.removeRecentBook(book.id);
+        await EpubStorage.removePosition(book.id);
+        if (EpubStorage.removeReadingTime) await EpubStorage.removeReadingTime(book.id);
+        if (EpubStorage.removeFileFromIndexedDB && book.filename) {
+          await EpubStorage.removeFileFromIndexedDB(book.filename);
+        }
+        
         item.remove();
         const remaining = await EpubStorage.getRecentBooks();
         if (remaining.length === 0) {
