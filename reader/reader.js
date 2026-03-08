@@ -143,9 +143,34 @@
       rendition.display(cfi);
     });
 
-    // Click on reader area to ensure focus (fix #2: keyboard not working initially)
+    // Click on reader area to ensure focus
     document.getElementById('reader-main').addEventListener('click', () => {
       ensureFocus();
+    });
+
+    // Handle window resize cleanly with debounce
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (rendition && isBookLoaded) {
+          rendition.resize();
+        }
+      }, 200);
+    });
+
+    // Click outside to close settings and bookmarks panels
+    document.addEventListener('click', (e) => {
+      const isSettingsBtn = e.target.closest('#btn-settings');
+      const isBookmarksBtn = e.target.closest('#btn-bookmarks');
+      
+      if (!isSettingsBtn && settingsPanel.classList.contains('open') && !e.target.closest('#settings-panel')) {
+        closeSettings();
+      }
+      
+      if (!isBookmarksBtn && Bookmarks.panel && Bookmarks.panel.classList.contains('open') && !e.target.closest('#bookmarks-panel')) {
+        Bookmarks.closePanel();
+      }
     });
   }
 
