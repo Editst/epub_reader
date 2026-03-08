@@ -188,19 +188,32 @@
       }, 200);
     });
 
-    // Click outside to close settings and bookmarks panels
+    // Click outside to close panels (Centralized Panel Management)
     document.addEventListener('click', (e) => {
-      const isSettingsBtn = e.target.closest('#btn-settings');
-      const isBookmarksBtn = e.target.closest('#btn-bookmarks');
+      // Ignore clicks that are inside a panel or on a toolbar button
+      const isInsidePanel = e.target.closest('#settings-panel') || 
+                            e.target.closest('#bookmarks-panel') || 
+                            e.target.closest('#sidebar') || 
+                            e.target.closest('#search-panel') ||
+                            e.target.closest('.toolbar-btn') ||
+                            e.target.closest('.annotation-popup');
 
-      if (!isSettingsBtn && settingsPanel.classList.contains('open') && !e.target.closest('#settings-panel')) {
-        closeSettings();
-      }
-
-      if (!isBookmarksBtn && Bookmarks.panel && Bookmarks.panel.classList.contains('open') && !e.target.closest('#bookmarks-panel')) {
-        Bookmarks.closePanel();
+      if (!isInsidePanel) {
+        closeAllPanels();
       }
     });
+  }
+
+  // --- Centralized Panel Management ---
+  function closeAllPanels() {
+    closeSettings();
+    if (typeof TOC !== 'undefined' && typeof TOC.close === 'function') TOC.close();
+    if (typeof Bookmarks !== 'undefined' && typeof Bookmarks.closePanel === 'function') Bookmarks.closePanel();
+    if (typeof Search !== 'undefined' && typeof Search.closePanel === 'function') Search.closePanel();
+    
+    // Explicitly hide overlay
+    const overlay = document.getElementById('sidebar-overlay');
+    if (overlay) overlay.style.display = 'none';
   }
 
   // Keyboard navigation handler (with debounce to prevent double-fire)
@@ -209,9 +222,17 @@
     // Ignore when input is focused
     const active = document.activeElement;
     const tag = active ? active.tagName : '';
-    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+      // Allow ESC to blur inputs
+      if (e.key === 'Escape') active.blur();
+      return;
+    }
 
     switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        closeAllPanels();
+        break;
       case 'ArrowLeft':
       case 'PageUp':
         e.preventDefault();
@@ -613,14 +634,23 @@
   }
 
   /**
-   * Register keyboard events inside epub.js iframe content
-   * This ensures arrow keys work even when the iframe has focus
+   * Register keyboard events and clicks inside epub.js iframe content
+   * This ensures arrow keys work even when the iframe has focus,
+   * and clicking the text closes open panels.
    */
   function setupRenditionKeyEvents(rend) {
     rend.hooks.content.register((contents) => {
       const doc = contents.document;
       doc.addEventListener('keydown', (e) => {
         handleKeyNav(e);
+      });
+      // Handle click to close panels
+      doc.addEventListener('click', (e) => {
+        // If they click a link (like a footnote), don't close immediately 
+        // because it might be triggering an annotation popup.
+        if (!e.target.closest('a')) {
+          closeAllPanels();
+        }
       });
       // Also handle mouse wheel inside iframe for paginated mode
       doc.addEventListener('wheel', (e) => {
