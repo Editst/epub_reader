@@ -1115,6 +1115,15 @@ html, body {
   pointer-events: auto;
 }
 
+.note-popup.flip {
+  transform: translate(-50%, 0);
+  margin-top: 10px;
+}
+
+.note-popup.show.flip {
+  transform: translate(-50%, 0) scale(1);
+}
+
 .note-popup textarea {
   width: 100%;
   height: 80px;
@@ -1182,15 +1191,22 @@ svg.epubjs-annotation path {
   stroke: none !important;
 }
 
+/* v1.2.1 PDCA: Fix for line-height stretching causing lines to detach from text bottom and sit mid-air.
+   Pull the entire SVG container up slightly to re-dock it tightly. */
+svg.epubjs-annotation {
+  transform: translateY(-4px) !important;
+}
+
 /* For base color highlights, keep them stroke-less */
 .epubjs-hl-base {
   stroke: none !important; 
 }
 
 /* Highlight that also has a note gets ONLY a distinct dashed underline indicator.
-   We explicitly override the internal SVG shapes to draw our custom line. */
-.epubjs-hl-note-only *,
-.epubjs-hl-with-note * {
+   We explicitly override the internal SVG shapes to draw our custom line.
+   v1.2.1 PDCA: PRECISE TARGETING without `*` so we don't accidentally style the invisible mouse <rect>. */
+.epubjs-hl-note-only line, .epubjs-hl-note-only polyline, .epubjs-hl-note-only path,
+.epubjs-hl-with-note line, .epubjs-hl-with-note polyline, .epubjs-hl-with-note path {
   stroke: var(--text-accent) !important;
   stroke-width: 3px !important;
   stroke-dasharray: 12, 6 !important; /* Issue 2: Uniform Long dashed line for both */
@@ -1199,8 +1215,19 @@ svg.epubjs-annotation path {
   fill: none !important;
 }
 
-[data-theme="dark"] .epubjs-hl-note-only *,
-[data-theme="dark"] .epubjs-hl-with-note * {
+/* v1.2.1 PDCA: Defend the bounding box <rect> from any borders or fills, keeping it invisible. */
+.epubjs-hl-note-only rect,
+.epubjs-hl-with-note rect {
+  stroke: none !important;
+  fill: none !important;
+}
+
+[data-theme="dark"] .epubjs-hl-note-only line,
+[data-theme="dark"] .epubjs-hl-note-only polyline,
+[data-theme="dark"] .epubjs-hl-note-only path,
+[data-theme="dark"] .epubjs-hl-with-note line,
+[data-theme="dark"] .epubjs-hl-with-note polyline,
+[data-theme="dark"] .epubjs-hl-with-note path {
   stroke: #60a5fa !important;
 }
 
