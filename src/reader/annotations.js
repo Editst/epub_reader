@@ -89,6 +89,27 @@ const Annotations = {
   },
 
   /**
+   * Check if a link is a footnote/endnote reference
+   * @param {HTMLElement} link
+   * @returns {boolean}
+   */
+  isFootnoteLink(link) {
+    const epubType = link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') || 
+                     link.getAttribute('epub:type') || '';
+    if (epubType.includes('noteref')) return true;
+    
+    // In EPUBs without strict epub:type definitions, 
+    // any internal anchor link that survived the isBackLink filter 
+    // is treated as a potential footnote popup trigger.
+    const href = link.getAttribute('href') || '';
+    if (href && href.includes('#')) {
+      return true;
+    }
+    
+    return false;
+  },
+
+  /**
    * Attempt to resolve and display a footnote
    * @param {string} href - The href from the link
    * @param {object} contents - epub.js contents object

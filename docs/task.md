@@ -76,3 +76,7 @@
 - [x] 版本大一统：将所有模块中调用的 `indexedDB.open('EpubReaderDB', 2)` 统一拔升至 `V3`，根除降级版本拒绝崩塌问题 (`storage.js`, `home.js`, `popup.js`, `reader.js`)
 - [x] 架构自愈：在全域所有的 `onupgradeneeded` 钩子中补齐了 `locations` 表的建立逻辑，确保新旧用户进入均能构建完整三权分立表结构 (`files`, `covers`, `locations`)
 - [x] 规范：同步更新插件版本号至 1.2.4 (`manifest.json`)
+
+# v1.2.5 注释弹窗紧急修复 (消失的雷达)
+- [x] 逻辑回归：在 `src/reader/annotations.js` 中重新安插了此前重构时被意外误删的关键拦截识别雷达 `isFootnoteLink`，成功消除了因为后台隐式报错（TypeError）而导致的 `epub.js` 默认接管错误跳包现象。让原本精美的注释悬浮气泡重新回归。
+- [x] 规范：同步更新插件版本号至 1.2.5 (`manifest.json`)

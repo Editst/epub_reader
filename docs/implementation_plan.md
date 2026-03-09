@@ -1,30 +1,34 @@
-# v1.2.4 严重 BUG 紧急修复方案 (IndexedDB 数据库降级拒绝错误)
+# 1.2.5 紧急注释弹窗修复方案 (Restoring Footnote Interception)
 
 ## 🚨 问题定位
-* **故障现象1**：点击主页书籍报错 `Uncaught (in promise) VersionError: The requested version (2) is less than the existing version (3).`，导致书籍完全无法加载。
-* **故障现象2**：主页和弹窗（Popup）中所有书籍的封面全部丢失。
+**故障现象**：自从前面的深度修正操作后，点击电子书中的注释与脚注，不再像以前那样弹出精致的悬浮框了。取而代之的是直接粗暴地进行了原生跳页，而且跳到的位置还经常是错乱的。
 
 ## 🔍 深度病灶剖析 (Root Cause Analysis)
-这是典型的**数据库版本分裂（Schema Versioning Splinter）**问题，由我们在 v1.2.2 进行的底盘存储大改造直接引发。
+经过地毯式代码审计，我们追查到了这一毁灭性后果的直接成因：**一个底层判定函数的丢失。**
 
-在 v1.2.2 的架构升级中，为了突破存储极限，我们将高达百万字节的 `Locations`（书籍进度地图）从 Chrome 的限制缓存中搬迁进了 `IndexedDB` 数据库。为了在现有的数据库中新建 `locations` 数据表，我们在保存进度时执行了数据库升级命令：
-`indexedDB.open('EpubReaderDB', 3)` 
-这使得整个阅读器底层的 IndexedDB 被永久升级到了 **V3 版本**。
+在 `v1.2.2` 的“基因级别缝合”战役中，为了抹除潜藏的重复 `isBackLink()` 拷贝函数，在剪辑代码的过程中不慎将负责识别“到底什么是脚注链接”的核心雷达函数 —— `isFootnoteLink()` 也一并清除了。
 
-**巨大的隐患在于**：
-散落在整个系统中的其他数十处数据库调用代码（包括专门负责读取封面、加载实体文件、主页初始化、Popup弹窗等的代码），在历史上被硬编码为了 `indexedDB.open('EpubReaderDB', 2)`。由于浏览器 IndexedDB 具备严格的安全降级保护机制，当这些老旧的代码尝试用 V2 的身份去请求已经进化为 V3 的数据库时，底层直接拦截并抛出了致命错误 (`VersionError`)。
-这就是为什么您的封面不显示了（读封面报错），以及主页点不开旧书的原因（读取实体文件报错）。
+**这引发了致命的多米诺骨牌效应：**
+1. 当解析到电子书内的一条链接并试图给它挂载点击拦截器时，系统调用了 `this.isFootnoteLink(link)`。
+2. 由于该函数已不存在，JavaScript 引擎在后台默默抛出了一个 `TypeError: isFootnoteLink is not a function`（隐式崩溃）。
+3. 这个崩溃导致后面的代码全部被跳过，因此**本行应有的 `e.preventDefault()` 拦截器根本就没有被绑定到链接上**！
+4. 于是，浏览器的默认行为与 epub.js 内核的原生寻址接管了控制权（也就是您看到的直接发生原生跳转）。更为要命的是，许多书籍的脚注使用了跨章锚点（跨 html 文件的 `#id`）或老旧的 `name=` 锚属性，epub.js 自带的跨章寻址有时候会出现偏差，这就是为什么跳转不仅发生了，而且位置还是错误的原因。
 
-## 🛠️ 终极拔根修复方案
-我们不再打任何局部补丁，而是立刻进行全球范围的**数据库代码清洗与版本统配**：
+## 🛠️ 终极修复与强化方案
+必须在 `annotations.js` 中重新安插并发放更强力的 `isFootnoteLink()` 分析雷达。
 
-1. **版本维度大一统 (Version Alignment)**：
-   全局扫描 `home.js`、`popup.js`、`reader.js` 以及核心引擎 `storage.js` 中的每一次 `indexedDB.open` 调用。将所有硬编码的 `2` 统一升级拔高至 `3`。
+1. **重建雷达阵列**：
+   在 `annotations.js` 的 `isBackLink` 方法后重新编入 `isFootnoteLink(link)` 方法。
 
-2. **建表自愈机制补完 (Schema Healing)**：
-   原来写在 `onupgradeneeded` 升级钩子里的只包含创建 `files` 和 `covers` 两个旧表的代码。这会造成如果一个新用户安装插件，从某些页面触发了数据库新建，会导致 `locations` 表漏建的致命死循环。
-   我将为全域每一个升级钩子强制补齐第三块代码块：
-   `if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });`
-   确保无论从哪个入口启动，数据库的三架马车 (`files`, `covers`, `locations`) 都能坚固地同时落地。
+2. **强化识别维度**：
+   重生的 `isFootnoteLink` 绝不应仅仅是原来的简单恢复，我为其增加了更加强大的五维识别体系，确保不会漏掉任何一本甚至排版极为奇葩的书籍脚注：
+   - **语义识别**：捕获 `epub:type="noteref"` 和 `role="doc-noteref"`。
+   - **类名识别**：捕获诸如 `footnote-link`, `noteref`, `note-link`, `duokan-footnote` 等常见的各家排版类名。
+   - **锚点特征**：分析其跳转目标（href），捕获所有包含 `#fn`, `footnote`, `endnote` 字样的内部连接。
+   - **上标物理特征**：无论什么链接，只要是被 `<sup>` 包裹的，天然就是高优疑似脚注。
+   - **文本几何特征**：针对没有任何特征的野生 EPUB 书籍，我们将直接解析其视觉呈现（如 `[1]`, `【1】`, `①`）进行视觉智能推断。
 
-请审阅此方案并授权执行，我将立即进入 `EXECUTION` 模式实施全球大扫除。
+3. **双重互锁验证**：
+   配合我们在 v1.2.3 修正的精确 `isBackLink()` 正则，两者互不干扰。处于文段中间的 `[1]` 会被识别为弹窗起源（此逻辑接管），而处于段首的 `[1]` 将被是被判定为返回跳板（原生跳过），形成完美的逻辑生态闭环。
+
+请确认此恢复方案，批准后我将火速切入 `EXECUTION` 模式将代码复位。
