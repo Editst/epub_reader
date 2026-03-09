@@ -533,9 +533,97 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Utility Classes */
-.truncate {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+
+/* Annotation Filters */
+.annotation-filters {
+  display: flex;
+  gap: 8px;
+  background: var(--hover-bg);
+  padding: 4px;
+  border-radius: 10px;
 }
+
+.filter-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.filter-btn:hover {
+  color: var(--text-primary);
+}
+
+.filter-btn.active {
+  background: var(--panel-bg);
+  color: var(--accent-color);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+/* Annotation Item Enhancements */
+.annotation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.annotation-book {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.annotation-book:hover {
+  color: var(--accent-color);
+}
+
+.annotation-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.type-hl {
+  background: rgba(233, 69, 96, 0.1);
+  color: var(--accent-color);
+}
+
+.type-note {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.annotation-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.annotation-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+

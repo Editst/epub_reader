@@ -24,7 +24,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   setTheme(currentTheme);
   setView(currentView);
   await loadBookshelf();
-  await loadAnnotations();
+  await loadAnnotations('all');
+  
+  // --- Annotation Filters ---
+  const filterBtns = document.querySelectorAll('.filter-btn');
+  filterBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      filterBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadAnnotations(btn.dataset.filter);
+    });
+  });
 
   // --- Theme & View Toggles ---
   btnTheme.addEventListener('click', () => {
@@ -199,12 +209,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // --- Annotations Placeholder ---
-  async function loadAnnotations() {
+  // --- Annotations Management ---
+  async function loadAnnotations(filterType = 'all') {
     const allHighlights = await EpubStorage.getAllHighlights() || {};
     const bookKeys = Object.keys(allHighlights);
     
-    // We also need book metadata to show titles, get them from recent books
     const recentBooks = await EpubStorage.getRecentBooks();
     const bookMetaMap = {};
     for (const b of recentBooks) {
@@ -216,34 +225,62 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const bookId of bookKeys) {
       const highlights = allHighlights[bookId] || [];
-      if (highlights.length === 0) continue;
-      hasAny = true;
-      
       const bookContext = bookMetaMap[bookId] || { title: '未知书籍' };
       
-      for (const hl of highlights) {
-         // Create annotation item
+      for (let i = 0; i < highlights.length; i++) {
+         const hl = highlights[i];
+         
+         // Issue 5: Filter logic
+         const isNoteOnly = hl.color === 'transparent';
+         if (filterType === 'highlight' && isNoteOnly) continue;
+         if (filterType === 'note' && !isNoteOnly) continue;
+
+         hasAny = true;
+         
          const item = document.createElement('div');
          item.className = 'annotation-item';
          
          item.innerHTML = `
            <div class="annotation-content">
-             <div class="annotation-book" style="cursor:pointer;" title="在阅读器中定位">
-               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-               ${escapeHtml(bookContext.title || bookContext.filename)}
+             <div class="annotation-header">
+               <div class="annotation-book" title="在阅读器中定位">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                 ${escapeHtml(bookContext.title || bookContext.filename)}
+               </div>
+               <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}">
+                 ${isNoteOnly ? '📝 笔记' : '🖍 高亮'}
+               </div>
              </div>
              <div class="annotation-quote">${escapeHtml(hl.text)}</div>
              ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
-             <div class="annotation-meta">
-               <span>创建于 ${formatDate(hl.timestamp)}</span>
+             <div class="annotation-footer">
+               <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
+               <button class="annotation-delete-btn" title="删除标注">
+                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+               </button>
              </div>
            </div>
          `;
 
-         // Click to open reader at specific CFI
-         item.querySelector('.annotation-book').addEventListener('click', () => {
+         // Click book title to open reader
+         item.querySelector('.annotation-book').addEventListener('click', (e) => {
             if (bookContext.filename) {
                window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(bookContext.filename) + '&target=' + encodeURIComponent(hl.cfi);
+            }
+         });
+
+         // Issue 3: Delete annotation
+         item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (confirm('确定要删除这条标注吗？')) {
+               const updated = highlights.filter((_, index) => index !== i);
+               if (updated.length === 0) {
+                 delete allHighlights[bookId];
+               } else {
+                 allHighlights[bookId] = updated;
+               }
+               await EpubStorage.saveHighlights(bookId, updated);
+               loadAnnotations(filterType);
             }
          });
 
@@ -280,9 +317,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (hl.note) {
               md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
             }
-            md += `<br/>\n\n`;
+            md += `---\n\n`; // Issue 8: Using correct newline sequences
           });
-          md += `---\n\n`;
+          md += `\n\n`; // Final separator per book
         }
       }
 
