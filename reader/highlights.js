@@ -66,9 +66,11 @@ window.Highlights = (function () {
     if (selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      const iframeRect = _rendition.manager.container.getBoundingClientRect();
+      
+      // CRITICAL FIX (Optimization 3): Use the iframe's current rect in the main window
+      // contents.element is the iframe (or its wrapper). In paginated mode, its left changes!
+      const iframeRect = contents.element.getBoundingClientRect();
 
-      // Better positioning: slightly higher than the selection
       const top = iframeRect.top + rect.top - 10;
       const left = iframeRect.left + rect.left + (rect.width / 2);
 
@@ -133,17 +135,33 @@ window.Highlights = (function () {
         // Position below cursor or target
         const target = e.target;
         const rect = target.getBoundingClientRect();
-        const iframeRect = _rendition.manager.container.getBoundingClientRect();
+        
+        // Use the view container to get reliable coordinates
+        const view = _rendition.manager.views._views.find(v => v.document.contains(target));
+        const viewRect = view ? view.element.getBoundingClientRect() : { top: 0, left: 0 };
 
-        const top = iframeRect.top + rect.bottom + 10; // below highlight
-        const left = iframeRect.left + rect.left + (rect.width / 2);
+        const top = viewRect.top + rect.bottom + 10; // below highlight
+        const left = viewRect.left + rect.left + (rect.width / 2);
 
         toolbar.style.top = `${top}px`;
         toolbar.style.left = `${left}px`;
-        
-        // Reset transform origin behavior manually if needed, but CSS handles standard
         toolbar.classList.add('show');
+
+        // Optimization 1: If note exists, show the note popup too!
+        if (hl.note) {
+          setTimeout(() => showNotePopup(hl, toolbar.getBoundingClientRect()), 50);
+        }
      }
+  }
+
+  function showNotePopup(hl, anchorRect) {
+      noteTextarea.value = hl.note || '';
+      notePopup.style.top = `${anchorRect.top}px`;
+      notePopup.style.left = `${anchorRect.left}px`;
+      
+      toolbar.classList.remove('show');
+      notePopup.classList.add('show');
+      noteTextarea.focus();
   }
 
   // Remove highlight
@@ -164,15 +182,8 @@ window.Highlights = (function () {
       if (!targetCfi) return;
 
       const hl = highlights.find(h => h.cfi === targetCfi);
-      noteTextarea.value = hl ? hl.note : '';
-      
       const tbRect = toolbar.getBoundingClientRect();
-      notePopup.style.top = `${tbRect.top}px`;
-      notePopup.style.left = `${tbRect.left}px`;
-      
-      closeToolbar();
-      notePopup.classList.add('show');
-      noteTextarea.focus();
+      showNotePopup(hl || { note: '' }, tbRect);
   });
 
   // Save note
