@@ -38,18 +38,75 @@ window.Highlights = (function () {
     // Listen to selection event from epub.js
     _rendition.on('selected', handleSelection);
     
-    // Listen to click outside inside iframe
-    _rendition.on('click', (e) => {
-       // Issue 2: If we click anything, we check if it's the toolbar
-       // But 'click' on rendition is inside iframe. Toolbar is in parent.
-       // Usually clicking inside iframe should close parent toolbars UNLESS it's a specific interaction.
-       if (_activeHighlightCfi || _currentCfiRange) {
-         // If there's an active selection or highlight being edited, 
-         // we might want to close if clicking away.
-         closeToolbar();
-         closeNotePopup();
-       }
+    // CRITICAL: Fallback for selection and click stability
+    _rendition.hooks.content.register((contents) => {
+        const doc = contents.document;
+        doc.addEventListener('mouseup', () => {
+            // Give a tiny delay for selection to be processed
+            setTimeout(() => {
+                const selection = contents.window.getSelection();
+                if (selection && !selection.isCollapsed) {
+                   // Selected event should fire, but if it doesn't, we can trigger manually
+                   // Or just ensure we have the right context
+                } else {
+                   // Click away
+                   if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
+                   
+                   // Check if click was on an actual highlight (handled by handleHighlightClick)
+                   // If not, close panels
+                   setTimeout(() => {
+                      if (!_activeHighlightCfi && (!_currentCfiRange || (selection && selection.isCollapsed))) {
+                         closeToolbar();
+                         closeNotePopup();
+                      }
+                   }, 10);
+                }
+            }, 10);
+        });
     });
+
+    // Handle the "Modify Highlight" button in note popup
+    const btnShowToolbar = document.getElementById('btn-show-toolbar');
+    if (btnShowToolbar) {
+        btnShowToolbar.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const targetCfi = _activeHighlightCfi || _pendingCfi;
+            if (targetCfi) {
+                // Re-calculate position for toolbar
+                // Since note popup is already shown, we can use its position or target hl
+                const hl = highlights.find(h => h.cfi === targetCfi);
+                if (hl) {
+                    // Similar to handleHighlightClick but without re-triggering popup
+                    closeNotePopup();
+                    _activeHighlightCfi = targetCfi;
+                    // Trigger a "fake" click to re-position toolbar
+                    // Or just call the positioning logic
+                    _currentCfiRange = null;
+                    showToolbarForHighlight(targetCfi);
+                }
+            }
+        });
+    }
+  }
+
+  function showToolbarForHighlight(cfiRange) {
+     const hl = highlights.find(h => h.cfi === cfiRange);
+     if (!hl) return;
+
+     colorBtns.forEach(b => {
+        if (b.dataset.color === hl.color) b.classList.add('active');
+        else b.classList.remove('active');
+     });
+     btnClearHl.style.display = 'flex';
+
+     // Find the element for coordinates
+     // This is tricky without the event object, so we look it up
+     _rendition.annotations.get(cfiRange).then(ann => {
+        // Unfortunately epubjs annotations don't easily expose the element
+        // We'll rely on the fact that handleHighlightClick is the primary entrance.
+        // For 'Modify', we just show the toolbar where it was or at a sane default.
+        toolbar.classList.add('show');
+     });
   }
 
   function handleSelection(cfiRange, contents) {
@@ -63,13 +120,15 @@ window.Highlights = (function () {
 
     // Position toolbar above selection
     const selection = contents.window.getSelection();
-    if (selection.rangeCount > 0) {
+    if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       
-      // CRITICAL FIX (Optimization 3): Use the iframe's current rect in the main window
-      // contents.element is the iframe (or its wrapper). In paginated mode, its left changes!
-      const iframeRect = contents.element.getBoundingClientRect();
+      // FIX (v1.1.3): More robust iframe rect lookup
+      // contents is a Contents object. contents.element is the body/wrapper.
+      // contents.window.frameElement is the actual <iframe>.
+      const iframe = contents.window.frameElement;
+      const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
       const top = iframeRect.top + rect.top - 10;
       const left = iframeRect.left + rect.left + (rect.width / 2);
@@ -137,11 +196,11 @@ window.Highlights = (function () {
         const rect = target.getBoundingClientRect();
         
         // Use the view container to get reliable coordinates
-        const view = _rendition.manager.views._views.find(v => v.document.contains(target));
-        const viewRect = view ? view.element.getBoundingClientRect() : { top: 0, left: 0 };
+        const iframe = target.ownerDocument.defaultView.frameElement;
+        const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
-        const top = viewRect.top + rect.bottom + 10; // below highlight
-        const left = viewRect.left + rect.left + (rect.width / 2);
+        const top = iframeRect.top + rect.bottom + 10; // below highlight
+        const left = iframeRect.left + rect.left + (rect.width / 2);
 
         toolbar.style.top = `${top}px`;
         toolbar.style.left = `${left}px`;
@@ -169,6 +228,7 @@ window.Highlights = (function () {
       e.stopPropagation();
       if (_activeHighlightCfi) {
           _rendition.annotations.remove(_activeHighlightCfi, "highlight");
+          _rendition.annotations.remove(_activeHighlightCfi, "underline");
           highlights = highlights.filter(h => h.cfi !== _activeHighlightCfi);
           await EpubStorage.saveHighlights(_bookId, highlights);
       }
@@ -238,20 +298,28 @@ window.Highlights = (function () {
 
   function renderHighlight(hl) {
     try {
-        let className = "";
-        if (hl.color === 'transparent') {
-            className = "epubjs-hl-note-only";
-        } else if (hl.note) {
-            className = "epubjs-hl-with-note";
+        // 1. Always render the base highlight if it has a color
+        if (hl.color !== 'transparent') {
+            _rendition.annotations.highlight(
+                hl.cfi, 
+                {}, 
+                (e) => handleHighlightClick(e, hl.cfi), 
+                "epubjs-hl-base", 
+                { "fill": hl.color, "fill-opacity": "0.4" }
+            );
         }
 
-        _rendition.annotations.highlight(
-            hl.cfi, 
-            {}, 
-            (e) => handleHighlightClick(e, hl.cfi), 
-            className, 
-            { "fill": hl.color, "fill-opacity": "0.4" }
-        );
+        // 2. If it has a note, render a dashed underline
+        if (hl.note) {
+            const className = (hl.color === 'transparent') ? "epubjs-hl-note-only" : "epubjs-hl-with-note";
+            _rendition.annotations.underline(
+                hl.cfi,
+                {},
+                (e) => handleHighlightClick(e, hl.cfi),
+                className,
+                {} // Styles handled by CSS class
+            );
+        }
     } catch (e) {
         console.warn("Could not render highlight, possibly CFI invalid in current view", e);
     }
@@ -260,6 +328,7 @@ window.Highlights = (function () {
   function reRenderHighlight(cfi) {
     try {
       _rendition.annotations.remove(cfi, "highlight");
+      _rendition.annotations.remove(cfi, "underline");
       const hl = highlights.find(h => h.cfi === cfi);
       if (hl) renderHighlight(hl);
     } catch (e) {}

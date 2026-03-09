@@ -1181,16 +1181,28 @@ html, body {
   stroke-opacity: 0.8;
 }
 
-/* Highlight that also has a note gets a distinct dashed underline indicator */
+/* Highlight that also has a note gets ONLY a distinct dashed underline indicator */
+/* We remove the stroke to avoid 'boxing' the text */
 .epubjs-hl-with-note {
   stroke: var(--text-accent);
-  stroke-width: 2;
-  stroke-dasharray: 2, 2;
-  stroke-opacity: 0.6;
+  stroke-width: 3;
+  stroke-dasharray: 2, 4;
+  stroke-opacity: 0.7;
 }
 
 [data-theme="dark"] .epubjs-hl-note-only,
 [data-theme="dark"] .epubjs-hl-with-note {
   stroke: #60a5fa;
+}
+
+#btn-show-toolbar {
+  color: var(--text-accent);
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+#btn-show-toolbar:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
