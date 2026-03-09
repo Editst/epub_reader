@@ -694,6 +694,14 @@
 
     // Display content FIRST (before locations.generate) for faster perceived loading
     const savedPos = await EpubStorage.getPosition(currentBookId);
+    
+    // Issue 9: Set initial progress from saved metadata immediately
+    if (savedPos && savedPos.percentage !== undefined) {
+      const initialPercent = Math.round(savedPos.percentage * 10) / 10;
+      progressSlider.value = initialPercent;
+      progressCurrent.textContent = initialPercent.toFixed(1) + '%';
+    }
+
     if (savedPos && savedPos.cfi) {
       await rendition.display(savedPos.cfi);
     } else {
