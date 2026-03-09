@@ -1168,6 +1168,32 @@ html, body {
   cursor: pointer;
 }
 
+
 .text-btn:hover {
   color: var(--text-primary);
 }
+
+/* --- Annotation Visual Distinctions (Issue 5) --- */
+/* Note-only (transparent highlight) gets a dashed underline */
+.epubjs-hl-note-only {
+  fill: none !important;
+  stroke: var(--text-accent);
+  stroke-width: 2;
+  stroke-dasharray: 4, 2;
+  stroke-opacity: 0.6;
+}
+
+/* Highlight that also has a note gets a subtle border indicator */
+.epubjs-hl-with-note {
+  stroke: var(--text-accent);
+  stroke-width: 1.5;
+  stroke-opacity: 0.5;
+}
+
+[data-theme="dark"] .epubjs-hl-note-only {
+  stroke: #60a5fa;
+}
+[data-theme="dark"] .epubjs-hl-with-note {
+  stroke: #60a5fa;
+}
+

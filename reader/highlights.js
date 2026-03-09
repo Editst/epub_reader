@@ -13,6 +13,9 @@ window.Highlights = (function () {
   const btnAddNote = document.getElementById('btn-add-note');
   const btnClearHl = document.getElementById('btn-clear-hl');
   const colorBtns = toolbar.querySelectorAll('.color-btn');
+  const btnCloseToolbar = document.createElement('button'); // New hidden close button or just refinement
+  
+  let _pendingCfi = null; // Store CFI for note-taking before highlight is created
 
   const notePopup = document.getElementById('note-popup');
   const noteTextarea = document.getElementById('note-textarea');
@@ -36,14 +39,22 @@ window.Highlights = (function () {
     _rendition.on('selected', handleSelection);
     
     // Listen to click outside inside iframe
-    _rendition.on('click', () => {
-       closeToolbar();
-       closeNotePopup();
+    _rendition.on('click', (e) => {
+       // Issue 2: If we click anything, we check if it's the toolbar
+       // But 'click' on rendition is inside iframe. Toolbar is in parent.
+       // Usually clicking inside iframe should close parent toolbars UNLESS it's a specific interaction.
+       if (_activeHighlightCfi || _currentCfiRange) {
+         // If there's an active selection or highlight being edited, 
+         // we might want to close if clicking away.
+         closeToolbar();
+         closeNotePopup();
+       }
     });
   }
 
   function handleSelection(cfiRange, contents) {
     _currentCfiRange = cfiRange;
+    _pendingCfi = cfiRange; // Track this for note-taking
     _activeHighlightCfi = null;
     
     // Clear active color state
@@ -57,7 +68,8 @@ window.Highlights = (function () {
       const rect = range.getBoundingClientRect();
       const iframeRect = _rendition.manager.container.getBoundingClientRect();
 
-      const top = iframeRect.top + rect.top;
+      // Better positioning: slightly higher than the selection
+      const top = iframeRect.top + rect.top - 10;
       const left = iframeRect.left + rect.left + (rect.width / 2);
 
       toolbar.style.top = `${top}px`;
@@ -78,19 +90,25 @@ window.Highlights = (function () {
         reRenderHighlight(_activeHighlightCfi);
         await EpubStorage.saveHighlights(_bookId, highlights);
       } else if (_currentCfiRange) {
-        // Create new highlight
-        const text = await getCfiText(_currentCfiRange);
-        const newHl = {
-          cfi: _currentCfiRange,
-          text: text,
-          color: color,
-          note: '',
-          timestamp: Date.now()
-        };
-        highlights.push(newHl);
+        // Issue 6: Prevent duplicate highlights
+        const existingIdx = highlights.findIndex(h => h.cfi === _currentCfiRange);
+        if (existingIdx !== -1) {
+          highlights[existingIdx].color = color;
+          reRenderHighlight(_currentCfiRange);
+        } else {
+          // Create new highlight
+          const text = await getCfiText(_currentCfiRange);
+          const newHl = {
+            cfi: _currentCfiRange,
+            text: text,
+            color: color,
+            note: '',
+            timestamp: Date.now()
+          };
+          highlights.push(newHl);
+          renderHighlight(newHl);
+        }
         await EpubStorage.saveHighlights(_bookId, highlights);
-        renderHighlight(newHl);
-        
         clearNativeSelection();
       }
       closeToolbar();
@@ -159,19 +177,25 @@ window.Highlights = (function () {
 
   // Save note
   btnSaveNote.addEventListener('click', async () => {
-      const targetCfi = _activeHighlightCfi || _currentCfiRange;
+      const targetCfi = _activeHighlightCfi || _pendingCfi;
+      if (!targetCfi) {
+          closeNotePopup();
+          return;
+      }
+
       const note = noteTextarea.value.trim();
       
       let hl = highlights.find(h => h.cfi === targetCfi);
       if (hl) {
           hl.note = note;
           updateHighlightData(targetCfi, { note });
-      } else if (_currentCfiRange) {
-          const text = await getCfiText(_currentCfiRange);
+      } else if (targetCfi) {
+          // Issue 4: Save note even without highlight
+          const text = await getCfiText(targetCfi);
           hl = {
-              cfi: _currentCfiRange,
+              cfi: targetCfi,
               text: text,
-              color: '#ffeb3b', // Default yellow
+              color: 'transparent', // Use transparent for note-only
               note: note,
               timestamp: Date.now()
           };
@@ -203,11 +227,18 @@ window.Highlights = (function () {
 
   function renderHighlight(hl) {
     try {
+        let className = "";
+        if (hl.color === 'transparent') {
+            className = "epubjs-hl-note-only";
+        } else if (hl.note) {
+            className = "epubjs-hl-with-note";
+        }
+
         _rendition.annotations.highlight(
             hl.cfi, 
             {}, 
             (e) => handleHighlightClick(e, hl.cfi), 
-            '', 
+            className, 
             { "fill": hl.color, "fill-opacity": "0.4" }
         );
     } catch (e) {
@@ -243,11 +274,13 @@ window.Highlights = (function () {
 
   function closeToolbar() {
     toolbar.classList.remove('show');
-    _currentCfiRange = null; 
+    // Don't clear _currentCfiRange immediately to allow note-taking
+    // It will be cleared when a new selection happens or explicitly if needed
   }
   
   function closeNotePopup() {
     notePopup.classList.remove('show');
+    _pendingCfi = null;
   }
 
   return {
