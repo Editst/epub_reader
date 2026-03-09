@@ -120,6 +120,17 @@ const Search = (function() {
     currentSearchId++;
   }
 
+  function reset() {
+    closePanel();
+    if (resultsList) resultsList.innerHTML = '';
+    if (statusEl) statusEl.textContent = '';
+    if (searchInput) searchInput.value = '';
+    isSearching = false;
+    currentSearchId++;
+    book = null;
+    rendition = null;
+  }
+
   async function doSearch(query) {
     if (!book) return;
     
@@ -132,9 +143,11 @@ const Search = (function() {
     try {
       let results = [];
       const spine = book.spine;
+      const MAX_RESULTS = 1000;
       
       for (let i = 0; i < spine.length; i++) {
         if (searchId !== currentSearchId || !isSearching) break;
+        if (results.length >= MAX_RESULTS) break;
 
         const item = spine.get(i);
         statusEl.textContent = `搜索中... (章节 ${i + 1}/${spine.length})`;
@@ -167,6 +180,8 @@ const Search = (function() {
       if (searchId === currentSearchId) {
         if (results.length === 0) {
           statusEl.innerHTML = '<span style="color:var(--text-muted)">暂无结果</span>';
+        } else if (results.length >= MAX_RESULTS) {
+          statusEl.textContent = `找到极多结果，仅显示前 ${MAX_RESULTS} 条以保护性能`;
         } else {
           statusEl.textContent = `搜索完成，共找到 ${results.length} 个结果`;
         }
@@ -234,5 +249,5 @@ const Search = (function() {
     });
   }
 
-  return { init, setBook, togglePanel, closePanel, panel: () => panel };
+  return { init, setBook, togglePanel, closePanel, reset, panel: () => panel };
 })();

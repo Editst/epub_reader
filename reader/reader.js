@@ -506,13 +506,29 @@
     readerMain.style.display = 'flex';
     bottomBar.style.display = 'flex';
 
-    // Destroy previous book
+    // Destroy previous book and clean up memory
     if (book) {
       book.destroy();
+      
+      // Clean up sidebars to prevent memory leaks across books
+      if (typeof TOC !== 'undefined' && TOC.reset) TOC.reset();
+      if (typeof Bookmarks !== 'undefined' && Bookmarks.reset) Bookmarks.reset();
+      if (typeof Search !== 'undefined' && Search.reset) Search.reset();
+      
+      // Stop timer for old book
+      if (readingTimer) {
+        clearInterval(readingTimer);
+        readingTimer = null;
+      }
+      activeReadingSeconds = 0;
     }
 
     book = ePub(arrayBuffer);
     const prefs = await EpubStorage.getPreferences();
+    
+    // Fetch correctly scoped reading time for the *new* book
+    const savedTime = await EpubStorage.getReadingTime(currentBookId);
+    activeReadingSeconds = savedTime || 0;
 
     // Cache preferences for synchronous style injections
     currentPrefs.fontSize = prefs.fontSize || 18;

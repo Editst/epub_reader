@@ -122,6 +122,14 @@ const Bookmarks = {
     this.panel.classList.remove('open');
   },
 
+  reset() {
+    this.closePanel();
+    this.bookId = '';
+    this.book = null;
+    this.rendition = null;
+    if (this.listEl) this.listEl.innerHTML = '';
+  },
+
   _escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
