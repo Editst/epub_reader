@@ -241,26 +241,26 @@ document.addEventListener('DOMContentLoaded', async () => {
          item.className = 'annotation-item';
          
          item.innerHTML = `
-           <div class="annotation-content">
-             <div class="annotation-header">
-               <div class="annotation-book" title="在阅读器中定位">
-                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                 ${escapeHtml(bookContext.title || bookContext.filename)}
-               </div>
-               <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}">
-                 ${isNoteOnly ? '📝 笔记' : '🖍 高亮'}
-               </div>
-             </div>
-             <div class="annotation-quote">${escapeHtml(hl.text)}</div>
-             ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
-             <div class="annotation-footer">
-               <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
-               <button class="annotation-delete-btn" title="删除标注">
-                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
-               </button>
-             </div>
-           </div>
-         `;
+            <div class="annotation-content">
+              <div class="annotation-header">
+                <div class="annotation-book" title="在阅读器中定位">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  ${escapeHtml(bookContext.title || bookContext.filename)}
+                </div>
+                <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${hl.color}33; color: ${hl.color};`}">
+                  ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
+                </div>
+              </div>
+              <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : hl.color}">${escapeHtml(hl.text)}</div>
+              ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
+              <div class="annotation-footer">
+                <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
+                <button class="annotation-delete-btn" title="删除标注">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+                </button>
+              </div>
+            </div>
+          `;
 
          // Click book title to open reader
          item.querySelector('.annotation-book').addEventListener('click', (e) => {
@@ -301,7 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnExportAll.addEventListener('click', async () => {
       const allHighlights = await EpubStorage.getAllHighlights() || {};
       const recentBooks = await EpubStorage.getRecentBooks();
-      let md = '# 📖 读书笔记与高亮\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
+      let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
       
       let hasData = false;
       for (const book of recentBooks) {

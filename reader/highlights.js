@@ -58,6 +58,8 @@ window.Highlights = (function () {
                       if (!_activeHighlightCfi && (!_currentCfiRange || (selection && selection.isCollapsed))) {
                          closeToolbar();
                          closeNotePopup();
+                         _activeHighlightCfi = null;
+                         _currentCfiRange = null;
                       }
                    }, 10);
                 }

@@ -1183,9 +1183,18 @@ html, body {
 
 /* Highlight that also has a note gets ONLY a distinct dashed underline indicator */
 /* We remove the stroke to avoid 'boxing' the text */
+/* FIX (v1.1.4): Use clip-path to ensure only the bottom edge is visible, preventing 'boxing' */
+.epubjs-hl-note-only,
 .epubjs-hl-with-note {
   stroke: var(--text-accent);
-  stroke-width: 3;
+  stroke-width: 4;
+  stroke-dasharray: 4, 3;
+  stroke-opacity: 0.8;
+  fill: none !important;
+  clip-path: inset(calc(100% - 4px) 0 0 0);
+}
+
+.epubjs-hl-with-note {
   stroke-dasharray: 2, 4;
   stroke-opacity: 0.7;
 }
