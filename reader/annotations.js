@@ -49,88 +49,24 @@ const Annotations = {
     const epubType = link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ||
                      link.getAttribute('epub:type') || '';
     const role = link.getAttribute('role') || '';
+    const rel = link.getAttribute('rel') || '';
 
     // Check epub:type for backlink
-    if (epubType.includes('backlink') || epubType.includes('noteref') === false && epubType.includes('note')) return false;
+    if (epubType.includes('backlink') || (epubType.includes('noteref') === false && epubType.includes('note'))) return false;
 
     // Check role
     if (role.includes('doc-backlink')) return true;
 
     // Check class
-    if (/\b(backlink|footnote-backref|back-ref|noteref-back|fn-back|back)\b/i.test(cls)) return true;
+    if (/\b(backlink|footnote-backref|back-ref|noteref-back|fn-back|back|return-link)\b/i.test(cls)) return true;
 
-    // Check href for back-reference patterns
-    if (/^#(fnref|noteref|backref|back_ref|src_|return)/i.test(href)) return true;
+    // v1.2.3 Fix: Removed overly aggressive regex ^#(fnref|noteref) which killed valid footnote links. 
+    // Only check for explicit back-references or source returns.
+    if (/^#(backref|back_ref|src_|return)/i.test(href)) return true;
 
-    // Common back-link text patterns: ↩, ←, [back], 返回
-    if (/^[↩←⏎↲\u21A9\u2190]$/.test(text)) return true;
-    if (/^(返回|back)$/i.test(text)) return true;
-
-    return false;
-  },
-
-  /**
-   * Check if a link element is a footnote/endnote reference
-   * @param {HTMLElement} link - The <a> element
-   * @returns {boolean}
-   */
-  isFootnoteLink(link) {
-    // First check: if it's a back-link, never treat as footnote
-    if (this.isBackLink(link)) return false;
-
-    // Check epub:type attribute
-    const epubType = link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ||
-                     link.getAttribute('epub:type') || '';
-    if (epubType.includes('noteref') || epubType.includes('note')) return true;
-
-    // Check role attribute (DPUB-ARIA)
-    const role = link.getAttribute('role') || '';
-    if (role.includes('doc-noteref')) return true;
-
-    // Check href pattern for common footnote patterns
-    const href = link.getAttribute('href') || '';
-    if (/^#(fn|note|footnote|endnote|annotation|ref|cite)/i.test(href)) return true;
-    // Also match filepos patterns (Kindle-style)
-    if (/#filepos\d+/i.test(href) || /\bfilepos\d+/i.test(href)) return true;
-
-    // Check class names
-    const cls = link.className || '';
-    if (/\b(footnote|noteref|note-ref|endnote|annotation)\b/i.test(cls)) return true;
-
-    // Check if it's a superscript number link (common pattern)
-    const parent = link.parentElement;
-    if (parent && parent.tagName.toLowerCase() === 'sup') {
-      const text = link.textContent.trim();
-      if (/^[\[\(]?\d+[\]\)]?$/.test(text) || /^[*†‡§‖¶]$/.test(text)) return true;
-    }
-
-    // Check if anchor text is just a number in brackets
-    const text = link.textContent.trim();
-    if (/^[\[\(]\d+[\]\)]$/.test(text)) return true;
-
-    return false;
-  },
-
-  /**
-   * Check if a link is actually a back-link from a footnote to the main text
-   * @param {Element} link - The a tag
-   * @returns {boolean}
-   */
-  isBackLink(link) {
-    const href = link.getAttribute('href') || '';
-    const cls = link.className || '';
-    const rel = link.getAttribute('rel') || '';
-    const role = link.getAttribute('role') || '';
-
-    if (cls.includes('footnote-backref') || cls.includes('back-link') || cls.includes('return-link')) return true;
-    if (role.includes('doc-backlink')) return true;
-    if (href.includes('backref') || href.includes('fnref')) return true;
-    
-    const text = link.textContent.trim();
-    if (text.match(/^[↑^]$/)) return true;
-    
-    // Chinese or common explicit back-link texts
-    if (/返回|回到正文|跳回|Back|Return/i.test(text)) return true;
+    // Common back-link text patterns: ↩, ←, ↑, ^, [back], 返回
+    if (/^[↩←⏎↲\u21A9\u2190↑^]$/.test(text)) return true;
+    if (/^(返回|回到正文|跳回|back|return)$/i.test(text)) return true;
 
     // Structural Heuristic for handling symmetrical footnotes: 
     // If the link text is just a number/symbol, AND it appears at the EXACT BEGINNING 

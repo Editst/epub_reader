@@ -99,7 +99,7 @@ const Search = (function() {
       if (bookmarksPanel) bookmarksPanel.classList.remove('open');
       
       panel.classList.add('open');
-      if (overlay) overlay.style.display = 'block';
+      if (overlay) overlay.classList.add('visible'); // v1.2.2: Standardize overlay toggling
       setTimeout(() => {
         if (searchInput) searchInput.focus();
         // Select all text if exists
@@ -114,7 +114,7 @@ const Search = (function() {
       // Only hide overlay if TOC is also closed
       const sidebar = document.getElementById('sidebar');
       if (!sidebar || !sidebar.classList.contains('open')) {
-         overlay.style.display = 'none';
+         overlay.classList.remove('visible'); // v1.2.2: Standardize overlay toggling
       }
     }
     // Cancel any active searches if panel is closed

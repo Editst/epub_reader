@@ -20,14 +20,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentTheme = currentPrefs.theme === 'dark' ? 'dark' : 'light';
   let currentView = currentPrefs.homeView === 'list' ? 'list' : 'grid';
 
+  // --- State and UI Setup ---
+  const filterBtns = document.querySelectorAll('.filter-btn');
+  const btnSortTime = document.getElementById('btn-sort-time');
+  let currentSort = 'desc'; // 'desc' (newest first) or 'asc' (oldest first)
+  
   // Initialize
   setTheme(currentTheme);
   setView(currentView);
   await loadBookshelf();
   await loadAnnotations('all');
-  
-  // --- Annotation Filters ---
-  const filterBtns = document.querySelectorAll('.filter-btn');
+
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       filterBtns.forEach(b => b.classList.remove('active'));
@@ -35,6 +38,26 @@ document.addEventListener('DOMContentLoaded', async () => {
       loadAnnotations(btn.dataset.filter);
     });
   });
+
+  if (btnSortTime) {
+    btnSortTime.addEventListener('click', () => {
+      // Toggle sort
+      if (currentSort === 'desc') {
+        currentSort = 'asc';
+        btnSortTime.textContent = '⬆️ 最早时间';
+        btnSortTime.title = '切换时间排序: 升序';
+      } else {
+        currentSort = 'desc';
+        btnSortTime.textContent = '⬇️ 最新时间';
+        btnSortTime.title = '切换时间排序: 降序';
+      }
+      
+      // Re-load with current active filter
+      const activeFilter = document.querySelector('.filter-btn.active');
+      const filterMode = activeFilter ? activeFilter.dataset.filter : 'all';
+      loadAnnotations(filterMode);
+    });
+  }
 
   // --- Theme & View Toggles ---
   btnTheme.addEventListener('click', () => {
@@ -223,6 +246,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     let hasAny = false;
     annotationsContainer.innerHTML = '';
 
+    // v1.2.2: Compile all annotations into a single flat array for global time sorting
+    let flatAnnotations = [];
+
     for (const bookId of bookKeys) {
       const highlights = allHighlights[bookId] || [];
       const bookContext = bookMetaMap[bookId] || { title: '未知书籍' };
@@ -230,62 +256,78 @@ document.addEventListener('DOMContentLoaded', async () => {
       for (let i = 0; i < highlights.length; i++) {
          const hl = highlights[i];
          
-         // Issue 5: Filter logic
+         // Setup original indexing context for deletion later
+         hl._bookId = bookId;
+         hl._originalIndex = i;
+         hl._bookContext = bookContext;
+
+         // Filter logic
          const isNoteOnly = hl.color === 'transparent';
          if (filterType === 'highlight' && isNoteOnly) continue;
          if (filterType === 'note' && !isNoteOnly) continue;
 
-         hasAny = true;
-         
-         const item = document.createElement('div');
-         item.className = 'annotation-item';
-         
-         item.innerHTML = `
-            <div class="annotation-content">
-              <div class="annotation-header">
-                <div class="annotation-book" title="在阅读器中定位">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                  ${escapeHtml(bookContext.title || bookContext.filename)}
-                </div>
-                <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${hl.color}33; color: ${hl.color};`}">
-                  ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
-                </div>
+         flatAnnotations.push(hl);
+      }
+    }
+
+    // Apply Sorting
+    flatAnnotations.sort((a, b) => {
+      return currentSort === 'desc' 
+        ? b.timestamp - a.timestamp 
+        : a.timestamp - b.timestamp;
+    });
+
+    if (flatAnnotations.length > 0) hasAny = true;
+
+    // Render sorted annotations
+    for (const hl of flatAnnotations) {
+       const isNoteOnly = hl.color === 'transparent';
+       const item = document.createElement('div');
+       item.className = 'annotation-item';
+       
+       item.innerHTML = `
+          <div class="annotation-content">
+            <div class="annotation-header">
+              <div class="annotation-book" title="在阅读器中定位">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                ${escapeHtml(hl._bookContext.title || hl._bookContext.filename)}
               </div>
-              <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : hl.color}">${escapeHtml(hl.text)}</div>
-              ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
-              <div class="annotation-footer">
-                <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
-                <button class="annotation-delete-btn" title="删除标注">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
-                </button>
+              <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${hl.color}33; color: ${hl.color};`}">
+                ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
               </div>
             </div>
-          `;
+            <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : hl.color}">${escapeHtml(hl.text)}</div>
+            ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
+            <div class="annotation-footer">
+              <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
+              <button class="annotation-delete-btn" title="删除标注">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
 
-         // Click book title to open reader
-         item.querySelector('.annotation-book').addEventListener('click', (e) => {
-            if (bookContext.filename) {
-               window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(bookContext.filename) + '&target=' + encodeURIComponent(hl.cfi);
-            }
-         });
+       // Click book title to open reader
+       item.querySelector('.annotation-book').addEventListener('click', (e) => {
+          if (hl._bookContext.filename) {
+             window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(hl._bookContext.filename) + '&target=' + encodeURIComponent(hl.cfi);
+          }
+       });
 
-         // Issue 3: Delete annotation
-         item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('确定要删除这条标注吗？')) {
-               const updated = highlights.filter((_, index) => index !== i);
-               if (updated.length === 0) {
-                 delete allHighlights[bookId];
-               } else {
-                 allHighlights[bookId] = updated;
-               }
-               await EpubStorage.saveHighlights(bookId, updated);
-               loadAnnotations(filterType);
-            }
-         });
+       // Delete annotation
+       item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (confirm('确定要删除这条标注吗？')) {
+             // Retrieve fresh list to ensure correct deletion indexing
+             const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
+             // Filter it out via CFI match instead of index since indexing might have drifted in sorted state
+             const updated = currentHighlights.filter(h => h.cfi !== hl.cfi);
+             await EpubStorage.saveHighlights(hl._bookId, updated);
+             loadAnnotations(filterType);
+          }
+       });
 
-         annotationsContainer.appendChild(item);
-      }
+       annotationsContainer.appendChild(item);
     }
 
     if (!hasAny) {

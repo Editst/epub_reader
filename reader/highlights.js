@@ -42,7 +42,9 @@ window.Highlights = (function () {
     // CRITICAL: Fallback for selection and click stability
     _rendition.hooks.content.register((contents) => {
         const doc = contents.document;
-        doc.addEventListener('click', (e) => {
+        // v1.2.3 Fix: Use mousedown instead of click because IFrames sometimes swallow clicks
+        // on focused input elements, preventing the panel from closing.
+        doc.addEventListener('mousedown', (e) => {
             // Give a tiny delay for selection to be processed
             setTimeout(() => {
                 const selection = contents.window.getSelection();
@@ -99,11 +101,13 @@ window.Highlights = (function () {
 
     // Global listener for clicking outside on the main window
     window.addEventListener('mousedown', (e) => {
+        // Only trigger this if we are not clicking the toolbar or popup
         if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
-            closeToolbar();
-            closeNotePopup();
-            _activeHighlightCfi = null;
-            _currentCfiRange = null;
+            // Check if click was on a UI element outside the reading canvas
+            if (e.target.closest('#header-bar') || e.target.closest('#sidebar') || e.target.closest('.bottom-bar')) {
+                return; // Let standard UI clicks pass
+            }
+            closePanels();
         }
     });
   }
@@ -273,10 +277,13 @@ window.Highlights = (function () {
       let top = anchorRect.top;
       let left = anchorRect.left;
 
-      // v1.2.0 Bounds Checking: If highlight is at the very top of screen, 
-      // the note popup will overflow above viewport. Push it down.
-      if (top < 10) {
+      // v1.2.3 Bounds Checking: Dynamically apply .flip class if the upper space is insufficient for the growing popup.
+      // The popup grows upwards (-100% translateY) by about 150px.
+      if (top < 200) {
           top = anchorRect.top + 60; // Push down below selection
+          notePopup.classList.add('flip');
+      } else {
+          notePopup.classList.remove('flip');
       }
 
       notePopup.style.top = `${top}px`;
@@ -327,6 +334,7 @@ window.Highlights = (function () {
       if (hl) {
           hl.note = note;
           updateHighlightData(targetCfi, { note });
+          reRenderHighlight(targetCfi); // v1.2.2 Fix: Trigger UI redraw to show newly added note underline
       } else if (targetCfi) {
           // Issue 4: Save note even without highlight
           const text = await getCfiText(targetCfi);
