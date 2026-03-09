@@ -121,11 +121,12 @@ const EpubStorage = {
    */
   async removeFileFromIndexedDB(filename) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
         if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
@@ -153,11 +154,12 @@ const EpubStorage = {
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
         if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
@@ -191,7 +193,7 @@ const EpubStorage = {
   async getCover(bookId) {
     if (!bookId) return null;
     return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('covers')) return resolve(null);
@@ -212,7 +214,7 @@ const EpubStorage = {
   async removeCover(bookId) {
     if (!bookId) return;
     return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('covers')) return resolve();
@@ -232,7 +234,7 @@ const EpubStorage = {
    */
   async enforceFileLRU(maxCount = 10) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) return resolve();
@@ -354,7 +356,7 @@ const EpubStorage = {
     if (!bookId || !locationsJSON) return;
     
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
@@ -364,17 +366,9 @@ const EpubStorage = {
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('locations')) {
-           // Create on the fly if missing (schema drift)
-           db.close();
-           const upgradeReq = indexedDB.open('EpubReaderDB', 3);
-           upgradeReq.onupgradeneeded = (e2) => {
-              const db2 = e2.target.result;
-              if (!db2.objectStoreNames.contains('locations')) db2.createObjectStore('locations', { keyPath: 'id' });
-           };
-           upgradeReq.onsuccess = (e2) => {
-              const db2 = e2.target.result;
-              this._putLocationData(db2, bookId, locationsJSON).then(resolve).catch(reject);
-           };
+           // Should not happen with fresh install logic, but just in case
+           console.warn("Locations store missing after upgrade hook.");
+           resolve();
            return;
         }
         this._putLocationData(db, bookId, locationsJSON).then(resolve).catch(reject);

@@ -446,11 +446,12 @@
    */
   function storeFileInIndexedDB(filename, uint8Array) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
         if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
@@ -472,11 +473,12 @@
 
   async function loadFileFromIndexedDB(fileName) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 2);
+      const request = indexedDB.open('EpubReaderDB', 3);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
         if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
