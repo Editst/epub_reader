@@ -52,6 +52,7 @@
     TOC.init();
     Search.init();
     Bookmarks.init();
+    Highlights.init();
 
     await loadPreferences();
     setupEventListeners();
@@ -60,8 +61,13 @@
     // Check if opened with a file parameter
     const params = new URLSearchParams(window.location.search);
     const fileName = params.get('file');
+    const targetCfi = params.get('target');
     if (fileName) {
       await loadFileFromIndexedDB(fileName);
+      if (targetCfi && rendition) {
+        // Navigate directly to the requested annotation
+        rendition.display(targetCfi);
+      }
     }
   });
 
@@ -70,6 +76,9 @@
     // File open buttons
     document.getElementById('welcome-open-btn').addEventListener('click', () => fileInput.click());
     document.getElementById('btn-open').addEventListener('click', () => fileInput.click());
+    document.getElementById('btn-home').addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('home/home.html') });
+    });
 
     fileInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
@@ -240,6 +249,7 @@
     if (typeof TOC !== 'undefined' && typeof TOC.close === 'function') TOC.close();
     if (typeof Bookmarks !== 'undefined' && typeof Bookmarks.closePanel === 'function') Bookmarks.closePanel();
     if (typeof Search !== 'undefined' && typeof Search.closePanel === 'function') Search.closePanel();
+    if (typeof Highlights !== 'undefined' && typeof Highlights.closePanels === 'function') Highlights.closePanels();
 
     // Explicitly hide overlay
     const overlay = document.getElementById('sidebar-overlay');
@@ -289,6 +299,12 @@
         if (!e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           toggleBookmarkAtCurrent();
+        }
+        break;
+      case 'h':
+        if (!e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          chrome.tabs.create({ url: chrome.runtime.getURL('home/home.html') });
         }
         break;
     }
@@ -406,47 +422,48 @@
       await openBook(arrayBuffer);
     } catch (err) {
       console.error('Failed to load EPUB:', err);
-      showLoading(false);
-      alert('无法加载此 EPUB 文件: ' + err.message);
+      showLoadError('无法加载此 EPUB 文件: ' + err.message);
     }
+  }
+
+  function showLoadError(msg) {
+    showLoading(false);
+    document.getElementById('welcome-screen').style.display = 'none';
+    const readerMain = document.getElementById('reader-main');
+    readerMain.innerHTML = `
+      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--reader-text, #333);">
+        <div style="font-size:48px; margin-bottom:16px;">📚</div>
+        <h2 style="margin-bottom:8px;">书籍加载失败</h2>
+        <p style="color:#e94560; text-align:center; max-width:80%; margin-bottom:20px; line-height:1.5;">${msg.replace(/</g, '&lt;')}</p>
+        <button onclick="document.getElementById('file-input').click()" style="padding:10px 24px; border-radius:8px; border:none; background:linear-gradient(135deg, #e94560, #c23152); color:white; font-weight:600; cursor:pointer; font-size:14px;">重新选择文件</button>
+      </div>
+    `;
+    readerMain.style.display = 'block';
   }
 
   /**
    * Store file data in IndexedDB for later reopening via recent books.
-   * Maintains a maximum of 5 books to prevent excessive disk space usage.
    */
   function storeFileInIndexedDB(filename, uint8Array) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 1);
+      const request = indexedDB.open('EpubReaderDB', 2);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) {
-          db.createObjectStore('files', { keyPath: 'name' });
-        }
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
+        if (!db.objectStoreNames.contains('files')) return resolve();
         const tx = db.transaction('files', 'readwrite');
         const store = tx.objectStore('files');
-
-        // Put the new file
         store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
 
-        // Cleanup old files (keep only the 5 most recent)
-        const getAllReq = store.getAll();
-        getAllReq.onsuccess = () => {
-          const files = getAllReq.result;
-          if (files.length > 5) {
-            // Sort by timestamp descending (newest first)
-            files.sort((a, b) => b.timestamp - a.timestamp);
-            // Delete anything beyond the first 5
-            for (let i = 5; i < files.length; i++) {
-              store.delete(files[i].name);
-            }
-          }
+        tx.oncomplete = async () => {
+          // Trigger centralized LRU
+          if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
+          resolve();
         };
-
-        tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       };
       request.onerror = () => reject(request.error);
@@ -455,17 +472,16 @@
 
   async function loadFileFromIndexedDB(fileName) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 1);
+      const request = indexedDB.open('EpubReaderDB', 2);
       request.onupgradeneeded = (e) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) {
-          db.createObjectStore('files', { keyPath: 'name' });
-        }
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
       };
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) {
-          alert('找不到该书籍的缓存数据。请重新通过"打开文件"按钮加载该电子书。');
+          showLoadError('找不到该书籍的缓存数据。此书可能已被自动清理，请重新选用"打开文件"加载。');
           resolve();
           return;
         }
@@ -478,19 +494,24 @@
             const data = getReq.result.data;
             currentBookId = EpubStorage.generateBookId(fileName, data.byteLength);
             showLoading(true);
-            await openBook(data.buffer);
+            try {
+              await openBook(data.buffer);
+            } catch (err) {
+              console.error('Failed to load EPUB:', err);
+              showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
+            }
           } else {
-            alert('由于浏览器限制，该书籍的本地缓存已被自动清理（或您在旧版本中打开此书）。请重新通过"打开文件"按钮加载该电子书，重新加载后可从历史记录打开。');
+            showLoadError('由于缓存限制，该书籍已被系统自动清理以节省空间。请通过"打开文件"重新导入该电子书，历史阅读进度将自动恢复。');
           }
           resolve();
         };
         getReq.onerror = () => {
-          alert('读取数据失败。请重新加载该电子书。');
+          showLoadError('读取缓存数据失败。请重新导入该电子书。');
           resolve();
         };
       };
       request.onerror = () => {
-        alert('读取数据失败。请重新加载该电子书。');
+        showLoadError('访问本地数据库失败。请重新加载。');
         resolve();
       };
     });
@@ -584,8 +605,6 @@
     currentPrefs.lineHeight = prefs.lineHeight || 1.8;
     currentPrefs.fontFamily = prefs.fontFamily || '';
 
-    // Load reading time
-    activeReadingSeconds = await EpubStorage.getReadingTime(currentBookId);
     startReadingTimer();
 
     // Create rendition
@@ -650,6 +669,20 @@
     // Wait for book to be ready
     await book.ready;
 
+    // Extract and save cover for Home / Popup (non-blocking, fire-and-forget)
+    (async () => {
+      try {
+        const coverUrl = await book.coverUrl();
+        if (coverUrl) {
+          const response = await fetch(coverUrl);
+          const blob = await response.blob();
+          await EpubStorage.saveCover(currentBookId, blob);
+        }
+      } catch (e) {
+        console.warn('Failed to extract cover:', e);
+      }
+    })();
+
     // Get metadata
     const metadata = await book.loaded.metadata;
     bookTitleEl.textContent = metadata.title || currentFileName;
@@ -684,6 +717,9 @@
     // Hide loading overlay now that book is visible
     showLoading(false);
     isBookLoaded = true;
+
+    // Init highlights AFTER content is displayed to avoid corrupting epub.js state
+    Highlights.setBookDetails(currentBookId, currentFileName, rendition);
 
     // Ensure focus after everything is loaded
     setTimeout(() => ensureFocus(), 300);
@@ -739,10 +775,11 @@
     if (isResizing) return; // Ignore garbage locations emitted during reflows
     if (!location || !location.start) return;
 
+    let percent = null;
     // Update progress (only if locations have been generated)
     if (book.locations && book.locations.length()) {
       const progress = book.locations.percentageFromCfi(location.start.cfi);
-      const percent = Math.round(progress * 1000) / 10;
+      percent = Math.round(progress * 1000) / 10;
       progressSlider.value = percent;
       progressCurrent.textContent = percent.toFixed(1) + '%';
     }
@@ -759,7 +796,7 @@
 
     // Save position
     currentStableCfi = location.start.cfi;
-    EpubStorage.savePosition(currentBookId, currentStableCfi);
+    EpubStorage.savePosition(currentBookId, currentStableCfi, percent);
 
     // Update bookmark button state
     updateBookmarkButtonState();

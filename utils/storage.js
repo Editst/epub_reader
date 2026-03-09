@@ -6,10 +6,11 @@ const EpubStorage = {
    * Save reading position for a book
    * @param {string} bookId - Unique book identifier (hash of filename + size)
    * @param {string} cfi - EPUB CFI location string
+   * @param {number} percentage - Reading progress percentage (0-100)
    */
-  async savePosition(bookId, cfi) {
+  async savePosition(bookId, cfi, percentage = null) {
     const positions = (await this._get('positions')) || {};
-    positions[bookId] = { cfi, timestamp: Date.now() };
+    positions[bookId] = { cfi, percentage, timestamp: Date.now() };
     await this._set({ positions });
   },
 
@@ -120,7 +121,12 @@ const EpubStorage = {
    */
   async removeFileFromIndexedDB(filename) {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 1);
+      const request = indexedDB.open('EpubReaderDB', 2);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+      };
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('files')) {
@@ -135,6 +141,172 @@ const EpubStorage = {
       };
       request.onerror = () => reject(request.error);
     });
+  },
+
+  // --- NEW CAPABILITIES FOR P0 & P1 ---
+
+  /**
+   * Save EPUB cover image to IndexedDB (Permanent until manually deleted)
+   * @param {string} bookId
+   * @param {Blob} blob 
+   */
+  async saveCover(bookId, blob) {
+    if (!bookId || !blob) return;
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('EpubReaderDB', 2);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
+      };
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('covers')) {
+          // Store doesn't exist even after upgrade attempt — skip silently
+          console.warn('covers store not found, skipping cover save');
+          resolve();
+          return;
+        }
+        this._putCover(db, bookId, blob).then(resolve).catch(reject);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  _putCover(db, bookId, blob) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('covers', 'readwrite');
+      const store = tx.objectStore('covers');
+      const req = store.put({ id: bookId, blob: blob });
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  },
+
+  /**
+   * Get cover image Blob from IndexedDB
+   * @param {string} bookId
+   * @returns {Blob|null}
+   */
+  async getCover(bookId) {
+    if (!bookId) return null;
+    return new Promise((resolve) => {
+      const request = indexedDB.open('EpubReaderDB', 2);
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('covers')) return resolve(null);
+        const tx = db.transaction('covers', 'readonly');
+        const store = tx.objectStore('covers');
+        const req = store.get(bookId);
+        req.onsuccess = () => resolve(req.result ? req.result.blob : null);
+        req.onerror = () => resolve(null);
+      };
+      request.onerror = () => resolve(null);
+    });
+  },
+
+  /**
+   * Remove cover from IndexedDB
+   * @param {string} bookId 
+   */
+  async removeCover(bookId) {
+    if (!bookId) return;
+    return new Promise((resolve) => {
+      const request = indexedDB.open('EpubReaderDB', 2);
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('covers')) return resolve();
+        const tx = db.transaction('covers', 'readwrite');
+        const store = tx.objectStore('covers');
+        const req = store.delete(bookId);
+        req.onsuccess = () => resolve();
+        req.onerror = () => resolve();
+      };
+      request.onerror = () => resolve();
+    });
+  },
+
+  /**
+   * Enforced LRU cache for heavy EPUB files. Keeps only the newest 'maxCount' files.
+   * @param {number} maxCount 
+   */
+  async enforceFileLRU(maxCount = 10) {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('EpubReaderDB', 2);
+      request.onsuccess = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files')) return resolve();
+        const tx = db.transaction('files', 'readwrite');
+        const store = tx.objectStore('files');
+        const getAllReq = store.getAll();
+        
+        getAllReq.onsuccess = () => {
+          const files = getAllReq.result;
+          if (files.length > maxCount) {
+            // Sort descending by timestamp (newest first)
+            files.sort((a, b) => b.timestamp - a.timestamp);
+            // Delete the oldest ones beyond maxCount
+            for (let i = maxCount; i < files.length; i++) {
+              store.delete(files[i].name);
+            }
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  /**
+   * Manage Highlights and annotations
+   */
+  async getHighlights(bookId) {
+    const key = 'highlights_' + bookId;
+    return (await this._get(key)) || [];
+  },
+
+  async saveHighlights(bookId, highlights) {
+    const key = 'highlights_' + bookId;
+    await this._set({ [key]: highlights });
+  },
+
+  async removeHighlights(bookId) {
+    const key = 'highlights_' + bookId;
+    return new Promise(resolve => chrome.storage.local.remove([key], resolve));
+  },
+
+  async getAllHighlights() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(null, (items) => {
+        const all = {};
+        for (const [key, val] of Object.entries(items)) {
+          if (key.startsWith('highlights_')) {
+            const bookId = key.replace('highlights_', '');
+            all[bookId] = val;
+          }
+        }
+        resolve(all);
+      });
+    });
+  },
+
+  /**
+   * Completely obliterate ALL data for a specific book (Cascading Delete)
+   * @param {string} bookId
+   * @param {string} filename 
+   */
+  async removeBook(bookId, filename) {
+    await this.removeRecentBook(bookId);
+    await this.removePosition(bookId);
+    await this.removeReadingTime(bookId);
+    await this.removeCover(bookId);
+    await this.removeHighlights(bookId);
+    if (filename) {
+      await this.removeFileFromIndexedDB(filename);
+    }
+    // Remove bookmarks
+    return new Promise(resolve => chrome.storage.local.remove(['bookmarks_' + bookId], resolve));
   },
 
   /**

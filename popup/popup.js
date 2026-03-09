@@ -2,6 +2,7 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
   const openBtn = document.getElementById('open-btn');
+  const homeBtn = document.getElementById('home-btn');
   const fileInput = document.getElementById('file-input');
   const recentList = document.getElementById('recent-list');
   const emptyState = document.getElementById('empty-state');
@@ -12,6 +13,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Open file button click
   openBtn.addEventListener('click', () => {
     fileInput.click();
+  });
+
+  // Home shelf button click
+  homeBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL('home/home.html') });
+    window.close();
   });
 
   // File selected
@@ -42,18 +49,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     emptyState.style.display = 'none';
 
     recentList.innerHTML = '';
-    books.forEach((book) => {
+    // Process items sequentially to resolve all async cover getters
+    for (const book of books) {
       const item = document.createElement('div');
       item.className = 'recent-item';
+      
+      // Fetch cover
+      const coverBlob = await EpubStorage.getCover(book.id);
+      const coverHtml = coverBlob 
+        ? `<img src="${URL.createObjectURL(coverBlob)}" alt="Cover">` 
+        : `📖`;
+
+      // Fetch progress
+      const pos = await EpubStorage.getPosition(book.id);
+      const progressText = (pos && pos.percentage) ? `${pos.percentage}%` : '';
+
       item.innerHTML = `
-        <div class="recent-item-icon">📖</div>
+        <div class="recent-item-icon">${coverHtml}</div>
         <div class="recent-item-info">
-          <div class="recent-item-title">${escapeHtml(book.title || book.filename)}</div>
-          <div class="recent-item-meta">
-            <span class="recent-item-author">${escapeHtml(book.author || '')}</span>
-            <span class="recent-item-date">${formatDate(book.lastOpened)}</span>
-          </div>
+          <div class="recent-item-title" title="${escapeHtml(book.title || book.filename)}">${escapeHtml(book.title || book.filename)}</div>
+          <div class="recent-item-date">${escapeHtml(book.author || '未知作者')}</div>
+          <div class="recent-item-date" style="margin-top:2px;">${formatDate(book.lastOpened)}</div>
         </div>
+        ${progressText ? `<div class="recent-item-progress">${progressText}</div>` : ''}
         <button class="recent-item-remove" title="移除">✕</button>
       `;
 
@@ -84,7 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       recentList.appendChild(item);
-    });
+    } // end for loop
   }
 });
 
@@ -92,34 +110,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Maintains a maximum of 5 books to prevent excessive disk space usage
 function storeFileData(filename, uint8Array) {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('EpubReaderDB', 1);
+    const request = indexedDB.open('EpubReaderDB', 2);
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
-      if (!db.objectStoreNames.contains('files')) {
-        db.createObjectStore('files', { keyPath: 'name' });
-      }
+      if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
+      if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
     };
     request.onsuccess = (e) => {
       const db = e.target.result;
+      if (!db.objectStoreNames.contains('files')) return resolve();
       const tx = db.transaction('files', 'readwrite');
       const store = tx.objectStore('files');
       
-      // Put the new file
       store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
       
-      // Cleanup old files (keep only the 5 most recent)
-      const getAllReq = store.getAll();
-      getAllReq.onsuccess = () => {
-        const files = getAllReq.result;
-        if (files.length > 5) {
-          files.sort((a, b) => b.timestamp - a.timestamp);
-          for (let i = 5; i < files.length; i++) {
-            store.delete(files[i].name);
-          }
-        }
+      tx.oncomplete = async () => {
+        if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
+        resolve();
       };
-
-      tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     };
     request.onerror = () => reject(request.error);

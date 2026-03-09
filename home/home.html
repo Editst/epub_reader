@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EPUB 书架与管理</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap">
+  <link rel="stylesheet" href="../styles/themes.css">
+  <link rel="stylesheet" href="home.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="home-header">
+      <div class="header-left">
+        <div class="header-logo">📖 EPUB Reader</div>
+        <nav class="header-nav">
+          <button class="nav-btn active" data-tab="shelf">书架</button>
+          <button class="nav-btn" data-tab="annotations">标注管理</button>
+        </nav>
+      </div>
+      <div class="header-right">
+        <button class="action-btn" id="btn-theme" title="切换主题">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+        <button class="action-btn" id="btn-view" title="切换视图">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        </button>
+        <button class="primary-btn" id="btn-upload">导入书籍</button>
+        <input type="file" id="file-input" accept=".epub" style="display: none;">
+      </div>
+    </header>
+
+    <main class="home-main">
+      <!-- Shelf Tab -->
+      <div class="tab-pane active" id="pane-shelf">
+        <div class="shelf-toolbar">
+          <h2 class="section-title">我的书架 <span id="book-count">(0)</span></h2>
+          <div class="shelf-actions">
+            <button class="text-btn danger" id="btn-clear-all" style="display:none;">清空书架</button>
+          </div>
+        </div>
+        <div class="books-grid" id="books-container">
+          <!-- Books will be injected here -->
+        </div>
+        <div class="empty-state" id="shelf-empty">
+          <div class="empty-icon">📚</div>
+          <h3>书架空空如也</h3>
+          <p>点击右上角的按钮导入 EPUB 电子书，开始您的阅读之旅。</p>
+        </div>
+      </div>
+
+      <!-- Annotations Tab -->
+      <div class="tab-pane" id="pane-annotations">
+        <div class="shelf-toolbar">
+          <h2 class="section-title">标注与笔记</h2>
+          <div class="shelf-actions">
+            <button class="text-btn" id="btn-export-all">导出所有笔记</button>
+          </div>
+        </div>
+        <div class="annotations-list" id="annotations-container">
+          <!-- Annotations will be injected here -->
+        </div>
+        <div class="empty-state" id="annotations-empty">
+          <div class="empty-icon">✏️</div>
+          <h3>暂无标注</h3>
+          <p>在阅读时选中文本即可添加高亮与笔记，它们会在这里集中展示。</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../utils/storage.js"></script>
+  <script src="home.js"></script>
+</body>
+</html>
