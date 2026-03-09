@@ -197,10 +197,10 @@ const Annotations = {
       }
 
       // Try to load from another section in the book
-      // _loadFromBook now returns an object { html, href } to guarantee we have the absolute spine target
+      // _loadFromBook now returns an object { html, href, cfi }
       const result = await this._loadFromBook(sectionHref, targetId);
       if (result && result.html) {
-        displayHref = targetId ? `${result.href}#${targetId}` : result.href;
+        displayHref = result.cfi || (targetId ? `${result.href}#${targetId}` : result.href);
         this._displayContent(result.html, displayHref);
         return true;
       }
@@ -242,8 +242,10 @@ const Annotations = {
             const el = loaded.querySelector('#' + CSS.escape(targetId));
             if (el) {
               const html = el.innerHTML;
+              let cfi;
+              try { cfi = s.cfiFromElement(el); } catch(e){}
               s.unload();
-              return { html, href: s.href };
+              return { html, href: s.href, cfi };
             }
             s.unload();
           }
@@ -257,8 +259,10 @@ const Annotations = {
           const el = loaded.querySelector('#' + CSS.escape(targetId));
           if (el) {
             const html = el.innerHTML;
+            let cfi;
+            try { cfi = section.cfiFromElement(el); } catch(e){}
             section.unload();
-            return { html, href: section.href };
+            return { html, href: section.href, cfi };
           }
         }
         // Return a portion of the section content
@@ -298,7 +302,14 @@ const Annotations = {
       e.preventDefault();
       this.close();
       if (this.rendition && href) {
-        this.rendition.display(href);
+        // Wrap in promise to fallback gracefully
+        Promise.resolve(this.rendition.display(href)).catch(() => {
+          // If epub.js fails with "No Section Found", try falling back to just the section href without hash
+          const baseHref = href.split('#')[0];
+          if (baseHref && baseHref !== href) {
+            this.rendition.display(baseHref);
+          }
+        });
       }
     });
     this.body.appendChild(jumpLink);

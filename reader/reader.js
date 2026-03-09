@@ -180,10 +180,13 @@
     // Handle window resize cleanly with debounce
     let resizeTimer;
     window.addEventListener('resize', () => {
+      if (!rendition || !isBookLoaded) return;
+      const cfiContext = rendition.currentLocation()?.start?.cfi;
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(() => {
-        if (rendition && isBookLoaded) {
-          rendition.resize();
+        rendition.resize();
+        if (cfiContext) {
+          rendition.display(cfiContext);
         }
       }, 200);
     });
@@ -276,11 +279,23 @@
     setTimeout(() => { _navLock = false; }, 150);
   }
 
-  function navPrev() {
+  async function navPrev() {
     if (_navLock || !rendition) return;
     _navLock = true;
-    rendition.prev();
-    setTimeout(() => { _navLock = false; }, 150);
+    
+    const loc = rendition.currentLocation();
+    if (loc && loc.atStart && currentPrefs.layout !== 'scrolled') {
+      try {
+        readerMain.style.opacity = '0';
+        await rendition.prev();
+      } finally {
+        readerMain.style.opacity = '1';
+        setTimeout(() => { _navLock = false; }, 150);
+      }
+    } else {
+      rendition.prev();
+      setTimeout(() => { _navLock = false; }, 150);
+    }
   }
 
   /**
@@ -465,16 +480,22 @@
     const fallbackFont = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
     const fontFamily = currentPrefs.fontFamily ? `${currentPrefs.fontFamily}, ${fallbackFont}` : fallbackFont;
     
-    // Explicitly target all major text containing elements to crush embedded EPUB styles
+    // Explicitly target root to let relative sizes inside the EPUB scale naturally.
     return `
+      @namespace xmlns "http://www.w3.org/1999/xhtml";
       html, body {
-        ${currentPrefs.theme === 'custom' && currentPrefs.customBg ? `background-color: ${currentPrefs.customBg} !important;` : ''}
-      }
-      html, body, p, div, span, a, li, blockquote, td, th {
+        background-color: ${currentPrefs.theme === 'custom' && currentPrefs.customBg ? currentPrefs.customBg : 'transparent'} !important;
+        color: ${currentPrefs.theme === 'custom' && currentPrefs.customText ? currentPrefs.customText : 'inherit'} !important;
         font-size: ${currentPrefs.fontSize}px !important;
-        line-height: ${currentPrefs.lineHeight} !important;
         font-family: ${fontFamily} !important;
-        ${currentPrefs.theme === 'custom' && currentPrefs.customText ? `color: ${currentPrefs.customText} !important;` : ''}
+        line-height: ${currentPrefs.lineHeight} !important;
+      }
+      p, div, li, h1, h2, h3, h4, h5, h6 {
+        font-family: inherit;
+        text-align: justify;
+      }
+      a {
+        color: var(--text-accent, #0078D7) !important;
       }
     `;
   }
@@ -546,7 +567,8 @@
       spread: prefs.spread || 'auto',
       flow: prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
       manager: prefs.layout === 'scrolled' ? 'continuous' : 'default',
-      allowScriptedContent: false
+      allowScriptedContent: false,
+      gap: 40
     });
 
     // Inject our bulletproof custom styles into every new chapter iframe
@@ -763,12 +785,6 @@
     // Estimation logic
     let remainingStr = '--';
     if (book.locations && book.locations.length()) {
-      const totalLocations = book.locations.length();
-      // Estimate total characters: default location size is 150 chars
-      const charsTotal = totalLocations * 150;
-      // Assume reading speed of Chinese/English mix approx 400 chars per minute
-      const estTotalMinutes = charsTotal / 400;
-
       const currentLoc = rendition.currentLocation();
       let progress = 0;
       if (currentLoc && currentLoc.start) {
@@ -776,7 +792,21 @@
       }
 
       if (progress >= 0 && progress <= 1) {
-        const remainingMinutes = Math.max(0, Math.round(estTotalMinutes * (1 - progress)));
+        const activeMinutes = activeReadingSeconds / 60;
+        let remainingMinutes = 0;
+        
+        // Use dynamic speed if there is meaningful data points (> 1 min and > 0.5% read)
+        if (activeMinutes > 1 && progress > 0.005) {
+          const totalMinutesDesc = activeMinutes / progress;
+          remainingMinutes = Math.max(0, Math.round(totalMinutesDesc * (1 - progress)));
+        } else {
+          // Static fallback estimation
+          const totalLocations = book.locations.length();
+          const charsTotal = totalLocations * 150;
+          const estTotalMinutes = charsTotal / 400; // 400 chars per min
+          remainingMinutes = Math.max(0, Math.round(estTotalMinutes * (1 - progress)));
+        }
+        
         const remHours = Math.floor(remainingMinutes / 60);
         const remMins = remainingMinutes % 60;
         remainingStr = remHours > 0 ? `${remHours}小时${remMins}分钟` : `${remMins}分钟`;
@@ -929,7 +959,8 @@
         spread: 'auto',
         flow: flow,
         manager: manager,
-        allowScriptedContent: false
+        allowScriptedContent: false,
+        gap: 40
       });
 
       // Re-apply everything
