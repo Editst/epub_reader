@@ -162,33 +162,27 @@ const Annotations = {
     try {
       let targetId = '';
       let sectionHref = '';
-      let displayHref = href; // The reliable loc to pass to rendition.display()
+      let displayHref = href;
 
       if (href.startsWith('#')) {
         // Same-document reference
         targetId = href.substring(1);
-        // Try to find in current document
         const doc = contents.document;
-        const target = doc.getElementById(targetId);
+        const target = this._findTarget(doc, targetId);
         if (target) {
           try {
-            // Use CFI for perfect reliability within the same document
             displayHref = contents.cfiFromNode(target);
           } catch(e) {
-            console.warn("Could not generate CFI for target", e);
-          }
-          if (!displayHref && this.book && this.rendition) {
-            // Fallback to absolute spine href if CFI fails
             try {
               const currentSpineHref = this.rendition.currentLocation().start.href.split('#')[0];
               displayHref = `${currentSpineHref}#${targetId}`;
-            } catch (e) {}
+            } catch (e2) {}
           }
-          this._displayContent(target.innerHTML, displayHref || href);
+          const html = this._extractContent(target);
+          this._displayContent(html, displayHref || href);
           return true;
         }
       } else if (href.includes('#')) {
-        // Cross-document reference: "chapter.xhtml#note1"
         const parts = href.split('#');
         sectionHref = parts[0];
         targetId = parts[1];
@@ -197,19 +191,85 @@ const Annotations = {
       }
 
       // Try to load from another section in the book
-      // _loadFromBook now returns an object { html, href, cfi }
       const result = await this._loadFromBook(sectionHref, targetId);
       if (result && result.html) {
-        displayHref = result.cfi || (targetId ? `${result.href}#${targetId}` : result.href);
+        displayHref = targetId ? `${result.href}#${targetId}` : result.href;
         this._displayContent(result.html, displayHref);
         return true;
       }
 
-      return false;
+      // FALLBACK: Even if content extraction completely failed, still show popup
+      // Resolve the href for the jump link
+      let resolvedHref = href;
+      if (this.rendition) {
+        try {
+          const currentHref = this.rendition.currentLocation()?.start?.href || '';
+          const currentDir = currentHref.substring(0, currentHref.lastIndexOf('/') + 1);
+          const cleanHref = href.replace(/^(\.\.\/)+/, '');
+          resolvedHref = currentDir + cleanHref;
+        } catch(e) {}
+      }
+      this._displayContent('<p style="color:#888;text-align:center;">点击下方链接查看注释内容</p>', resolvedHref);
+      return true;
     } catch (err) {
       console.warn('Annotation: failed to resolve footnote', href, err);
       return false;
     }
+  },
+
+  /**
+   * Find a target element by id or name attribute (older EPUBs use <a name="...">) 
+   */
+  _findTarget(doc, targetId) {
+    if (!doc || !targetId) return null;
+
+    // In some epub.js environments or edge cases, doc might be just a string
+    let searchDoc = doc;
+    if (typeof doc === 'string') {
+      try {
+        searchDoc = new DOMParser().parseFromString(doc, "application/xhtml+xml");
+      } catch (e) {
+        return null;
+      }
+    }
+
+    let el = null;
+    // 1. Try getElementById safely
+    if (typeof searchDoc.getElementById === 'function') {
+      try { el = searchDoc.getElementById(targetId); } catch(e) {}
+    }
+
+    // 2. Fallback to querySelector for name attribute or if getElementById is missing
+    if (!el && typeof searchDoc.querySelector === 'function') {
+      try {
+        el = searchDoc.querySelector('[id="' + CSS.escape(targetId) + '"]') ||
+             searchDoc.querySelector('[name="' + CSS.escape(targetId) + '"]');
+      } catch(e) {}
+    }
+
+    return el;
+  },
+
+  /**
+   * Extract meaningful annotation content from a target element.
+   * If the element is a small anchor/link, grab its containing block instead.
+   */
+  _extractContent(el) {
+    if (!el) return '';
+    // If element is an anchor or has very short content, get the parent block
+    const tagName = el.tagName?.toLowerCase();
+    if (tagName === 'a' || tagName === 'sup' || tagName === 'sub' || (el.textContent || '').trim().length < 5) {
+      // Walk up to a block-level parent (p, div, li, aside, section, blockquote)
+      let parent = el.parentElement || el.parentNode;
+      while (parent && !['p', 'div', 'li', 'aside', 'section', 'blockquote', 'body'].includes(parent.tagName?.toLowerCase())) {
+        parent = parent.parentElement || parent.parentNode;
+        if (parent && parent.nodeType === 9) break; // Break if we hit the Document node
+      }
+      if (parent && parent.tagName && parent.tagName.toLowerCase() !== 'body') {
+        return parent.innerHTML || new XMLSerializer().serializeToString(parent);
+      }
+    }
+    return el.innerHTML || new XMLSerializer().serializeToString(el);
   },
 
   /**
@@ -219,56 +279,70 @@ const Annotations = {
     if (!this.book) return null;
 
     try {
-      // Find the section in the spine
       let section = null;
       if (sectionHref) {
+        // Method 1: Direct spine lookup
         section = this.book.spine.get(sectionHref);
-        if (!section) {
-          // Try to find by partial match
-          this.book.spine.each((s) => {
-            if (s.href && s.href.includes(sectionHref)) {
-              section = s;
-            }
-          });
-        }
-      }
 
-      if (!section && targetId) {
-        // Search all sections for the target ID
-        for (let i = 0; i < this.book.spine.length; i++) {
-          const s = this.book.spine.get(i);
-          if (s) {
-            const loaded = await s.load(this.book.load.bind(this.book));
-            const el = loaded.querySelector('#' + CSS.escape(targetId));
-            if (el) {
-              const html = el.innerHTML;
-              let cfi;
-              try { cfi = s.cfiFromElement(el); } catch(e){}
-              s.unload();
-              return { html, href: s.href, cfi };
+        // Method 2: Resolve relative path against current section's directory
+        if (!section && this.rendition) {
+          try {
+            const currentHref = this.rendition.currentLocation()?.start?.href || '';
+            const currentDir = currentHref.substring(0, currentHref.lastIndexOf('/') + 1);
+            const cleanHref = sectionHref.replace(/^(\.\.\/)+/, '');
+            const resolved = currentDir + cleanHref;
+            section = this.book.spine.get(resolved);
+          } catch(e) {}
+        }
+
+        // Method 3: Match by filename across all spine items (robust fallback)
+        if (!section) {
+          const filename = sectionHref.split('/').pop().split('#')[0];
+          for (let i = 0; i < this.book.spine.length; i++) {
+            const s = this.book.spine.get(i);
+            if (s && s.href && s.href.split('/').pop() === filename) {
+              section = s;
+              break;
             }
-            s.unload();
           }
         }
-        return null;
       }
 
+      // If we found the section, load content
       if (section) {
         const loaded = await section.load(this.book.load.bind(this.book));
         if (targetId) {
-          const el = loaded.querySelector('#' + CSS.escape(targetId));
+          const el = this._findTarget(loaded, targetId);
           if (el) {
-            const html = el.innerHTML;
-            let cfi;
-            try { cfi = section.cfiFromElement(el); } catch(e){}
+            const html = this._extractContent(el);
             section.unload();
-            return { html, href: section.href, cfi };
+            return { html, href: section.href };
           }
         }
         // Return a portion of the section content
-        const html = loaded.querySelector('body')?.innerHTML || loaded.innerHTML;
+        const bodyEl = loaded.querySelector ? loaded.querySelector('body') : null;
+        const html = bodyEl ? (bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl)) : '';
         section.unload();
-        return { html, href: section.href };
+        if (html) return { html, href: section.href };
+      }
+
+      // Brute-force: search ALL sections for target ID
+      if (targetId) {
+        for (let i = 0; i < this.book.spine.length; i++) {
+          const s = this.book.spine.get(i);
+          if (s) {
+            try {
+              const loaded = await s.load(this.book.load.bind(this.book));
+              const el = this._findTarget(loaded, targetId);
+              if (el) {
+                const html = this._extractContent(el);
+                s.unload();
+                return { html, href: s.href };
+              }
+              s.unload();
+            } catch(e) { /* skip unloadable sections */ }
+          }
+        }
       }
     } catch (err) {
       console.warn('Annotation: error loading from book', err);
@@ -298,18 +372,23 @@ const Annotations = {
     const jumpLink = document.createElement('div');
     jumpLink.className = 'annotation-jump-link';
     jumpLink.innerHTML = '<a href="javascript:void(0)">跳转到注释位置 →</a>';
-    jumpLink.querySelector('a').addEventListener('click', (e) => {
+    jumpLink.querySelector('a').addEventListener('click', async (e) => {
       e.preventDefault();
       this.close();
       if (this.rendition && href) {
-        // Wrap in promise to fallback gracefully
-        Promise.resolve(this.rendition.display(href)).catch(() => {
-          // If epub.js fails with "No Section Found", try falling back to just the section href without hash
-          const baseHref = href.split('#')[0];
-          if (baseHref && baseHref !== href) {
-            this.rendition.display(baseHref);
+        try {
+          await this.rendition.display(href);
+        } catch (_) {
+          // If epub.js fails with "No Section Found", try the base section href
+          try {
+            const baseHref = href.split('#')[0];
+            if (baseHref && baseHref !== href) {
+              await this.rendition.display(baseHref);
+            }
+          } catch (__) {
+            console.warn('Annotation: could not navigate to', href);
           }
-        });
+        }
       }
     });
     this.body.appendChild(jumpLink);
@@ -361,12 +440,8 @@ const Annotations = {
             e.stopImmediatePropagation();
 
             const footnoteHref = link.getAttribute('data-footnote-href');
-            const handled = await this.showFootnote(footnoteHref, contents);
-            // Do NOT navigate if handled as footnote - user can use "jump to" link
-            if (!handled) {
-              // If not resolved as footnote, navigate normally
-              rendition.display(footnoteHref);
-            }
+            // showFootnote now ALWAYS shows a popup (even with fallback content)
+            await this.showFootnote(footnoteHref, contents);
           }, true); // capture phase
         }
       });

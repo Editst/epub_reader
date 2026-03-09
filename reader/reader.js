@@ -11,6 +11,8 @@
   let currentBookId = '';
   let currentFileName = '';
   let isBookLoaded = false;
+  let currentStableCfi = null; // Reliable position anchor for resize/reflows
+  let isResizing = false; // Flag to ignore corrupted 'relocated' events during reflow
   let _navLock = false; // Debounce lock to prevent double page-turn
 
   // --- Reading Stats State ---
@@ -38,7 +40,7 @@
   const lineHeightValue = document.getElementById('line-height-value');
   const fontFamilySelect = document.getElementById('font-family-select');
   const settingsPanel = document.getElementById('settings-panel');
-  
+
   const customThemeOptions = document.getElementById('custom-theme-options');
   const customBgColor = document.getElementById('custom-bg-color');
   const customTextColor = document.getElementById('custom-text-color');
@@ -120,7 +122,7 @@
       customBgColor.addEventListener('change', (e) => {
         EpubStorage.savePreferences({ customBg: e.target.value });
       });
-      
+
       customTextColor.addEventListener('input', (e) => {
         currentPrefs.customText = e.target.value;
         if (currentPrefs.theme === 'custom') applyThemeToRendition('custom');
@@ -179,27 +181,52 @@
 
     // Handle window resize cleanly with debounce
     let resizeTimer;
+    let preResizeCfi = null;
     window.addEventListener('resize', () => {
       if (!rendition || !isBookLoaded) return;
-      const cfiContext = rendition.currentLocation()?.start?.cfi;
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        rendition.resize();
-        if (cfiContext) {
-          rendition.display(cfiContext);
+      isResizing = true; // Block corrupted intermediate CFIs
+      
+      // The epub.js backward-drift bug is caused by start.cfi pointing to spanning elements.
+      // By using end.cfi, we guarantee the bounding box anchors to the current page.
+      if (!preResizeCfi) {
+        const loc = rendition.currentLocation();
+        if (loc && loc.end) {
+          preResizeCfi = loc.end.cfi;
         }
-      }, 200);
+      }
+
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(async () => {
+        const targetCfi = preResizeCfi;
+        preResizeCfi = null;
+        
+        rendition.resize(); 
+        
+        // Wait 1 frame to ensure DOM layout of the iframe has absorbed the resize
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        
+        if (targetCfi) {
+          // Override epub.js's native (and flawed) start.cfi restoration
+          await rendition.display(targetCfi);
+        }
+        
+        isResizing = false;
+        const newLoc = rendition.currentLocation();
+        if (newLoc && newLoc.start) {
+          onLocationChanged(newLoc);
+        }
+      }, 250);
     });
 
     // Click outside to close panels (Centralized Panel Management)
     document.addEventListener('click', (e) => {
       // Ignore clicks that are inside a panel or on a toolbar button
-      const isInsidePanel = e.target.closest('#settings-panel') || 
-                            e.target.closest('#bookmarks-panel') || 
-                            e.target.closest('#sidebar') || 
-                            e.target.closest('#search-panel') ||
-                            e.target.closest('.toolbar-btn') ||
-                            e.target.closest('.annotation-popup');
+      const isInsidePanel = e.target.closest('#settings-panel') ||
+        e.target.closest('#bookmarks-panel') ||
+        e.target.closest('#sidebar') ||
+        e.target.closest('#search-panel') ||
+        e.target.closest('.toolbar-btn') ||
+        e.target.closest('.annotation-popup');
 
       if (!isInsidePanel) {
         closeAllPanels();
@@ -213,7 +240,7 @@
     if (typeof TOC !== 'undefined' && typeof TOC.close === 'function') TOC.close();
     if (typeof Bookmarks !== 'undefined' && typeof Bookmarks.closePanel === 'function') Bookmarks.closePanel();
     if (typeof Search !== 'undefined' && typeof Search.closePanel === 'function') Search.closePanel();
-    
+
     // Explicitly hide overlay
     const overlay = document.getElementById('sidebar-overlay');
     if (overlay) overlay.style.display = 'none';
@@ -282,7 +309,7 @@
   async function navPrev() {
     if (_navLock || !rendition) return;
     _navLock = true;
-    
+
     const loc = rendition.currentLocation();
     if (loc && loc.atStart && currentPrefs.layout !== 'scrolled') {
       try {
@@ -479,7 +506,7 @@
   function generateCustomCss() {
     const fallbackFont = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
     const fontFamily = currentPrefs.fontFamily ? `${currentPrefs.fontFamily}, ${fallbackFont}` : fallbackFont;
-    
+
     // Explicitly target root to let relative sizes inside the EPUB scale naturally.
     return `
       @namespace xmlns "http://www.w3.org/1999/xhtml";
@@ -492,6 +519,7 @@
       }
       p, div, li, h1, h2, h3, h4, h5, h6 {
         font-family: inherit;
+        line-height: inherit !important;
         text-align: justify;
       }
       a {
@@ -530,12 +558,12 @@
     // Destroy previous book and clean up memory
     if (book) {
       book.destroy();
-      
+
       // Clean up sidebars to prevent memory leaks across books
       if (typeof TOC !== 'undefined' && TOC.reset) TOC.reset();
       if (typeof Bookmarks !== 'undefined' && Bookmarks.reset) Bookmarks.reset();
       if (typeof Search !== 'undefined' && Search.reset) Search.reset();
-      
+
       // Stop timer for old book
       if (readingTimer) {
         clearInterval(readingTimer);
@@ -546,7 +574,7 @@
 
     book = ePub(arrayBuffer);
     const prefs = await EpubStorage.getPreferences();
-    
+
     // Fetch correctly scoped reading time for the *new* book
     const savedTime = await EpubStorage.getReadingTime(currentBookId);
     activeReadingSeconds = savedTime || 0;
@@ -568,7 +596,7 @@
       flow: prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
       manager: prefs.layout === 'scrolled' ? 'continuous' : 'default',
       allowScriptedContent: false,
-      gap: 40
+      gap: 80
     });
 
     // Inject our bulletproof custom styles into every new chapter iframe
@@ -649,7 +677,7 @@
 
     // Init bookmarks for this book
     Bookmarks.setBook(currentBookId, book, rendition);
-    
+
     // Init search for this book
     Search.setBook(book, rendition);
 
@@ -682,33 +710,14 @@
       doc.addEventListener('keydown', (e) => {
         handleKeyNav(e);
       });
-      // Handle click to close panels and edge pagination
+      // Handle click to close panels
       doc.addEventListener('click', (e) => {
         if (!e.target.closest('a')) {
           // Check if any panels are open
           const hasOpenPanels = document.querySelector('.settings-panel.open, .bookmarks-panel.open, .sidebar.open');
-          
-          if (hasOpenPanels) {
-            // Just close panels, don't paginate
-            closeAllPanels();
-          } else {
-            // No panels open, check for edge click
-            // Only apply edge click if we are in paginated mode to prevent jumping chapters in scroll mode
-            const prefs = currentPrefs; // we need to know layout
-            // Actually, navNext and navPrev work globally. But edge click is usually for paginated mode.
-            // Let's just do it generally, epub.js handles it gracefully.
-            const width = doc.documentElement.clientWidth;
-            const x = e.clientX;
-            
-            // Text selection shouldn't trigger pagination
-            const selection = doc.getSelection();
-            if (selection && selection.toString().length > 0) return;
 
-            if (x < width * 0.2) {
-              navPrev();
-            } else if (x > width * 0.8) {
-              navNext();
-            }
+          if (hasOpenPanels) {
+            closeAllPanels();
           }
         }
       });
@@ -727,6 +736,7 @@
 
   // --- Location / Progress ---
   function onLocationChanged(location) {
+    if (isResizing) return; // Ignore garbage locations emitted during reflows
     if (!location || !location.start) return;
 
     // Update progress (only if locations have been generated)
@@ -748,7 +758,8 @@
     }
 
     // Save position
-    EpubStorage.savePosition(currentBookId, location.start.cfi);
+    currentStableCfi = location.start.cfi;
+    EpubStorage.savePosition(currentBookId, currentStableCfi);
 
     // Update bookmark button state
     updateBookmarkButtonState();
@@ -757,7 +768,7 @@
   // --- Reading Stats Logic ---
   function startReadingTimer() {
     if (readingTimer) clearInterval(readingTimer);
-    
+
     readingTimer = setInterval(() => {
       // Only increment if document is active (not hidden)
       if (!document.hidden && currentBookId && isBookLoaded) {
@@ -794,7 +805,7 @@
       if (progress >= 0 && progress <= 1) {
         const activeMinutes = activeReadingSeconds / 60;
         let remainingMinutes = 0;
-        
+
         // Use dynamic speed if there is meaningful data points (> 1 min and > 0.5% read)
         if (activeMinutes > 1 && progress > 0.005) {
           const totalMinutesDesc = activeMinutes / progress;
@@ -806,7 +817,7 @@
           const estTotalMinutes = charsTotal / 400; // 400 chars per min
           remainingMinutes = Math.max(0, Math.round(estTotalMinutes * (1 - progress)));
         }
-        
+
         const remHours = Math.floor(remainingMinutes / 60);
         const remMins = remainingMinutes % 60;
         remainingStr = remHours > 0 ? `${remHours}小时${remMins}分钟` : `${remMins}分钟`;
@@ -932,7 +943,7 @@
 
     rendition.themes.override('color', t.color);
     rendition.themes.override('background', t.bg);
-    
+
     // Update the custom CSS hook to either crush inline styles (for custom theme) 
     // or remove the custom color overrides (for standard themes).
     updateCustomStyles();
