@@ -12,6 +12,7 @@ const Search = (function() {
   let statusEl = null;
   let isSearching = false;
   let currentSearchId = 0;
+  let _lastSearchAlertCfi = null; // v1.2.0: Track search highlights to prevent memory/visual leaks
 
   // Escape HTML utility to prevent XSS
   function escapeHtml(unsafe) {
@@ -82,6 +83,7 @@ const Search = (function() {
     if (resultsList) resultsList.innerHTML = '';
     if (statusEl) statusEl.innerHTML = '';
     if (searchInput) searchInput.value = '';
+    clearSearchHighlight();
   }
 
   function togglePanel() {
@@ -118,6 +120,7 @@ const Search = (function() {
     // Cancel any active searches if panel is closed
     isSearching = false;
     currentSearchId++;
+    clearSearchHighlight(); // v1.2.0: Clean up search highlights on exit
   }
 
   function reset() {
@@ -127,6 +130,7 @@ const Search = (function() {
     if (searchInput) searchInput.value = '';
     isSearching = false;
     currentSearchId++;
+    clearSearchHighlight();
     book = null;
     rendition = null;
   }
@@ -240,13 +244,24 @@ const Search = (function() {
         itemEl.style.background = 'var(--bg-hover)';
 
         if (rendition && rendition.annotations) {
-          rendition.annotations.highlight(res.cfi, {}, (e) => {});
+          clearSearchHighlight(); // v1.2.0: Clean up previous mark
+          // Add temporary highlight
+          rendition.annotations.highlight(res.cfi, {}, (e) => {}, "epubjs-search-highlight", { "fill": "yellow", "fill-opacity": "0.5" });
+          _lastSearchAlertCfi = res.cfi;
           rendition.display(res.cfi);
         }
       });
       
       resultsList.appendChild(itemEl);
     });
+  }
+
+  // v1.2.0: Utility to clear the last search highlight to prevent visual/memory pollution
+  function clearSearchHighlight() {
+      if (_lastSearchAlertCfi && rendition && rendition.annotations) {
+          rendition.annotations.remove(_lastSearchAlertCfi, "highlight");
+          _lastSearchAlertCfi = null;
+      }
   }
 
   return { init, setBook, togglePanel, closePanel, reset, panel: () => panel };

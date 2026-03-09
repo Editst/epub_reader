@@ -1172,27 +1172,36 @@ html, body {
 }
 
 /* --- Annotation Visual Distinctions --- */
+/* v1.2.0 PDCA: Zero-collateral-damage CSS targeting.
+   Only strip default strokes from the exact inner SVG elements built by epub.js 
+   when they reside inside an annotation container. Never touch book SVGs! */
+svg.epubjs-annotation polyline,
+svg.epubjs-annotation line,
+svg.epubjs-annotation path {
+  stroke-width: 0 !important;
+  stroke: none !important;
+}
+
+/* For base color highlights, keep them stroke-less */
 .epubjs-hl-base {
-  stroke: none !important; /* Issue 2: Remove default black line or any stroke around highlight */
+  stroke: none !important; 
 }
 
-
-/* Highlight that also has a note gets ONLY a distinct dashed underline indicator */
-/* We remove the stroke to avoid 'boxing' the text */
-/* FIX (v1.1.4): Use clip-path to ensure only the bottom edge is visible, preventing 'boxing' */
-.epubjs-hl-note-only,
-.epubjs-hl-with-note {
-  stroke: var(--text-accent);
-  stroke-width: 3;
-  stroke-dasharray: 12, 6; /* Issue 2: Long dashed line */
-  stroke-opacity: 0.9;
+/* Highlight that also has a note gets ONLY a distinct dashed underline indicator.
+   We explicitly override the internal SVG shapes to draw our custom line. */
+.epubjs-hl-note-only *,
+.epubjs-hl-with-note * {
+  stroke: var(--text-accent) !important;
+  stroke-width: 3px !important;
+  stroke-dasharray: 12, 6 !important; /* Issue 2: Uniform Long dashed line for both */
+  stroke-linecap: round !important;
+  stroke-opacity: 0.9 !important;
   fill: none !important;
-  clip-path: inset(calc(100% - 4px) 0 0 0);
 }
 
-.epubjs-hl-with-note {
-  stroke-dasharray: 8, 8; /* Slightly different for combined hl+note */
-  stroke-opacity: 0.8;
+[data-theme="dark"] .epubjs-hl-note-only *,
+[data-theme="dark"] .epubjs-hl-with-note * {
+  stroke: #60a5fa !important;
 }
 
 [data-theme="dark"] .epubjs-hl-note-only,

@@ -16,6 +16,7 @@ window.Highlights = (function () {
   const btnCloseToolbar = document.createElement('button'); // New hidden close button or just refinement
   
   let _pendingCfi = null; // Store CFI for note-taking before highlight is created
+  let _internalAction = false; // v1.2.0: Strict sync lock to prevent panel persistence
 
   const notePopup = document.getElementById('note-popup');
   const noteTextarea = document.getElementById('note-textarea');
@@ -41,7 +42,7 @@ window.Highlights = (function () {
     // CRITICAL: Fallback for selection and click stability
     _rendition.hooks.content.register((contents) => {
         const doc = contents.document;
-        doc.addEventListener('mouseup', () => {
+        doc.addEventListener('click', (e) => {
             // Give a tiny delay for selection to be processed
             setTimeout(() => {
                 const selection = contents.window.getSelection();
@@ -52,16 +53,11 @@ window.Highlights = (function () {
                    // Click away
                    if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
                    
-                   // Check if click was on an actual highlight (handled by handleHighlightClick)
-                   // If not, close panels
-                   setTimeout(() => {
-                      if (!_activeHighlightCfi && (!_currentCfiRange || (selection && selection.isCollapsed))) {
-                         closeToolbar();
-                         closeNotePopup();
-                         _activeHighlightCfi = null;
-                         _currentCfiRange = null;
-                      }
-                   }, 10);
+                   // v1.2.0: If the click was part of our internal UI actions (like clicking a highlight), do not close.
+                   if (_internalAction) return;
+
+                   // If it's a genuine click on the blank page with no selection, NUKE everything.
+                   closePanels();
                 }
             }, 10);
         });
@@ -72,11 +68,31 @@ window.Highlights = (function () {
     if (btnShowToolbar) {
         btnShowToolbar.addEventListener('click', (e) => {
             e.stopPropagation();
+            _internalAction = true;
+            setTimeout(() => _internalAction = false, 50);
+
             const targetCfi = _activeHighlightCfi || _pendingCfi;
             if (targetCfi) {
-                _activeHighlightCfi = targetCfi;
-                showToolbarForHighlight(targetCfi);
-                closeNotePopup();
+                // v1.2.0 Fix: Instead of recalculating via getRange (which crashes on page turns),
+                // we simply reuse the notePopup's exact current physical position!
+                const rect = notePopup.getBoundingClientRect();
+                
+                _activeHighlightCfi = targetCfi; // Ensure state is locked
+                closeNotePopup(); // Hide note
+                
+                // Show toolbar at exactly the same place
+                toolbar.style.top = `${rect.top}px`;
+                toolbar.style.left = `${rect.left + (rect.width / 2)}px`; // Center align
+                
+                const hl = highlights.find(h => h.cfi === targetCfi);
+                if (hl) {
+                    colorBtns.forEach(b => {
+                        if (b.dataset.color === hl.color) b.classList.add('active');
+                        else b.classList.remove('active');
+                    });
+                }
+                btnClearHl.style.display = 'flex';
+                toolbar.classList.add('show');
             }
         });
     }
@@ -92,6 +108,8 @@ window.Highlights = (function () {
     });
   }
 
+  // Deprecated in v1.2.0 in favor of direct rect inheritance for Modify Button,
+  // but kept for potential future API use
   async function showToolbarForHighlight(cfiRange) {
      const hl = highlights.find(h => h.cfi === cfiRange);
      if (!hl) return;
@@ -203,6 +221,11 @@ window.Highlights = (function () {
   // Handle click on existing highlight
   function handleHighlightClick(e, cfiRange) {
      e.stopPropagation();
+     
+     // v1.2.0: Lock internal action so doc click listener ignores this
+     _internalAction = true;
+     setTimeout(() => _internalAction = false, 50);
+
      _activeHighlightCfi = cfiRange;
      _currentCfiRange = null;
 
@@ -223,8 +246,13 @@ window.Highlights = (function () {
         const iframe = target.ownerDocument.defaultView.frameElement;
         const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
-        const top = iframeRect.top + rect.bottom + 10; // below highlight
-        const left = iframeRect.left + rect.left + (rect.width / 2);
+        let top = iframeRect.top + rect.bottom + 10; // below highlight
+        let left = iframeRect.left + rect.left + (rect.width / 2);
+
+        // v1.2.0 Bounds Checking: Prevent toolbar offscreen bottom
+        if (top + 50 > window.innerHeight) {
+            top = iframeRect.top + rect.top - 60; // Flip above
+        }
 
         toolbar.style.top = `${top}px`;
         toolbar.style.left = `${left}px`;
@@ -232,15 +260,27 @@ window.Highlights = (function () {
 
         // Optimization 1: If note exists, show the note popup too!
         if (hl.note) {
-          setTimeout(() => showNotePopup(hl, toolbar.getBoundingClientRect()), 50);
+          // Provide bounds-checked coordinates for the note
+          const anchorRect = { top: top, left: left };
+          setTimeout(() => showNotePopup(hl, anchorRect), 50);
         }
      }
   }
 
   function showNotePopup(hl, anchorRect) {
       noteTextarea.value = hl.note || '';
-      notePopup.style.top = `${anchorRect.top}px`;
-      notePopup.style.left = `${anchorRect.left}px`;
+      
+      let top = anchorRect.top;
+      let left = anchorRect.left;
+
+      // v1.2.0 Bounds Checking: If highlight is at the very top of screen, 
+      // the note popup will overflow above viewport. Push it down.
+      if (top < 10) {
+          top = anchorRect.top + 60; // Push down below selection
+      }
+
+      notePopup.style.top = `${top}px`;
+      notePopup.style.left = `${left}px`;
       
       toolbar.classList.remove('show');
       notePopup.classList.add('show');
@@ -262,6 +302,9 @@ window.Highlights = (function () {
   // Open note popup
   btnAddNote.addEventListener('click', (e) => {
       e.stopPropagation();
+      _internalAction = true;
+      setTimeout(() => _internalAction = false, 50);
+
       const targetCfi = _activeHighlightCfi || _currentCfiRange;
       if (!targetCfi) return;
 
@@ -370,8 +413,13 @@ window.Highlights = (function () {
      if (_rendition && _rendition.manager) {
         const views = _rendition.manager.views;
         if (views && views.length > 0) {
-           const win = views[0].document.defaultView;
-           if (win.getSelection) win.getSelection().removeAllRanges();
+           // v1.2.0 Fix: Clear selection in ALL views for multi-column layouts
+           views.forEach(v => {
+               const win = v?.document?.defaultView;
+               if (win && win.getSelection) {
+                   win.getSelection().removeAllRanges();
+               }
+           });
         }
      }
   }
@@ -387,12 +435,17 @@ window.Highlights = (function () {
     _pendingCfi = null;
   }
 
+  function closePanels() {
+     closeToolbar();
+     closeNotePopup();
+     // v1.2.0: Atomically destroy CFI state locking so panel refuses to repoen
+     _activeHighlightCfi = null;
+     _currentCfiRange = null;
+  }
+
   return {
     init: init,
     setBookDetails: setBookDetails,
-    closePanels: function() {
-       closeToolbar();
-       closeNotePopup();
-    }
+    closePanels: closePanels
   };
 })();

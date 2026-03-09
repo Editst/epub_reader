@@ -732,15 +732,32 @@
     // Ensure focus after everything is loaded
     setTimeout(() => ensureFocus(), 300);
 
-    // Generate locations in the background (this is slow for large books)
-    // Progress bar will start working once this completes
-    book.locations.generate(1600).then(() => {
-      // Update progress display now that locations are ready
-      const loc = rendition.currentLocation();
-      if (loc && loc.start) {
-        onLocationChanged(loc);
-      }
-    });
+    // v1.2.0 PDCA: Locations Caching architecture to prevent progress & ETA zeroing
+    const cachedLocsJSON = await EpubStorage.getLocations(currentBookId);
+    
+    if (cachedLocsJSON) {
+        // Instant load from cache
+        book.locations.load(cachedLocsJSON);
+        
+        // Update progress display instantly
+        const loc = rendition.currentLocation();
+        if (loc && loc.start) {
+            onLocationChanged(loc);
+        }
+    } else {
+        // Generate locations in the background (this is slow for large books)
+        book.locations.generate(1600).then(async (locations) => {
+            // Save to cache for next time
+            const locsJSON = book.locations.save();
+            await EpubStorage.saveLocations(currentBookId, locsJSON);
+            
+            // Update progress display now that locations are ready
+            const loc = rendition.currentLocation();
+            if (loc && loc.start) {
+                onLocationChanged(loc);
+            }
+        });
+    }
   }
 
   /**

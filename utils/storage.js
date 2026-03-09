@@ -302,6 +302,7 @@ const EpubStorage = {
     await this.removeReadingTime(bookId);
     await this.removeCover(bookId);
     await this.removeHighlights(bookId);
+    await this.removeLocations(bookId); // New v1.2.0: cascade delete locations
     if (filename) {
       await this.removeFileFromIndexedDB(filename);
     }
@@ -339,5 +340,46 @@ const EpubStorage = {
     return new Promise((resolve) => {
       chrome.storage.local.set(data, resolve);
     });
+  },
+
+  // --- NEW CAPABILITIES FOR v1.2.0: Locations Caching ---
+
+  /**
+   * Save EPUB Locations array to prevent progress zeroing on load.
+   * Locations can be large, so we structure them per book.
+   * @param {string} bookId 
+   * @param {string} locationsJSON 
+   */
+  async saveLocations(bookId, locationsJSON) {
+    if (!bookId || !locationsJSON) return;
+    const key = 'loc_' + bookId;
+    
+    // Safety limit: if locations JSON is extremely huge (e.g. >2MB), skip caching to save quota
+    if (locationsJSON.length > 2000000) {
+      console.warn("Locations data too large, skipping cache to preserve storage quota.");
+      return;
+    }
+    
+    await this._set({ [key]: locationsJSON });
+  },
+
+  /**
+   * Retrieve cached Locations JSON.
+   * @param {string} bookId 
+   * @returns {string|null}
+   */
+  async getLocations(bookId) {
+    if (!bookId) return null;
+    return await this._get('loc_' + bookId);
+  },
+
+  /**
+   * Remove cached Locations.
+   * @param {string} bookId 
+   */
+  async removeLocations(bookId) {
+    if (!bookId) return;
+    const key = 'loc_' + bookId;
+    return new Promise(resolve => chrome.storage.local.remove([key], resolve));
   }
 };
