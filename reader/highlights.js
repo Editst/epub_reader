@@ -74,24 +74,25 @@ window.Highlights = (function () {
             e.stopPropagation();
             const targetCfi = _activeHighlightCfi || _pendingCfi;
             if (targetCfi) {
-                // Re-calculate position for toolbar
-                // Since note popup is already shown, we can use its position or target hl
-                const hl = highlights.find(h => h.cfi === targetCfi);
-                if (hl) {
-                    // Similar to handleHighlightClick but without re-triggering popup
-                    closeNotePopup();
-                    _activeHighlightCfi = targetCfi;
-                    // Trigger a "fake" click to re-position toolbar
-                    // Or just call the positioning logic
-                    _currentCfiRange = null;
-                    showToolbarForHighlight(targetCfi);
-                }
+                _activeHighlightCfi = targetCfi;
+                showToolbarForHighlight(targetCfi);
+                closeNotePopup();
             }
         });
     }
+
+    // Global listener for clicking outside on the main window
+    window.addEventListener('mousedown', (e) => {
+        if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
+            closeToolbar();
+            closeNotePopup();
+            _activeHighlightCfi = null;
+            _currentCfiRange = null;
+        }
+    });
   }
 
-  function showToolbarForHighlight(cfiRange) {
+  async function showToolbarForHighlight(cfiRange) {
      const hl = highlights.find(h => h.cfi === cfiRange);
      if (!hl) return;
 
@@ -101,14 +102,35 @@ window.Highlights = (function () {
      });
      btnClearHl.style.display = 'flex';
 
-     // Find the element for coordinates
-     // This is tricky without the event object, so we look it up
-     _rendition.annotations.get(cfiRange).then(ann => {
-        // Unfortunately epubjs annotations don't easily expose the element
-        // We'll rely on the fact that handleHighlightClick is the primary entrance.
-        // For 'Modify', we just show the toolbar where it was or at a sane default.
-        toolbar.classList.add('show');
-     });
+     // Find the element for coordinates using the CFI
+     try {
+         const range = await _rendition.book.getRange(cfiRange);
+         if (range) {
+             const rect = range.getBoundingClientRect();
+             // Find which iframe contains this range
+             const views = _rendition.manager.views;
+             let iframeRect = { top: 0, left: 0 };
+             
+             // Try to find the iframe that matches the range context
+             if (views && views.length > 0) {
+                 const iframe = views[0].document.defaultView.frameElement;
+                 if (iframe) iframeRect = iframe.getBoundingClientRect();
+             }
+
+             const top = iframeRect.top + rect.bottom + 10;
+             const left = iframeRect.left + rect.left + (rect.width / 2);
+
+             toolbar.style.top = `${top}px`;
+             toolbar.style.left = `${left}px`;
+             toolbar.classList.add('show');
+         } else {
+             // Fallback if range fails
+             toolbar.classList.add('show');
+         }
+     } catch (e) {
+         console.warn("Failed to get range for toolbar positioning", e);
+         toolbar.classList.add('show');
+     }
   }
 
   function handleSelection(cfiRange, contents) {
