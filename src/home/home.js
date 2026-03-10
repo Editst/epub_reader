@@ -160,10 +160,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.className = 'book-card';
 
       // Load Cover
+      // FIX P1-E: URL.createObjectURL must be paired with revokeObjectURL to
+      // avoid leaking blob references across bookshelf refreshes.  Build the
+      // img element via DOM APIs so we can revoke as soon as the image loads
+      // (or fails), rather than embedding the raw URL in an innerHTML template.
       const coverBlob = await EpubStorage.getCover(book.id);
-      const coverHtml = coverBlob 
-        ? `<img src="${URL.createObjectURL(coverBlob)}" alt="Cover">` 
-        : `<div class="placeholder">📖</div>`;
+      let coverObjectUrl = null;
+      let coverHtml;
+      if (coverBlob) {
+        coverObjectUrl = URL.createObjectURL(coverBlob);
+        coverHtml = `<img class="cover-img" src="${coverObjectUrl}" alt="Cover">`;
+      } else {
+        coverHtml = `<div class="placeholder">📖</div>`;
+      }
 
       // Load Progress
       const pos = await EpubStorage.getPosition(book.id);
@@ -207,6 +216,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.target.closest('.book-delete')) return;
         window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(book.filename);
       });
+
+      // FIX P1-E: Revoke the blob URL as soon as the image finishes loading
+      // (or fails) so the browser can free the underlying Blob memory.
+      if (coverObjectUrl) {
+        const coverImg = card.querySelector('.cover-img');
+        if (coverImg) {
+          coverImg.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+          coverImg.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        }
+      }
 
       // Delete book
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
@@ -254,12 +273,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const highlights = allHighlights[bookId] || [];
       const bookContext = bookMetaMap[bookId] || { title: '未知书籍' };
       
-      for (let i = 0; i < highlights.length; i++) {
-         const hl = highlights[i];
-         
-         // Setup original indexing context for deletion later
-         hl._bookId = bookId;
-         hl._originalIndex = i;
+      for (const hl of highlights) {
+         // Attach lookup context used for deletion and display
+         hl._bookId      = bookId;
+         // FIX P1-F: _originalIndex was computed here but never read; deletion
+         // already uses CFI matching (not index), so the variable was dead code.
          hl._bookContext = bookContext;
 
          // Filter logic

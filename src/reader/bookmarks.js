@@ -112,14 +112,35 @@ const Bookmarks = {
   },
 
   togglePanel() {
-    this.panel.classList.toggle('open');
     if (this.panel.classList.contains('open')) {
+      this.closePanel();
+    } else {
+      // FIX P1-C: Bookmarks previously toggled its own panel without touching
+      // the shared sidebar-overlay or closing other panels, allowing TOC, Search,
+      // and Bookmarks to all be open simultaneously with no backdrop.
+      // Close every other panel first, then show this one with the overlay.
+      const sidebar     = document.getElementById('sidebar');
+      const searchPanel = document.getElementById('search-panel');
+      if (sidebar)     sidebar.classList.remove('open');
+      if (searchPanel) searchPanel.classList.remove('open');
+
+      this.panel.classList.add('open');
+      const overlay = document.getElementById('sidebar-overlay');
+      if (overlay) overlay.classList.add('visible');
+
       this.loadBookmarks();
     }
   },
 
   closePanel() {
     this.panel.classList.remove('open');
+    // FIX P1-C: Only hide the overlay when no other panel is still open.
+    const tocOpen    = document.getElementById('sidebar')?.classList.contains('open');
+    const searchOpen = document.getElementById('search-panel')?.classList.contains('open');
+    if (!tocOpen && !searchOpen) {
+      const overlay = document.getElementById('sidebar-overlay');
+      if (overlay) overlay.classList.remove('visible');
+    }
   },
 
   reset() {

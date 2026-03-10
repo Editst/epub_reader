@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-1.2.4-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.2.7-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -54,6 +54,14 @@
 ## 🛡️ 隐私声明 (Privacy & Security)
 
 **Local First / 本地唯一**：您的所有操作——小到一次翻页、大到存储所有的电子书实体文件以及您的私密笔记——**均 100% 绝对隔离存储在您的浏览器本地空间内**。本应用从架构上主动切断了任何上传服务器的回传请求，真正的您的数据归属于您！
+
+## 🛡️ 安全与稳定性 (Security & Reliability)
+
+- **XSS 免疫**：全局内容边界采用 DOM API（`textContent` / `createElement`）构建，书名、作者、报错信息等任何外部输入均不注入 `innerHTML`，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
+- **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
+- **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
+- **数据库版本一致性**：所有 IndexedDB 读写路径统一指定版本 V3，消除新用户首次访问时读到空数据库的边缘场景。
+- **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
 
 ## 📄 开源协议 (License)
 

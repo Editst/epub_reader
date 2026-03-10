@@ -111,10 +111,13 @@ const Search = (function() {
   function closePanel() {
     if (panel) panel.classList.remove('open');
     if (overlay) {
-      // Only hide overlay if TOC is also closed
-      const sidebar = document.getElementById('sidebar');
-      if (!sidebar || !sidebar.classList.contains('open')) {
-         overlay.classList.remove('visible'); // v1.2.2: Standardize overlay toggling
+      // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
+      // Only remove it when ALL three panels are closed; otherwise the other
+      // panel's backdrop would disappear while the panel itself stays visible.
+      const tocOpen       = document.getElementById('sidebar')?.classList.contains('open');
+      const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
+      if (!tocOpen && !bookmarksOpen) {
+        overlay.classList.remove('visible');
       }
     }
     // Cancel any active searches if panel is closed

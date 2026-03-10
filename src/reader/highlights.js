@@ -25,9 +25,71 @@ window.Highlights = (function () {
 
   let highlights = [];
 
-  function init() {}
+  function init() {
+    // FIX P0-C: Both the window-level mousedown handler and the btnShowToolbar
+    // click handler were previously registered inside setBookDetails(), which is
+    // called every time a book is opened AND every time the layout is switched.
+    // Because anonymous functions cannot be removed with removeEventListener,
+    // each call stacked one more handler, leading to N+1 closePanels() calls on
+    // the next user click.  By moving them here — called exactly once on startup
+    // — the accumulation is eliminated entirely.
+
+    // Handler: close panels when the user clicks anywhere outside toolbar/popup
+    // on the main (host) page.  Clicks inside the epub.js iframe are handled by
+    // the per-contents mousedown hook registered in setBookDetails.
+    window.addEventListener('mousedown', _onWindowMouseDown);
+
+    // Handler: "Modify Highlight" button inside the note popup.
+    // Only one button exists in the DOM, so one registration is enough.
+    const btnShowToolbar = document.getElementById('btn-show-toolbar');
+    if (btnShowToolbar) {
+      btnShowToolbar.addEventListener('click', _onShowToolbarClick);
+    }
+  }
+
+  // Named handler — can be reasoned about and will never be duplicated.
+  function _onWindowMouseDown(e) {
+    if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
+      if (e.target.closest('#header-bar') || e.target.closest('#sidebar') || e.target.closest('.bottom-bar')) {
+        return;
+      }
+      closePanels();
+    }
+  }
+
+  // Named handler for the "Modify Highlight" button.
+  function _onShowToolbarClick(e) {
+    e.stopPropagation();
+    _internalAction = true;
+    setTimeout(() => _internalAction = false, 50);
+
+    const targetCfi = _activeHighlightCfi || _pendingCfi;
+    if (targetCfi) {
+      const rect = notePopup.getBoundingClientRect();
+      _activeHighlightCfi = targetCfi;
+      closeNotePopup();
+      toolbar.style.top  = `${rect.top}px`;
+      toolbar.style.left = `${rect.left + (rect.width / 2)}px`;
+      const hl = highlights.find(h => h.cfi === targetCfi);
+      if (hl) {
+        colorBtns.forEach(b => {
+          b.classList.toggle('active', b.dataset.color === hl.color);
+        });
+      }
+      btnClearHl.style.display = 'flex';
+      toolbar.classList.add('show');
+    }
+  }
 
   async function setBookDetails(bookId, fileName, rendition) {
+    // FIX P1-2: Remove the old 'selected' listener before re-registering.
+    // setBookDetails is called both in openBook and (after P0-4 fix) in
+    // setLayout. Without this guard, each call stacks another handleSelection
+    // onto the same rendition, causing duplicate highlights and toolbar flicker.
+    if (_rendition) {
+      try { _rendition.off('selected', handleSelection); } catch (_) {}
+    }
+
     _bookId = bookId;
     _fileName = fileName;
     _rendition = rendition;
@@ -39,76 +101,25 @@ window.Highlights = (function () {
     // Listen to selection event from epub.js
     _rendition.on('selected', handleSelection);
     
-    // CRITICAL: Fallback for selection and click stability
+    // CRITICAL: Fallback for selection and click stability inside epub.js iframes.
+    // hooks.content.register IS called for each new section/layout — that is
+    // intentional because each new iframe document needs its own listener.
+    // The window-level listener (above) covers the host page; this covers iframes.
     _rendition.hooks.content.register((contents) => {
-        const doc = contents.document;
-        // v1.2.3 Fix: Use mousedown instead of click because IFrames sometimes swallow clicks
-        // on focused input elements, preventing the panel from closing.
-        doc.addEventListener('mousedown', (e) => {
-            // Give a tiny delay for selection to be processed
-            setTimeout(() => {
-                const selection = contents.window.getSelection();
-                if (selection && !selection.isCollapsed) {
-                   // Selected event should fire, but if it doesn't, we can trigger manually
-                   // Or just ensure we have the right context
-                } else {
-                   // Click away
-                   if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
-                   
-                   // v1.2.0: If the click was part of our internal UI actions (like clicking a highlight), do not close.
-                   if (_internalAction) return;
-
-                   // If it's a genuine click on the blank page with no selection, NUKE everything.
-                   closePanels();
-                }
-            }, 10);
-        });
-    });
-
-    // Handle the "Modify Highlight" button in note popup
-    const btnShowToolbar = document.getElementById('btn-show-toolbar');
-    if (btnShowToolbar) {
-        btnShowToolbar.addEventListener('click', (e) => {
-            e.stopPropagation();
-            _internalAction = true;
-            setTimeout(() => _internalAction = false, 50);
-
-            const targetCfi = _activeHighlightCfi || _pendingCfi;
-            if (targetCfi) {
-                // v1.2.0 Fix: Instead of recalculating via getRange (which crashes on page turns),
-                // we simply reuse the notePopup's exact current physical position!
-                const rect = notePopup.getBoundingClientRect();
-                
-                _activeHighlightCfi = targetCfi; // Ensure state is locked
-                closeNotePopup(); // Hide note
-                
-                // Show toolbar at exactly the same place
-                toolbar.style.top = `${rect.top}px`;
-                toolbar.style.left = `${rect.left + (rect.width / 2)}px`; // Center align
-                
-                const hl = highlights.find(h => h.cfi === targetCfi);
-                if (hl) {
-                    colorBtns.forEach(b => {
-                        if (b.dataset.color === hl.color) b.classList.add('active');
-                        else b.classList.remove('active');
-                    });
-                }
-                btnClearHl.style.display = 'flex';
-                toolbar.classList.add('show');
-            }
-        });
-    }
-
-    // Global listener for clicking outside on the main window
-    window.addEventListener('mousedown', (e) => {
-        // Only trigger this if we are not clicking the toolbar or popup
-        if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
-            // Check if click was on a UI element outside the reading canvas
-            if (e.target.closest('#header-bar') || e.target.closest('#sidebar') || e.target.closest('.bottom-bar')) {
-                return; // Let standard UI clicks pass
-            }
+      const doc = contents.document;
+      // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
+      doc.addEventListener('mousedown', (e) => {
+        setTimeout(() => {
+          const selection = contents.window.getSelection();
+          if (selection && !selection.isCollapsed) {
+            // A selection is active; the 'selected' event will handle toolbar display.
+          } else {
+            if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
+            if (_internalAction) return;
             closePanels();
-        }
+          }
+        }, 10);
+      });
     });
   }
 

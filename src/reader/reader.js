@@ -176,11 +176,24 @@
     });
 
     // Progress slider
+    // FIX P2-C: The old 'input' handler called rendition.display() on every pixel
+    // of movement during a drag.  epub.js display() is a heavy operation (chapter
+    // load + layout) — rapid firing caused white-screen flicker and racing renders.
+    // Split into two events:
+    //   input  → instant visual feedback only (update the percentage label)
+    //   change → fired once on mouse-up; performs the actual navigation
     progressSlider.addEventListener('input', (e) => {
+      if (!book || !book.locations || !book.locations.length()) return;
+      const pct = parseFloat(e.target.value);
+      progressCurrent.textContent = pct.toFixed(1) + '%';
+    });
+    progressSlider.addEventListener('change', (e) => {
       if (!rendition || !book) return;
+      // Guard: locations must be ready (same protection as original P0-2 fix)
+      if (!book.locations || !book.locations.length()) return;
       const value = parseFloat(e.target.value) / 100;
       const cfi = book.locations.cfiFromPercentage(value);
-      rendition.display(cfi);
+      if (cfi) rendition.display(cfi);
     });
 
     // Click on reader area to ensure focus
@@ -251,9 +264,13 @@
     if (typeof Search !== 'undefined' && typeof Search.closePanel === 'function') Search.closePanel();
     if (typeof Highlights !== 'undefined' && typeof Highlights.closePanels === 'function') Highlights.closePanels();
 
-    // Explicitly hide overlay
+    // FIX P0-5: TOC.close() and Search.closePanel() both use classList to
+    // manage the overlay (.visible class). Using style.display='none' here
+    // wrote an inline style that fought with the CSS class, leaving the
+    // overlay stuck visible or invisible depending on call order.
+    // Use classList.remove('visible') for consistency.
     const overlay = document.getElementById('sidebar-overlay');
-    if (overlay) overlay.style.display = 'none';
+    if (overlay) overlay.classList.remove('visible');
   }
 
   // Keyboard navigation handler (with debounce to prevent double-fire)
@@ -427,17 +444,40 @@
   }
 
   function showLoadError(msg) {
+    // FIX P0-B: The old implementation spliced `msg` (which can contain
+    // HTML from third-party error objects) directly into innerHTML, creating
+    // an XSS vector inside the extension page.  Use DOM APIs exclusively so
+    // no string ever gets interpreted as markup.
     showLoading(false);
     document.getElementById('welcome-screen').style.display = 'none';
     const readerMain = document.getElementById('reader-main');
-    readerMain.innerHTML = `
-      <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--reader-text, #333);">
-        <div style="font-size:48px; margin-bottom:16px;">📚</div>
-        <h2 style="margin-bottom:8px;">书籍加载失败</h2>
-        <p style="color:#e94560; text-align:center; max-width:80%; margin-bottom:20px; line-height:1.5;">${msg.replace(/</g, '&lt;')}</p>
-        <button onclick="document.getElementById('file-input').click()" style="padding:10px 24px; border-radius:8px; border:none; background:linear-gradient(135deg, #e94560, #c23152); color:white; font-weight:600; cursor:pointer; font-size:14px;">重新选择文件</button>
-      </div>
-    `;
+    readerMain.innerHTML = '';  // clear previous content safely
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--reader-text,#333)';
+
+    const icon = document.createElement('div');
+    icon.style.cssText = 'font-size:48px;margin-bottom:16px';
+    icon.textContent = '📚';
+
+    const title = document.createElement('h2');
+    title.style.cssText = 'margin-bottom:8px';
+    title.textContent = '书籍加载失败';
+
+    const detail = document.createElement('p');
+    detail.style.cssText = 'color:#e94560;text-align:center;max-width:80%;margin-bottom:20px;line-height:1.5';
+    detail.textContent = msg;   // textContent — never parsed as HTML
+
+    const btn = document.createElement('button');
+    btn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,#e94560,#c23152);color:white;font-weight:600;cursor:pointer;font-size:14px';
+    btn.textContent = '重新选择文件';
+    btn.addEventListener('click', () => document.getElementById('file-input').click());
+
+    wrapper.appendChild(icon);
+    wrapper.appendChild(title);
+    wrapper.appendChild(detail);
+    wrapper.appendChild(btn);
+    readerMain.appendChild(wrapper);
     readerMain.style.display = 'block';
   }
 
@@ -617,7 +657,7 @@
       flow: prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
       manager: prefs.layout === 'scrolled' ? 'continuous' : 'default',
       allowScriptedContent: false,
-      gap: 80
+      gap: 48  // FIX P1-D: Unified gap value (was 80); setLayout used 40, causing line-width shift on layout switch
     });
 
     // Inject our bulletproof custom styles into every new chapter iframe
@@ -849,6 +889,18 @@
     }, 1000);
   }
 
+  // FIX P1-A: The setInterval above only saves every 10 s, so closing the tab
+  // within that window loses up to 9 s of reading time.  visibilitychange fires
+  // reliably when the user switches tabs, minimises, or closes the window, giving
+  // us a chance to flush the current counter immediately.
+  // Registered once at module startup (not inside startReadingTimer) so it
+  // survives book switches without accumulating extra listeners.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && currentBookId && isBookLoaded && activeReadingSeconds > 0) {
+      EpubStorage.saveReadingTime(currentBookId, activeReadingSeconds);
+    }
+  });
+
   function updateReadingStats() {
     if (!progressTime || !rendition || !book) return;
 
@@ -912,7 +964,11 @@
     const currentSection = location.start.href;
     const tocItem = findTocItem(book.navigation.toc, currentSection);
     const chapterName = tocItem ? tocItem.label.trim() : '';
-    const progress = book.locations.percentageFromCfi(cfi);
+    // FIX P0-2 (same root cause as progressSlider): guard before calling
+    // percentageFromCfi() — locations may not be generated yet.
+    const progress = (book.locations && book.locations.length())
+      ? book.locations.percentageFromCfi(cfi)
+      : 0;
 
     await Bookmarks.toggle(cfi, chapterName, progress);
     updateBookmarkButtonState();
@@ -1035,7 +1091,7 @@
         flow: flow,
         manager: manager,
         allowScriptedContent: false,
-        gap: 40
+        gap: 48  // FIX P1-D: Unified with openBook (was 40)
       });
 
       // Re-apply everything
@@ -1078,6 +1134,15 @@
 
         TOC.build(book.navigation, rendition);
         Bookmarks.setBook(currentBookId, book, rendition);
+
+        // FIX P0-4: Search and Highlights held a stale reference to the
+        // destroyed rendition after setLayout() rebuilt it. Re-bind them
+        // here so search results can highlight/navigate correctly, and so
+        // text selection and highlight clicks work in the new rendition.
+        // Must be called BEFORE rendition.display() so the hooks registered
+        // inside setBookDetails/setBook are in place when content renders.
+        Search.setBook(book, rendition);
+        Highlights.setBookDetails(currentBookId, currentFileName, rendition);
 
         if (currentCfi) {
           rendition.display(currentCfi);

@@ -17,7 +17,15 @@ const TOC = {
     // Toggle buttons
     document.getElementById('btn-toc').addEventListener('click', () => this.toggle());
     document.getElementById('btn-toc-close').addEventListener('click', () => this.close());
-    this.overlay.addEventListener('click', () => this.close());
+
+    // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
+    // Clicking it should close ALL open panels, not just TOC.
+    // We defer to closeAllPanels() (defined in reader.js) which already
+    // handles every panel and the overlay in one consistent call.
+    this.overlay.addEventListener('click', () => {
+      if (typeof closeAllPanels === 'function') closeAllPanels();
+      else this.close(); // fallback if called before reader.js initialises
+    });
 
     // Keyboard shortcut
     document.addEventListener('keydown', (e) => {
@@ -111,6 +119,19 @@ const TOC = {
 
   close() {
     this.sidebar.classList.remove('open');
-    this.overlay.classList.remove('visible');
+    // FIX P1-B: Only hide the overlay when no other panel (Search, Bookmarks)
+    // is still open.  Removing it unconditionally would leave Search/Bookmarks
+    // panels floating without a backdrop.
+    const searchOpen    = document.getElementById('search-panel')?.classList.contains('open');
+    const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
+    if (!searchOpen && !bookmarksOpen) {
+      this.overlay.classList.remove('visible');
+    }
+  },
+
+  reset() {
+    this.close();
+    if (this.container) this.container.innerHTML = '';
+    this.rendition = null;
   }
 };

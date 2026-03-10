@@ -93,3 +93,70 @@
 在 v1.2.2 进行“双重 `isBackLink()` 函数清理”的大手术时，意外殃及了紧挨着它的核心识别函数 `isFootnoteLink()`。
 
 1. **逻辑复位**：这直接导致您在点击脚注（如 `[1]`）时，系统因找不到该函数而抛出崩溃，进而使得拦截器失效。失去拦截后，原生 `epub.js` 引擎便直接根据锚点强行跳转了页面。在本补丁中，我们原样完璧归赵地恢复了该函数，注释气泡弹窗功能已全面恢复。
+
+---
+
+## 🛡️ v1.2.6 安全加固与数据可靠性止血 (Phase A — PDCA 止血)
+
+经过 v3.0 全量深度审计，我们在代码中识别出 3 项 P0 级隐患和 2 项 P1 级问题。本版本实施"止血"行动，在不触及功能结构的前提下精确拔除每一根地雷。
+
+### 🔴 P0-A：IndexedDB 版本号遗漏
+
+**问题**：`storage.js` 中的 `getLocations()` 和 `removeLocations()` 调用 `indexedDB.open('EpubReaderDB')` 不带版本号。根据 IndexedDB 规范，无版本号的 open 等价于"打开当前已有版本"——对于从未打开过 `EpubReaderDB` 的新用户，浏览器会创建一个版本 1 的空数据库，该数据库没有任何 Store，导致读取立刻返回 `null`，进度缓存永久失效。而全库其余 6 处 open 均已正确指定 V3。
+
+**修复**：两处均补全为 `indexedDB.open('EpubReaderDB', 3)` 并在 `onupgradeneeded` 中补齐三张表（`files`、`covers`、`locations`）的建立逻辑，与全库保持一致。
+
+### 🔴 P0-B：`showLoadError` XSS 风险
+
+**问题**：加载失败提示函数将 `err.message` 拼入 `innerHTML`，仅转义了 `<` 字符。epub.js 或底层 ZIP 解析库抛出的异常消息中若含有 `>`、`"`、`&` 字符，会在扩展页面（`chrome-extension://`）上下文中执行任意 HTML，产生 XSS。
+
+**修复**：改用纯 DOM API 构建错误界面——`createElement` + `textContent`（永远不被解析为 HTML）+ `addEventListener`（替代 `onclick` 属性），从根本上消除注入面。
+
+### 🔴 P0-C：`window mousedown` 监听器累积
+
+**问题**：`highlights.js` 的 `setBookDetails()` 末尾以匿名函数注册 `window.addEventListener('mousedown', ...)`。该函数在 `openBook` 和 `setLayout`（切换布局）时各调用一次，因匿名函数无法被 `removeEventListener` 解除，每次操作都叠加新监听器。N 次切换后，每次点击空白区触发 N+1 次 `closePanels()`，状态机持续震荡。
+
+**修复**：将 `window` 和 `btnShowToolbar` 两个监听器提取为具名函数 `_onWindowMouseDown` / `_onShowToolbarClick`，移入 `init()` 中仅注册一次，从根本上消除累积可能。
+
+### 🟠 P1-A：阅读时长关闭丢失
+
+**问题**：计时器每 10 秒写一次 storage，关闭标签页时最后 <10 秒阅读时长永久丢失。
+
+**修复**：在模块顶层注册 `document.addEventListener('visibilitychange', ...)` 监听。页面转为 `hidden`（包括标签切换、窗口最小化、关闭）时立即调用 `EpubStorage.saveReadingTime()`，丢失窗口降为 0。
+
+---
+
+## 🔄 v1.2.7 交互闭环与体验强化 (Phase B — PDCA 稳定)
+
+### 🟠 P1-B / P1-C：面板遮罩系统重构
+
+**问题**：`sidebar-overlay` 是三个面板（TOC / 搜索 / 书签）的共享遮罩，但三者各自管理自己的 overlay 状态：
+- `overlay.click` 只绑定了 `TOC.close()`，搜索/书签打开时点击遮罩无效
+- `TOC.close()` 无条件移除 overlay，即使搜索面板还开着
+- `Bookmarks` 完全不管理 overlay，打开时无遮罩，三个面板可以同时叠开
+
+**修复**：三管齐下。overlay 点击改调全局 `closeAllPanels()`；每个面板的 close 方法在移除 overlay 前先查询其他两个面板的状态；`Bookmarks.togglePanel()` 打开时先调用 `closeOtherPanels()` 再显示 overlay。现在无论以任何顺序开关面板，遮罩状态始终与视觉一致。
+
+### 🟠 P1-D：布局切换行宽跳变
+
+**问题**：`openBook` 使用 `gap: 80`，`setLayout` 使用 `gap: 40`，切换布局后行宽骤减 40px，可能引发 CFI 漂移（同一段文字跨页位置改变）。
+
+**修复**：两处统一为 `gap: 48`（视觉居中的合理值），消除切换时的视觉跳变。
+
+### 🟠 P1-E：封面 Blob 内存泄漏
+
+**问题**：书架和弹窗每次渲染封面时调用 `URL.createObjectURL(coverBlob)`，但对应的 `revokeObjectURL` 从未被调用。每次刷新书架（增删书籍、重新进入页面）都会产生孤立的 blob URL，浏览器无法 GC，长时间使用后内存持续累积。
+
+**修复**：在 `img` 元素上挂 `{once:true}` 的 `load` 和 `error` 回调，DOM 渲染完成后立即调用 `URL.revokeObjectURL(objectUrl)`，确保每个 blob URL 的生命周期精确闭合。
+
+### 🔵 P2-C：进度条性能优化
+
+**问题**：progress slider 的 `input` 事件未做节流，每个像素变化都触发 `rendition.display(cfi)`。epub.js 的 display 是重操作（解析章节 + 重新布局），高频调用导致内容区白屏闪烁。
+
+**修复**：将 slider 事件一分为二——`input` 事件只更新百分比文字标签，`change` 事件（鼠标松手后才触发一次）才真正调用 `rendition.display()`。既保留了实时反馈，又完全消除了拖动时的渲染压力。
+
+### 🔵 P2-E：权限最小化
+
+**问题**：`manifest.json` 的 `web_accessible_resources` 将 `lib/*` 对 `<all_urls>` 开放，任何第三方网页都可以直接 fetch 扩展内的 `epub.min.js` 和 `jszip.min.js`，违反最小权限原则。
+
+**修复**：将 `matches` 改为 `["chrome-extension://*/*"]`，仅允许扩展自身页面访问内部资源，第三方网页无法触达。

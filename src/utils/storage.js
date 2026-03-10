@@ -90,9 +90,12 @@ const EpubStorage = {
    * @param {string} bookId
    */
   async removePosition(bookId) {
-    return new Promise((resolve) => {
-      chrome.storage.local.remove(['pos_' + bookId], resolve);
-    });
+    // FIX P0-1: savePosition stores data inside a nested 'positions' object
+    // keyed by bookId. The old implementation removed 'pos_${bookId}' which
+    // never existed, so positions were never actually deleted.
+    const positions = (await this._get('positions')) || {};
+    delete positions[bookId];
+    await this._set({ positions });
   },
 
   async getReadingTime(bookId) {
@@ -395,7 +398,17 @@ const EpubStorage = {
   async getLocations(bookId) {
     if (!bookId) return null;
     return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB'); // Version auto-match
+      // FIX P0-A: Must specify version 3 to match the schema written by saveLocations.
+      // Without a version number the browser opens (or creates) version 1, which has
+      // no 'locations' store, causing this function to always return null on fresh
+      // installs and risking an unexpected onupgradeneeded on existing databases.
+      const request = indexedDB.open('EpubReaderDB', 3);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files'))     db.createObjectStore('files',     { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers'))    db.createObjectStore('covers',    { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
+      };
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('locations')) return resolve(null);
@@ -416,7 +429,15 @@ const EpubStorage = {
   async removeLocations(bookId) {
     if (!bookId) return;
     return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB');
+      // FIX P0-A: Same as getLocations — must specify version 3 to avoid opening
+      // an empty V1 database on fresh installs.
+      const request = indexedDB.open('EpubReaderDB', 3);
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('files'))     db.createObjectStore('files',     { keyPath: 'name' });
+        if (!db.objectStoreNames.contains('covers'))    db.createObjectStore('covers',    { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
+      };
       request.onsuccess = (e) => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('locations')) return resolve();

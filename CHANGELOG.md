@@ -2,7 +2,40 @@
 
 所有该项目中极具标志性的迭代、修复和优化记录都将在此公示。
 
-## [1.2.5] - 紧急维稳 (注释雷达重现)
+## [1.2.7] - 交互闭环与体验强化 (Phase B)
+
+### 🐛 BUG 修复
+
+- **面板遮罩竞态根治**：`sidebar-overlay` 由 TOC、搜索、书签三个面板共用，此前点击遮罩仅关闭目录（`TOC.close()`），搜索和书签面板在打开时无遮罩、关闭时会相互擦除对方的遮罩。现在 `overlay.click` 统一调用 `closeAllPanels()`；`TOC.close()` / `Search.closePanel()` / `Bookmarks.closePanel()` 关闭前均检查其余面板状态，确保遮罩只在最后一个面板关闭时才消失。
+- **书签面板补全 overlay 管理**：`Bookmarks.togglePanel()` 此前不显示遮罩、也不关闭其他面板，导致目录/搜索/书签可以同时打开。现在打开书签时自动关闭其他面板并呈现遮罩，关闭时同步检查其余面板状态。
+- **进度条拖动体验优化**：进度条的 `input` 事件此前每个像素变化都触发 `rendition.display()`，高频拖动时 epub.js 连续翻页造成内容区白屏闪烁。修复后 `input` 只更新百分比标签，`change`（松手后）才真正跳转，彻底消除拖动过程中的渲染抖动。
+- **封面内存泄漏修复**：书架和弹窗加载书籍封面时调用 `URL.createObjectURL(blob)` 后从未 `revoke`，长时间使用或频繁刷新书架会积累大量孤立的 blob 引用。现在统一在 `img.onload` / `img.onerror`（`{once:true}`）回调中调用 `revokeObjectURL`，DOM 挂载完成后立即释放。
+- **布局切换 gap 不一致**：`openBook` 初始化使用 `gap: 80`，`setLayout` 重建使用 `gap: 40`，切换布局后阅读区行宽跳变。两处统一为 `gap: 48`。
+- **popup 删除书籍数据不完整**：弹出窗口中"移除"书籍只清理了部分字段（`recent / position / readingTime / file`），遗漏了 `highlights / bookmarks / cover / locations`。现统一调用 `EpubStorage.removeBook()` 完整级联删除，与主书架行为一致。
+- **删除死代码 `_originalIndex`**：`home.js` 的标注列表中计算了 `hl._originalIndex` 但从未读取（删除操作早已改用 CFI 匹配），属误导性死代码，已移除。
+
+### 🔒 安全
+
+- **`manifest.json` 权限收敛**：`web_accessible_resources` 的 `matches` 从 `<all_urls>` 收敛至 `chrome-extension://*/*`，第三方网页不再能加载 `epub.min.js` / `jszip.min.js` 等扩展内部库文件。
+
+---
+
+## [1.2.6] - 安全加固与数据可靠性止血 (Phase A)
+
+### 🔴 P0 紧急修复
+
+- **IndexedDB 版本号遗漏修复**：`storage.js` 中 `getLocations()` 和 `removeLocations()` 使用 `indexedDB.open('EpubReaderDB')` 不带版本号，在新用户首次访问时会创建 V1 空数据库（无 `locations` 表），导致阅读进度缓存永远读取失败。两处均补全为 `open('EpubReaderDB', 3)` 并补充 `onupgradeneeded` 建表逻辑，保持与全库其余 6 处一致。
+- **XSS 风险修复 (`showLoadError`)**：`reader.js` 的加载失败提示函数将 `err.message` 直接拼入 `innerHTML`，原有转义仅处理 `<` 字符，含 `>`、`"`、`&` 的异常消息（如第三方 EPUB 解析库抛出的错误）可在扩展页面触发 XSS。现改用纯 DOM API（`createElement` + `textContent` + `addEventListener`）构建错误界面，彻底消除注入面。
+- **`window mousedown` 监听器累积修复**：`highlights.js` 的 `setBookDetails()` 尾部使用匿名函数注册 `window.addEventListener('mousedown', ...)`，该函数在 `openBook` 和 `setLayout` 时各被调用一次，因匿名函数无法 `removeEventListener`，每次切换布局都会叠加新监听器。N 次切换后每次点击触发 N+1 次 `closePanels()`，状态机混乱。修复方案：将 `window` 和 `btnShowToolbar` 监听器提取为具名函数 `_onWindowMouseDown` / `_onShowToolbarClick`，移入 `init()` 中仅注册一次。
+
+### 🐛 P1 修复
+
+- **阅读时长在关闭标签页时丢失**：计时器每 10 秒保存一次，关闭标签页前最多丢失 9 秒。新增 `document.addEventListener('visibilitychange', ...)` 顶层监听，页面转为 `hidden`（含标签切换、关闭）时立即调用 `saveReadingTime()`，丢失窗口降为 0。
+- **popup 删除书籍数据不完整**（见 v1.2.7 完整修复说明，本版已包含）。
+
+---
+
+
 ### 🐛 BUG 修复
 - **雷达抢修**：修复了自 v1.2.2 架构合并后被意外移掉的核心识别函数 `isFootnoteLink()`。该丢失此前导致点击脚注时引发后台崩溃，从而使得原生内核接管了行为并引发了错误的页面全屏跳转。现在，精致的脚注悬浮气泡已经重新归位。
 

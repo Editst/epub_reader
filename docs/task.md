@@ -80,3 +80,30 @@
 # v1.2.5 注释弹窗紧急修复 (消失的雷达)
 - [x] 逻辑回归：在 `src/reader/annotations.js` 中重新安插了此前重构时被意外误删的关键拦截识别雷达 `isFootnoteLink`，成功消除了因为后台隐式报错（TypeError）而导致的 `epub.js` 默认接管错误跳包现象。让原本精美的注释悬浮气泡重新回归。
 - [x] 规范：同步更新插件版本号至 1.2.5 (`manifest.json`)
+
+# v1.2.6 安全加固与数据可靠性止血 (Phase A — PDCA 止血)
+
+## 🔴 P0 — 紧急修复
+- [x] P0-A: `getLocations` / `removeLocations` 补版本号 `indexedDB.open('EpubReaderDB', 3)` + `onupgradeneeded` 建表 (`storage.js`)
+- [x] P0-B: `showLoadError` 改用纯 DOM API (`createElement` + `textContent` + `addEventListener`)，消除 `innerHTML` 拼接 XSS 风险 (`reader.js`)
+- [x] P0-C: `window mousedown` 匿名监听器提取为具名函数 `_onWindowMouseDown`，移入 `init()` 仅注册一次；`btnShowToolbar` 同步处理 (`highlights.js`)
+
+## 🟠 P1 — 重要修复
+- [x] P1-A: 新增 `document.addEventListener('visibilitychange', ...)` 顶层监听，Tab 切换/关闭时立即 `saveReadingTime()`，阅读时长丢失窗口降为 0 (`reader.js`)
+- [x] P1-G: `popup` 移除书籍改为统一调用 `EpubStorage.removeBook(id, filename)` 级联删除（highlights/bookmarks/cover/locations/file） (`popup.js`)
+
+# v1.2.7 交互闭环与体验强化 (Phase B — PDCA 稳定)
+
+## 🟠 P1 — 重要修复
+- [x] P1-B: `overlay.click` 改调 `closeAllPanels()`；`TOC.close()` 关闭前检查 Search/Bookmarks 状态；`Search.closePanel()` 关闭前检查 TOC/Bookmarks 状态 (`toc.js`, `search.js`, `reader.js`)
+- [x] P1-C: `Bookmarks.togglePanel()` 打开时先关闭其他面板并显示 overlay；`closePanel()` 检查 TOC/Search 状态决定是否移除 overlay (`bookmarks.js`)
+- [x] P1-D: `openBook` gap 80 → 48；`setLayout` gap 40 → 48，两处统一消除布局切换行宽跳变 (`reader.js`)
+- [x] P1-E: `home.js` / `popup.js` coverBlob 改用 `img.addEventListener('load'/'error', revokeObjectURL, {once:true})`，DOM 挂载后立即释放 blob 引用 (`home.js`, `popup.js`)
+- [x] P1-F: 删除 `home.js` 中 `hl._originalIndex = i` 死代码（从未读取，删除操作已改 CFI 匹配），for-index 改为 for-of (`home.js`)
+
+## 🔵 P2 — 持续改进
+- [x] P2-C: 进度条拆分为 `input`（仅更新百分比标签）+ `change`（松手后调 `rendition.display()`），消除快速拖动时白屏闪烁 (`reader.js`)
+- [x] P2-E: `manifest.json` 的 `web_accessible_resources` 从 `<all_urls>` 收敛至 `chrome-extension://*/*` (`manifest.json`)
+
+## 规范
+- [x] 同步更新版本号至 1.2.7 (`manifest.json`)

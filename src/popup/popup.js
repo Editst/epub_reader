@@ -55,10 +55,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.className = 'recent-item';
       
       // Fetch cover
+      // FIX P1-E: Pair createObjectURL with revokeObjectURL via img load/error events.
       const coverBlob = await EpubStorage.getCover(book.id);
-      const coverHtml = coverBlob 
-        ? `<img src="${URL.createObjectURL(coverBlob)}" alt="Cover">` 
-        : `📖`;
+      let coverObjectUrl = null;
+      let coverHtml;
+      if (coverBlob) {
+        coverObjectUrl = URL.createObjectURL(coverBlob);
+        coverHtml = `<img class="cover-img" src="${coverObjectUrl}" alt="Cover">`;
+      } else {
+        coverHtml = '📖';
+      }
 
       // Fetch progress
       const pos = await EpubStorage.getPosition(book.id);
@@ -75,6 +81,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         <button class="recent-item-remove" title="移除">✕</button>
       `;
 
+      // Revoke blob URL as soon as the image loads (or fails)
+      if (coverObjectUrl) {
+        const coverImg = item.querySelector('.cover-img');
+        if (coverImg) {
+          coverImg.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+          coverImg.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        }
+      }
+
       // Click to reopen - pass filename so reader loads from IndexedDB
       item.querySelector('.recent-item-info').addEventListener('click', () => {
         const readerUrl = chrome.runtime.getURL('reader/reader.html') +
@@ -86,13 +101,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Remove from recent
       item.querySelector('.recent-item-remove').addEventListener('click', async (e) => {
         e.stopPropagation();
-        await EpubStorage.removeRecentBook(book.id);
-        await EpubStorage.removePosition(book.id);
-        if (EpubStorage.removeReadingTime) await EpubStorage.removeReadingTime(book.id);
-        if (EpubStorage.removeFileFromIndexedDB && book.filename) {
-          await EpubStorage.removeFileFromIndexedDB(book.filename);
-        }
-        
+        // FIX P1-G: The old code only cleaned up recent-list, position, reading-time
+        // and the file blob — it silently left behind highlights, bookmarks and the
+        // cover image.  EpubStorage.removeBook() performs a complete cascading
+        // delete (recentBook + position + readingTime + cover + highlights +
+        // bookmarks + locations + file) so storage stays consistent no matter
+        // which surface the user removes the book from.
+        await EpubStorage.removeBook(book.id, book.filename);
+
         item.remove();
         const remaining = await EpubStorage.getRecentBooks();
         if (remaining.length === 0) {

@@ -344,7 +344,7 @@ html, body {
   border-bottom: 1px solid var(--border-color);
   border-radius: 0 0 0 16px;
   box-shadow: var(--shadow-lg);
-  z-index: 150;
+  z-index: 200;
   transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
   display: flex;
   flex-direction: column;
@@ -890,7 +890,9 @@ html, body {
   border-bottom: 1px solid var(--border-color);
   border-radius: 0 0 0 16px;
   box-shadow: var(--shadow-lg);
-  z-index: 150;
+  /* FIX: z-index must exceed overlay (190) so panels are not covered when overlay is visible.
+     sidebar is 200; panels use the same value so clicks reach panel elements. */
+  z-index: 200;
   transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
   display: flex;
   flex-direction: column;
