@@ -495,78 +495,32 @@
    * Store file data in IndexedDB for later reopening via recent books.
    */
   function storeFileInIndexedDB(filename, uint8Array) {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) return resolve();
-        const tx = db.transaction('files', 'readwrite');
-        const store = tx.objectStore('files');
-        store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
-
-        tx.oncomplete = async () => {
-          // Trigger centralized LRU
-          if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-      request.onerror = () => reject(request.error);
+    return EpubStorage.storeFile(filename, uint8Array).then(async () => {
+      // Trigger centralized LRU
+      if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
     });
   }
 
   async function loadFileFromIndexedDB(fileName) {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) {
-          showLoadError('找不到该书籍的缓存数据。此书可能已被自动清理，请重新选用"打开文件"加载。');
-          resolve();
-          return;
+    try {
+      showLoading(true);
+      const data = await EpubStorage.getFile(fileName);
+      if (data) {
+        currentFileName = fileName;
+        currentBookId = EpubStorage.generateBookId(fileName, data.byteLength);
+        try {
+          const buffer = data.buffer || data;
+          await openBook(buffer);
+        } catch (err) {
+          console.error('Failed to load EPUB:', err);
+          showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
         }
-        const tx = db.transaction('files', 'readonly');
-        const store = tx.objectStore('files');
-        const getReq = store.get(fileName);
-        getReq.onsuccess = async () => {
-          if (getReq.result) {
-            currentFileName = fileName;
-            const data = getReq.result.data;
-            currentBookId = EpubStorage.generateBookId(fileName, data.byteLength);
-            showLoading(true);
-            try {
-              await openBook(data.buffer);
-            } catch (err) {
-              console.error('Failed to load EPUB:', err);
-              showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
-            }
-          } else {
-            showLoadError('由于缓存限制，该书籍已被系统自动清理以节省空间。请通过"打开文件"重新导入该电子书，历史阅读进度将自动恢复。');
-          }
-          resolve();
-        };
-        getReq.onerror = () => {
-          showLoadError('读取缓存数据失败。请重新导入该电子书。');
-          resolve();
-        };
-      };
-      request.onerror = () => {
-        showLoadError('访问本地数据库失败。请重新加载。');
-        resolve();
-      };
-    });
+      } else {
+        showLoadError('想不到该书籍的缓存数据或由于缓存限制已被自动清理，请通过"打开文件"重新导入。');
+      }
+    } catch (e) {
+      showLoadError('读取缓存数据失败。请重新导入该电子书。');
+    }
   }
 
   // --- Robust Styling Overrides ---

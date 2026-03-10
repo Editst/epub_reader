@@ -123,28 +123,7 @@ const EpubStorage = {
    * @param {string} filename
    */
   async removeFileFromIndexedDB(filename) {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) {
-          resolve();
-          return;
-        }
-        const tx = db.transaction('files', 'readwrite');
-        const store = tx.objectStore('files');
-        const req = store.delete(filename);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    return DbGateway.delete('files', filename);
   },
 
   // --- NEW CAPABILITIES FOR P0 & P1 ---
@@ -156,36 +135,7 @@ const EpubStorage = {
    */
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('covers')) {
-          // Store doesn't exist even after upgrade attempt — skip silently
-          console.warn('covers store not found, skipping cover save');
-          resolve();
-          return;
-        }
-        this._putCover(db, bookId, blob).then(resolve).catch(reject);
-      };
-      request.onerror = () => reject(request.error);
-    });
-  },
-
-  _putCover(db, bookId, blob) {
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction('covers', 'readwrite');
-      const store = tx.objectStore('covers');
-      const req = store.put({ id: bookId, blob: blob });
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
+    return DbGateway.put('covers', { id: bookId, blob: blob });
   },
 
   /**
@@ -195,19 +145,8 @@ const EpubStorage = {
    */
   async getCover(bookId) {
     if (!bookId) return null;
-    return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('covers')) return resolve(null);
-        const tx = db.transaction('covers', 'readonly');
-        const store = tx.objectStore('covers');
-        const req = store.get(bookId);
-        req.onsuccess = () => resolve(req.result ? req.result.blob : null);
-        req.onerror = () => resolve(null);
-      };
-      request.onerror = () => resolve(null);
-    });
+    const record = await DbGateway.get('covers', bookId);
+    return record ? record.blob : null;
   },
 
   /**
@@ -216,19 +155,7 @@ const EpubStorage = {
    */
   async removeCover(bookId) {
     if (!bookId) return;
-    return new Promise((resolve) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('covers')) return resolve();
-        const tx = db.transaction('covers', 'readwrite');
-        const store = tx.objectStore('covers');
-        const req = store.delete(bookId);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-      };
-      request.onerror = () => resolve();
-    });
+    return DbGateway.delete('covers', bookId);
   },
 
   /**
@@ -236,31 +163,13 @@ const EpubStorage = {
    * @param {number} maxCount 
    */
   async enforceFileLRU(maxCount = 10) {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) return resolve();
-        const tx = db.transaction('files', 'readwrite');
-        const store = tx.objectStore('files');
-        const getAllReq = store.getAll();
-        
-        getAllReq.onsuccess = () => {
-          const files = getAllReq.result;
-          if (files.length > maxCount) {
-            // Sort descending by timestamp (newest first)
-            files.sort((a, b) => b.timestamp - a.timestamp);
-            // Delete the oldest ones beyond maxCount
-            for (let i = maxCount; i < files.length; i++) {
-              store.delete(files[i].name);
-            }
-          }
-        };
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      };
-      request.onerror = () => reject(request.error);
-    });
+    const files = await DbGateway.getAll('files');
+    if (files.length > maxCount) {
+      files.sort((a, b) => b.timestamp - a.timestamp);
+      for (let i = maxCount; i < files.length; i++) {
+        await DbGateway.delete('files', files[i].name);
+      }
+    }
   },
 
   /**
@@ -357,37 +266,7 @@ const EpubStorage = {
    */
   async saveLocations(bookId, locationsJSON) {
     if (!bookId || !locationsJSON) return;
-    
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('locations')) {
-           // Should not happen with fresh install logic, but just in case
-           console.warn("Locations store missing after upgrade hook.");
-           resolve();
-           return;
-        }
-        this._putLocationData(db, bookId, locationsJSON).then(resolve).catch(reject);
-      };
-      request.onerror = () => reject(request.error);
-    });
-  },
-
-  _putLocationData(db, bookId, locationsJSON) {
-      return new Promise((resolve, reject) => {
-          const tx = db.transaction('locations', 'readwrite');
-          const store = tx.objectStore('locations');
-          const req = store.put({ id: bookId, json: locationsJSON, timestamp: Date.now() });
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error);
-      });
+    return DbGateway.put('locations', { id: bookId, json: locationsJSON, timestamp: Date.now() });
   },
 
   /**
@@ -397,29 +276,8 @@ const EpubStorage = {
    */
   async getLocations(bookId) {
     if (!bookId) return null;
-    return new Promise((resolve) => {
-      // FIX P0-A: Must specify version 3 to match the schema written by saveLocations.
-      // Without a version number the browser opens (or creates) version 1, which has
-      // no 'locations' store, causing this function to always return null on fresh
-      // installs and risking an unexpected onupgradeneeded on existing databases.
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files'))     db.createObjectStore('files',     { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers'))    db.createObjectStore('covers',    { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('locations')) return resolve(null);
-        const tx = db.transaction('locations', 'readonly');
-        const store = tx.objectStore('locations');
-        const req = store.get(bookId);
-        req.onsuccess = () => resolve(req.result ? req.result.json : null);
-        req.onerror = () => resolve(null);
-      };
-      request.onerror = () => resolve(null);
-    });
+    const record = await DbGateway.get('locations', bookId);
+    return record ? record.json : null;
   },
 
   /**
@@ -428,26 +286,29 @@ const EpubStorage = {
    */
   async removeLocations(bookId) {
     if (!bookId) return;
-    return new Promise((resolve) => {
-      // FIX P0-A: Same as getLocations — must specify version 3 to avoid opening
-      // an empty V1 database on fresh installs.
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files'))     db.createObjectStore('files',     { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers'))    db.createObjectStore('covers',    { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('locations')) return resolve();
-        const tx = db.transaction('locations', 'readwrite');
-        const store = tx.objectStore('locations');
-        const req = store.delete(bookId);
-        req.onsuccess = () => resolve();
-        req.onerror = () => resolve();
-      };
-      request.onerror = () => resolve();
-    });
+    return DbGateway.delete('locations', bookId);
+  },
+
+  // --- NEW CAPABILITIES FOR v1.4.0: Centralized File Storage via Gateway ---
+  
+  /**
+   * Store parsed or unparsed EPUB file blobs into the database safely
+   * @param {string} filename 
+   * @param {ArrayBuffer|Uint8Array|Blob} data 
+   */
+  async storeFile(filename, data) {
+    if (!filename || !data) return;
+    return DbGateway.put('files', { name: filename, data: data, timestamp: Date.now() });
+  },
+
+  /**
+   * Retrieve stored EPUB file
+   * @param {string} filename 
+   * @returns {ArrayBuffer|Uint8Array|Blob|null}
+   */
+  async getFile(filename) {
+    if (!filename) return null;
+    const record = await DbGateway.get('files', filename);
+    return record ? record.data : null;
   }
 };
