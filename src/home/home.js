@@ -115,27 +115,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Helper from popup
   function storeFileData(filename, uint8Array) {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open('EpubReaderDB', 3);
-      request.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) db.createObjectStore('files', { keyPath: 'name' });
-        if (!db.objectStoreNames.contains('covers')) db.createObjectStore('covers', { keyPath: 'id' });
-        if (!db.objectStoreNames.contains('locations')) db.createObjectStore('locations', { keyPath: 'id' });
-      };
-      request.onsuccess = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('files')) return resolve();
-        const tx = db.transaction('files', 'readwrite');
-        const store = tx.objectStore('files');
-        store.put({ name: filename, data: uint8Array, timestamp: Date.now() });
-        tx.oncomplete = async () => {
-          if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
-          resolve();
-        };
-        tx.onerror = () => reject(tx.error);
-      };
-      request.onerror = () => reject(request.error);
+    return EpubStorage.storeFile(filename, uint8Array).then(async () => {
+      if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
     });
   }
 
