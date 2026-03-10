@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-1.2.7-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
