@@ -303,19 +303,18 @@ document.addEventListener('DOMContentLoaded', async () => {
        const isNoteOnly = hl.color === 'transparent';
        const item = document.createElement('div');
        item.className = 'annotation-item';
-       
-       item.innerHTML = `
+              item.innerHTML = `
           <div class="annotation-content">
             <div class="annotation-header">
               <div class="annotation-book" title="在阅读器中定位">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
                 ${escapeHtml(hl._bookContext.title || hl._bookContext.filename)}
               </div>
-              <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${hl.color}33; color: ${hl.color};`}">
+              <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${sanitizeColor(hl.color)}33; color: ${sanitizeColor(hl.color)};`}">
                 ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
               </div>
             </div>
-            <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : hl.color}">${escapeHtml(hl.text)}</div>
+            <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : sanitizeColor(hl.color)}">${escapeHtml(hl.text)}</div>
             ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
             <div class="annotation-footer">
               <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
@@ -408,6 +407,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // FIX P0-NEW-1: Validate CSS color to prevent style-based XSS injection
+  function sanitizeColor(colorStr) {
+    if (!colorStr) return '#ffeb3b'; // Default fallback yellow
+    // Match hex colors (e.g. #fff, #ffeb3b, #ffeb3b33) or literal 'transparent'
+    const colorRegex = /^#[0-9a-fA-F]{3,8}$|^transparent$/;
+    return colorRegex.test(colorStr) ? colorStr : '#ffeb3b';
   }
 
   function formatDate(timestamp) {

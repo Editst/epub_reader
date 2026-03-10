@@ -221,19 +221,27 @@ const Search = (function() {
       textEl.style.whiteSpace = 'normal'; // Allow wrapping for context
       textEl.style.fontSize = '13px';
       
-      // Sanitize the excerpt to prevent XSS
-      const excerpt = escapeHtml(res.excerpt.trim());
+      // Sanitize the excerpt to prevent XSS (only needed for safety in base logic, but we'll use DOM text nodes)
+      const excerpt = res.excerpt.trim();
       
-      // Escape query for regex and highlight safe query
-      const rawSafeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const escapedSafeQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Escape query for regex
+      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${safeQuery})`, 'gi');
       
-      // Since `escapeHtml` might turn `<` into `&lt;`, the query string itself should be matched either as raw or escaped
-      // For simplicity, we just use the escaped safe query, assuming the excerpt is already purely text or escaped.
-      const regex = new RegExp(`(${escapedSafeQuery})`, 'gi');
-      
-      // Use CSS variables for highlight colors
-      textEl.innerHTML = excerpt.replace(regex, '<mark style="background:var(--text-accent);color:#fff;padding:0 2px;border-radius:2px;">$1</mark>');
+      // FIX P0-NEW-3: Use DOM manipulation instead of innerHTML replacement
+      const parts = excerpt.split(regex);
+      parts.forEach(part => {
+        if (new RegExp(`^${safeQuery}$`, 'i').test(part)) {
+          const mark = document.createElement('mark');
+          mark.textContent = part;
+          // Note: using class 'search-highlight' to be extracted in the CSP step later, 
+          // but inline styles temporarily for smooth transition
+          mark.style.cssText = 'background:var(--text-accent);color:#fff;padding:0 2px;border-radius:2px;';
+          textEl.appendChild(mark);
+        } else if (part) {
+          textEl.appendChild(document.createTextNode(part));
+        }
+      });
       
       itemEl.appendChild(textEl);
       

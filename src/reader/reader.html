@@ -103,14 +103,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h3.016C21.606 16.394 24 13.593 24 10.51 24 5.8 18.627 2 12 2z"/></svg>
           </button>
         </div>
-        <div id="custom-theme-options" style="display: none; margin-top: 12px; padding: 12px; background: var(--reader-bg); border-radius: 8px; border: 1px solid var(--border-color);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <label style="font-size: 13px; color: var(--text-secondary);">背景颜色</label>
-            <input type="color" id="custom-bg-color" value="#ffffff" style="width: 28px; height: 28px; border: none; padding: 0; cursor: pointer; border-radius: 4px; overflow: hidden;">
+        <div id="custom-theme-options" class="custom-theme-options" style="display: none;">
+          <div class="custom-color-row">
+            <label class="custom-color-label">背景颜色</label>
+            <input type="color" id="custom-bg-color" class="custom-color-input" value="#ffffff">
           </div>
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label style="font-size: 13px; color: var(--text-secondary);">文字颜色</label>
-            <input type="color" id="custom-text-color" value="#333333" style="width: 28px; height: 28px; border: none; padding: 0; cursor: pointer; border-radius: 4px; overflow: hidden;">
+          <div class="custom-color-row" style="margin-bottom: 0;">
+            <label class="custom-color-label">文字颜色</label>
+            <input type="color" id="custom-text-color" class="custom-color-input" value="#333333">
           </div>
         </div>
       </div>
@@ -184,12 +184,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div style="padding: 10px 20px; display: flex; gap: 8px;">
-      <input type="text" id="search-input" placeholder="输入关键词 (Enter 搜索)" style="flex: 1; padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--reader-bg); color: var(--text-primary); font-size: 14px; outline: none;">
-      <button id="btn-do-search" style="padding: 8px 16px; background: var(--text-accent); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; white-space: nowrap;">搜索</button>
+    <div class="search-input-container">
+      <input type="text" id="search-input" class="search-input" placeholder="输入关键词 (Enter 搜索)">
+      <button id="btn-do-search" class="search-submit-btn">搜索</button>
     </div>
-    <div id="search-status" style="padding: 0 20px 10px; font-size: 12px; color: var(--text-muted);"></div>
-    <div class="bookmarks-list" id="search-results-list" style="padding-top: 0;"></div>
+    <div id="search-status" class="search-status-text"></div>
+    <div class="bookmarks-list search-results-list" id="search-results-list"></div>
   </div>
 
   <!-- Main Reader Area -->

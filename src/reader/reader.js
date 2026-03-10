@@ -196,6 +196,16 @@
       if (cfi) rendition.display(cfi);
     });
 
+    // FIX: Intercept keyboard navigation on the slider to prevent native 0.1% stepping from getting stuck
+    progressSlider.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.key === 'ArrowLeft') navPrev();
+        else navNext();
+      }
+    });
+
     // Click on reader area to ensure focus
     document.getElementById('reader-main').addEventListener('click', () => {
       ensureFocus();
@@ -657,7 +667,7 @@
       flow: prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
       manager: prefs.layout === 'scrolled' ? 'continuous' : 'default',
       allowScriptedContent: false,
-      gap: 48  // FIX P1-D: Unified gap value (was 80); setLayout used 40, causing line-width shift on layout switch
+      gap: prefs.layout === 'scrolled' ? 48 : 80  // Restore 80 for paginated layout to fix narrow margins
     });
 
     // Inject our bulletproof custom styles into every new chapter iframe
@@ -1091,7 +1101,7 @@
         flow: flow,
         manager: manager,
         allowScriptedContent: false,
-        gap: 48  // FIX P1-D: Unified with openBook (was 40)
+        gap: layout === 'scrolled' ? 48 : 80  // Restore 80 for paginated layout to fix narrow margins
       });
 
       // Re-apply everything
