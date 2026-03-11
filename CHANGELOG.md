@@ -1,3 +1,17 @@
+## [1.9.2] - 稳定性收尾与文档统一
+
+### ✅ 核心修复
+- `EpubStorage._get/_set/_remove` 新增 `chrome.runtime.lastError` 检查，存储失败会向上抛错，不再静默成功。
+- `bookMeta` 写入改为按 `bookId` 串行队列，避免 `savePosition/saveReadingTime/saveReadingSpeed` 并发覆盖。
+- `getAllHighlights()` 新增全量 key 扫描补全逻辑，覆盖 recentBooks 之外的历史书籍高亮。
+- home/popup/image-viewer 收敛部分 `style.*` 显隐写法为 class 切换。
+
+### 📝 文档与版本
+- 全量更新根目录与 `docs/` 文档版本语义到 1.9.2。
+- 审计报告统一重命名为 `docs/comprehensive_repost.md`，删除旧版 `comprehensive_report_v3.0.md` 与 `comprehensive_report_v3.1.md`。
+
+---
+
 # 更新日志 (Changelog)
 
 ## [1.9.0] - 2026-03-11
@@ -6,7 +20,7 @@
 - **C-1 / C-2 (`reader.js`)**：`showLoadError()` 的 `style.cssText` 全量迁移为 CSS class（`.reader-error-*`），`navPrev` 的 `opacity` 直写改为 `.reader-main-dimmed` class 过渡。
 - **C-3 / C-4 / C-5 (`search.js`)**：移除搜索结果项与高亮的内联样式写入；新增 `.search-result-item`、`.search-result-text`、`.search-highlight`、`.search-status-empty`；`statusEl.innerHTML` 改为 `textContent + class`。
 - **C-6 (`toc.js`)**：空目录提示由 `innerHTML` 内联 style 改为 DOM 创建 + `.toc-empty` class。
-- **C-7 (`manifest.json`)**：`style-src` 移除 `'unsafe-inline'`，收敛为 `style-src 'self' https://fonts.googleapis.com`。
+- **C-7 (`manifest.json`)**：`style-src` 暂保留 `'unsafe-inline'`（剩余内联样式迁移在后续版本继续收敛）。
 - **测试**：`test/run_tests.js` 新增 `v1.9 CSP 收敛` 套件，覆盖 C-1~C-7 的静态约束检查。
 
 ## [1.8.0] - 2026-03-11

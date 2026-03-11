@@ -13,7 +13,11 @@ const _mockChrome = {
     local: {
       get(keys, cb) {
         const result = {};
-        [].concat(keys).forEach(k => { if (_store[k] !== undefined) result[k] = _store[k]; });
+        if (keys === null) {
+          Object.assign(result, _store);
+        } else {
+          [].concat(keys).forEach(k => { if (_store[k] !== undefined) result[k] = _store[k]; });
+        }
         cb(result);
       },
       set(data, cb) { Object.assign(_store, data); if (cb) cb(); },
@@ -22,7 +26,7 @@ const _mockChrome = {
       get _data() { return _store; }
     }
   },
-  runtime: { getURL: (p) => `chrome-extension://test/${p}` },
+  runtime: { getURL: (p) => `chrome-extension://test/${p}`, lastError: null },
   tabs:    { create: () => {} }
 };
 global.chrome = _mockChrome;
@@ -945,6 +949,47 @@ test.describe('集成：完整阅读会话', () => {
 });
 
 
+
+
+
+test.describe('v1.9.2 稳定性收尾', () => {
+  test.beforeEach(() => resetAll());
+
+  test.it('storage helper 在 chrome.runtime.lastError 时 reject', async () => {
+    const originalSet = chrome.storage.local.set;
+    chrome.storage.local.set = (data, cb) => {
+      Object.assign(_store, data);
+      chrome.runtime.lastError = new Error('mock set failed');
+      cb && cb();
+      chrome.runtime.lastError = null;
+    };
+    await assert.rejects(() => EpubStorage._set({ a: 1 }), /mock set failed/);
+    chrome.storage.local.set = originalSet;
+  });
+
+  test.it('bookMeta 并发写不会互相覆盖字段', async () => {
+    const id = 'book_queue_case';
+    await Promise.all([
+      EpubStorage.savePosition(id, 'epubcfi(/6/2)', 20),
+      EpubStorage.saveReadingTime(id, 120),
+      EpubStorage.saveReadingSpeed(id, { sampledSeconds: 240, sampledProgress: 0.2 })
+    ]);
+    const meta = await EpubStorage.getBookMeta(id);
+    assert.equal(meta.pos.cfi, 'epubcfi(/6/2)');
+    assert.equal(meta.time, 120);
+    assert.equal(meta.speed.sampledSeconds, 240);
+  });
+
+  test.it('getAllHighlights 覆盖 recentBooks 外的历史书籍', async () => {
+    await EpubStorage.addRecentBook({ id: 'b_recent', title: 'Recent', filename: 'r.epub' });
+    await EpubStorage.saveHighlights('b_recent', [{ cfi: 'a', text: 't', color: '#ff0', note: '', timestamp: 1 }]);
+    _store['highlights_b_legacy'] = [{ cfi: 'l', text: 'legacy', color: '#0f0', note: '', timestamp: 2 }];
+
+    const all = await EpubStorage.getAllHighlights();
+    assert.ok(all.b_recent && all.b_recent.length === 1);
+    assert.ok(all.b_legacy && all.b_legacy.length === 1);
+  });
+});
 
 // ─── 拆分后的发布验证测试 ──────────────────────────────────────────────
 require('./suites/release_checks.test.js');

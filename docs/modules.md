@@ -1,6 +1,6 @@
 # EPUB Reader — 模块接口参考
 
-版本：v1.8.0  
+版本：v1.9.2  
 更新：2026-03-11
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -360,3 +360,22 @@ Annotations.hookRendition(rendition: Rendition): void
 - 搜索模块改为 class 驱动样式（`search-result-item` / `search-highlight` / `search-status-empty`）。
 - 目录模块空态改为 `.toc-empty`。
 - Reader 错误态改为 `.reader-error-*` class，翻页过渡使用 `.reader-main-dimmed`。
+
+---
+
+## comprehensive_repost 审计补充（实现约束）
+
+### 存储错误语义（新增约束）
+
+- `EpubStorage` 的 `_get/_set/_remove` 应将 `chrome.runtime.lastError` 作为 reject 向上抛出。
+- 业务层（reader/home/popup）调用持久化接口时，应在关键路径具备最小可观察性（日志或用户提示）。
+
+### 并发写语义（新增约束）
+
+- `savePosition/saveReadingTime/saveReadingSpeed` 当前都属于“读-改-写整对象”模式。
+- 后续实现必须保证 **同一 bookId 的写入串行化**（队列或 CAS），避免字段被并发覆盖。
+
+### 标注聚合语义（新增约束）
+
+- `getAllHighlights()` 不应仅依赖 `recentBooks`（上限 20）。
+- “全部标注”场景需覆盖所有 `highlights_<bookId>` key（可按需分页/缓存）。

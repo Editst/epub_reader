@@ -27,7 +27,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
         </button>
         <button class="primary-btn" id="btn-upload">导入书籍</button>
-        <input type="file" id="file-input" accept=".epub" style="display: none;">
+        <input type="file" id="file-input" accept=".epub" class="is-hidden">
       </div>
     </header>
 
@@ -37,7 +37,7 @@
         <div class="shelf-toolbar">
           <h2 class="section-title">我的书架 <span id="book-count">(0)</span></h2>
           <div class="shelf-actions">
-            <button class="text-btn danger" id="btn-clear-all" style="display:none;">清空书架</button>
+            <button class="text-btn danger is-hidden" id="btn-clear-all">清空书架</button>
           </div>
         </div>
         <div class="books-grid" id="books-container">
@@ -76,9 +76,9 @@
     </main>
   </div>
 
-  <script src="../utils/db-gateway.js?v=8"></script>
-  <script src="../utils/utils.js?v=8"></script>
-  <script src="../utils/storage.js?v=8"></script>
-  <script src="home.js?v=8"></script>
+  <script src="../utils/db-gateway.js?v=9"></script>
+  <script src="../utils/utils.js?v=9"></script>
+  <script src="../utils/storage.js?v=9"></script>
+  <script src="home.js?v=9"></script>
 </body>
 </html>

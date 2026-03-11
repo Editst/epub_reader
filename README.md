@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-1.8.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.9.2-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -21,7 +21,7 @@
 - **⏱️ 进度毫秒级同步 (Progress Sync)**
   - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
   - v1.8 收尾：Popup 样式外联为 `src/popup/popup.css`，并补全 `custom` 主题变量与 `color-scheme` 页面声明。
-  - v1.9：已移除 `manifest` 中 `style-src` 的 `'unsafe-inline'`，并完成 `reader/search/toc` 的内联样式迁移。
+  - v1.9.2：完成 storage 错误上抛、bookMeta 并发写串行化、标注聚合覆盖补全，并推进 home/popup/image-viewer 的样式 class 化收敛。
   - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固，再无由于重绘导致的 0% 进度闪断。
 
 - **🔍 智能检索与注释 (Search & Footnotes)**
@@ -62,7 +62,7 @@
 - **XSS 免疫**：全局内容边界采用 DOM API（`textContent` / `createElement`）构建，书名、作者、报错信息等任何外部输入均不注入 `innerHTML`，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
 - **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
-- **数据库版本一致性**：所有 IndexedDB 读写路径统一指定版本 V3，消除新用户首次访问时读到空数据库的边缘场景。
+- **数据库版本一致性**：所有 IndexedDB 读写路径统一通过 DbGateway（DB v4）管理，消除新用户首次访问时读到空数据库的边缘场景。
 - **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
 - **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。

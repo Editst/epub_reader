@@ -373,6 +373,7 @@ body {
 }
 
 .progress-fill {
+  width: var(--progress-width, 0%);
   height: 100%;
   background: var(--accent-color);
   border-radius: 2px;
@@ -627,3 +628,7 @@ body {
   color: #ef4444;
 }
 
+
+.is-hidden {
+  display: none !important;
+}

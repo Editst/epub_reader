@@ -99,12 +99,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (books.length === 0) {
       booksContainer.innerHTML = '';
       shelfEmpty.classList.add('show');
-      btnClearAll.style.display = 'none';
+      btnClearAll.classList.add('is-hidden');
       return;
     }
 
     shelfEmpty.classList.remove('show');
-    btnClearAll.style.display = 'block';
+    btnClearAll.classList.remove('is-hidden');
     booksContainer.innerHTML = '';
 
     // v1.7.0: 书架并行加载
@@ -155,7 +155,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <span>${percent}%</span>
             </div>
             <div class="progress-bar">
-              <div class="progress-fill" style="width: ${percent}%"></div>
+              <div class="progress-fill" style="--progress-width: ${percent}%;"></div>
             </div>
           </div>
         </div>

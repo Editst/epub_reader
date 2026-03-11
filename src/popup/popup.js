@@ -72,10 +72,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function loadRecentBooks() {
     const books = await EpubStorage.getRecentBooks();
     if (books.length === 0) {
-      emptyState.style.display = 'block';
+      emptyState.classList.remove('is-hidden');
       return;
     }
-    emptyState.style.display = 'none';
+    emptyState.classList.add('is-hidden');
     recentList.innerHTML = '';
 
     // v1.8.0: Promise.all 并行加载 cover + meta（原串行 for-await）
@@ -122,8 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       authorEl.textContent = book.author || '未知作者';
 
       const dateEl = document.createElement('div');
-      dateEl.className = 'recent-item-date';
-      dateEl.style.marginTop = '2px';
+      dateEl.className = 'recent-item-date recent-item-date-secondary';
       dateEl.textContent = Utils.formatDate(book.lastOpened, '');
 
       infoEl.append(titleEl, authorEl, dateEl);
@@ -159,7 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         item.remove();
         const remaining = await EpubStorage.getRecentBooks();
         if (remaining.length === 0) {
-          emptyState.style.display = 'block';
+          emptyState.classList.remove('is-hidden');
           recentList.appendChild(emptyState);
         }
       });

@@ -4,6 +4,16 @@
 
 ---
 
+## [v1.9.2] - 1.x 收尾稳定性版本 (Stability Wrap-up)
+**核心目标**：完成 storage 错误语义、bookMeta 并发写一致性、高亮聚合覆盖与文档基线统一。
+
+- `storage.js`：`_get/_set/_remove` 全部接入 `chrome.runtime.lastError` reject；新增 `bookMeta` 写队列，避免并发覆盖。
+- `storage.js`：`getAllHighlights()` 从仅 recentBooks 扩展为 recentBooks + `highlights_*` key 扫描补全。
+- `home/popup/image-viewer`：显隐控制进一步迁移为 class 切换，降低 `style.*` 直写。
+- 文档：审计主文档统一为 `docs/comprehensive_repost.md`，删除过时报告文件。
+
+---
+
 ## [v1.9.0] - CSP 收敛与内联样式清理 (Security Hardening)
 **核心目标**：完成 v1.9 路线中的 C-1~C-6，并为 C-7（移除 `unsafe-inline`）做收尾准备。
 
