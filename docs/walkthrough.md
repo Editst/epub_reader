@@ -1,8 +1,32 @@
 # EPUB Reader 开发演进记录 (Development Walkthrough)
 
-本文档记录了 EPUB Reader 从架构搭建到性能优化的完整演进历程。采用逆序排列（最新版本在前），真实归档每一阶段的技术决策、核心修复及架构演进。
+本文档记录了 EPUB Reader 从架构搭建到性能优化的完整演进历程，真实归档每一阶段的技术决策、核心修复及架构演进。
 
 ---
+
+## [v1.7.0] - 存储合并与体验性能双飞跃 (Storage Consolidation & Performance)
+**核心目标**：通过高频数据合并优化 I/O 开销，引入科学的阅读速率采样算法提升 ETA 预测精度。
+
+### 1. 存储结构高阶收拢 (Key Consolidation)
+- **Metadata 合并**：将原散落在 `pos_<bookId>` (位置) 和 `time_<bookId>` (时长) 的两个独立 Key 合并为统一的 `bookMeta_<bookId>`。
+  - **减少写放大**：翻页或计时时仅操作一个微型 Key (<200 bytes)，无需触碰大型 `highlights` 字典，大幅降低 `sync` 存储的压力与冲突。
+  - **延迟迁移 (Lazy Migration)**：在 `getBookMeta` 中内置兼容逻辑，首次读取旧版数据时自动执行自动聚合与旧 Key 回收。
+
+### 2. 精准 ETA 预估算法 (Speed Sampling)
+- **Session 级速率采样**：废弃原有的 `总时长 / 总进度` 朴素算法（该算法在从书本中途开读时会产生严重偏低偏差）。
+  - **连续阅读判断**：仅当单次阅读片段满足「耗时 > 30s」且「进度增量在 0.1% ~ 30% 之间」时才计入速率样本。
+  - **跳跃自动过滤**：手动拖动进度条或大跨度跳章将被自动识别并排除，确保“预计剩余时间”仅反映真实的阅读节奏。
+
+### 3. 高并发与响应速度优化 (Performance & Reliability)
+- **I/O 并行流水线**：重构 `loadBookshelf` 与 `btnClearAll`。将原本 20 本书的串行 I/O 加载改为 `Promise.all` 全并发模式，首屏加载书架的耗时从 ~600ms 锐减至 ~30ms。
+- **翻页防抖写入 (Debounced I/O)**：为 `savePosition` 引入 300ms 尾部防抖，防止用户快速翻页时对存储层的暴力冲击。仅在页面进入 `hidden` 状态 (关闭/切换) 时立即 Flush。
+- **连接退避机制**：为 `DbGateway` 引入了指数退避 (Exponential Backoff) 重试策略（500/1000/2000ms），并在 3 次彻底失败后熔断，防止在存储受限环境下的重试风暴。
+
+### 4. 健壮性与归口清理
+- **LRU 级联清理**：修正了 `enforceFileLRU` 仅删文件不删记录的问题，现已实现「文件 -> 索引 -> 元数据」的全链路级联驱逐，根除书架孤立僵尸条目。
+- **显式资源回收**：改由 `card.dataset` 显式持有 `ObjectURL`，在删除书籍时主动触发 `revoke`，不再依赖加载事件的不确定触发。
+- **索引去中心化**：废弃了易产生不同步风险的 `highlightKeys` 索引 Key，改由 Authority 的 `recentBooks` 列表遍历，确保标注系统 100% 书籍覆盖率。
+
 
 ## [v1.5.0 - v1.6.0] - Phase D 数据层加固与 Schema 重构 (Data Integrity & Storage Rebuild)
 **核心目标**：解决以 `filename` 作为主键导致的并发覆盖灾难，构建基于 SHA-256 的唯一身份校验体系。

@@ -1,31 +1,27 @@
 document.addEventListener('DOMContentLoaded', async () => {
-  // Elements
-  const tabs = document.querySelectorAll('.nav-btn');
-  const panes = document.querySelectorAll('.tab-pane');
-  const btnTheme = document.getElementById('btn-theme');
-  const btnView = document.getElementById('btn-view');
-  const btnUpload = document.getElementById('btn-upload');
-  const fileInput = document.getElementById('file-input');
-  const btnClearAll = document.getElementById('btn-clear-all');
-  
+  const tabs           = document.querySelectorAll('.nav-btn');
+  const panes          = document.querySelectorAll('.tab-pane');
+  const btnTheme       = document.getElementById('btn-theme');
+  const btnView        = document.getElementById('btn-view');
+  const btnUpload      = document.getElementById('btn-upload');
+  const fileInput      = document.getElementById('file-input');
+  const btnClearAll    = document.getElementById('btn-clear-all');
+
   const booksContainer = document.getElementById('books-container');
-  const shelfEmpty = document.getElementById('shelf-empty');
-  const bookCount = document.getElementById('book-count');
+  const shelfEmpty     = document.getElementById('shelf-empty');
+  const bookCount      = document.getElementById('book-count');
 
   const annotationsContainer = document.getElementById('annotations-container');
-  const annotationsEmpty = document.getElementById('annotations-empty');
+  const annotationsEmpty     = document.getElementById('annotations-empty');
 
-  // State
   let currentPrefs = await EpubStorage.getPreferences() || {};
   let currentTheme = currentPrefs.theme === 'dark' ? 'dark' : 'light';
-  let currentView = currentPrefs.homeView === 'list' ? 'list' : 'grid';
+  let currentView  = currentPrefs.homeView === 'list' ? 'list' : 'grid';
 
-  // --- State and UI Setup ---
   const filterBtns = document.querySelectorAll('.filter-btn');
   const btnSortTime = document.getElementById('btn-sort-time');
-  let currentSort = 'desc'; // 'desc' (newest first) or 'asc' (oldest first)
-  
-  // Initialize
+  let currentSort = 'desc';
+
   setTheme(currentTheme);
   setView(currentView);
   await loadBookshelf();
@@ -41,7 +37,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (btnSortTime) {
     btnSortTime.addEventListener('click', () => {
-      // Toggle sort
       if (currentSort === 'desc') {
         currentSort = 'asc';
         btnSortTime.textContent = '⬆️ 最早时间';
@@ -51,15 +46,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnSortTime.textContent = '⬇️ 最新时间';
         btnSortTime.title = '切换时间排序: 降序';
       }
-      
-      // Re-load with current active filter
       const activeFilter = document.querySelector('.filter-btn.active');
-      const filterMode = activeFilter ? activeFilter.dataset.filter : 'all';
-      loadAnnotations(filterMode);
+      loadAnnotations(activeFilter ? activeFilter.dataset.filter : 'all');
     });
   }
 
-  // --- Theme & View Toggles ---
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(currentTheme);
@@ -77,37 +68,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   function setView(view) {
-    if (view === 'list') {
-      booksContainer.classList.add('list-view');
-    } else {
-      booksContainer.classList.remove('list-view');
-    }
+    booksContainer.classList.toggle('list-view', view === 'list');
   }
 
-  // --- Tab Switching ---
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       tabs.forEach(t => t.classList.remove('active'));
       panes.forEach(p => p.classList.remove('active'));
-      
       tab.classList.add('active');
       document.getElementById('pane-' + tab.dataset.tab).classList.add('active');
     });
   });
 
-  // --- File Upload ---
   btnUpload.addEventListener('click', () => fileInput.click());
 
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const arrayBuffer = await file.arrayBuffer();
-    // D-1-C: generateBookId is now async (SHA-256).
     const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-    // D-1-G: storeFile internalises LRU — no separate enforceFileLRU needed.
     await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
-
     window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
   });
 
@@ -115,59 +95,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function loadBookshelf() {
     const books = await EpubStorage.getRecentBooks();
     bookCount.textContent = `(${books.length})`;
-    
+
     if (books.length === 0) {
       booksContainer.innerHTML = '';
       shelfEmpty.classList.add('show');
       btnClearAll.style.display = 'none';
       return;
     }
-    
+
     shelfEmpty.classList.remove('show');
     btnClearAll.style.display = 'block';
     booksContainer.innerHTML = '';
 
-    for (const book of books) {
+    // v1.7.0: 书架并行加载
+    // 每本书的 getCover（IDB）和 getBookMeta（storage）并行，全部书并行
+    const cardDataList = await Promise.all(books.map(async (book) => {
+      const [coverBlob, meta] = await Promise.all([
+        EpubStorage.getCover(book.id),
+        EpubStorage.getBookMeta(book.id)
+      ]);
+      return { book, coverBlob, meta };
+    }));
+
+    for (const { book, coverBlob, meta } of cardDataList) {
       const card = document.createElement('div');
       card.className = 'book-card';
 
-      // Load Cover
-      // FIX P1-E: URL.createObjectURL must be paired with revokeObjectURL to
-      // avoid leaking blob references across bookshelf refreshes.  Build the
-      // img element via DOM APIs so we can revoke as soon as the image loads
-      // (or fails), rather than embedding the raw URL in an innerHTML template.
-      const coverBlob = await EpubStorage.getCover(book.id);
+      // v1.7.0: 保存 ObjectURL 引用到 dataset，供删除时显式 revoke
       let coverObjectUrl = null;
       let coverHtml;
       if (coverBlob) {
         coverObjectUrl = URL.createObjectURL(coverBlob);
+        card.dataset.coverUrl = coverObjectUrl;
         coverHtml = `<img class="cover-img" src="${coverObjectUrl}" alt="Cover">`;
       } else {
         coverHtml = `<div class="placeholder">📖</div>`;
       }
 
-      // Load Progress
-      const pos = await EpubStorage.getPosition(book.id);
-      const percent = (pos && pos.percentage) ? pos.percentage : 0;
-      
-      // Load Time
-      const timeInSeconds = await EpubStorage.getReadingTime(book.id) || 0;
-      const timeHtml = formatTime(timeInSeconds);
+      // 从 bookMeta 读取 pos + time（v1.7.0 合并读取，节省一次 storage 访问）
+      const percent = (meta && meta.pos && meta.pos.percentage) ? meta.pos.percentage : 0;
+      const timeInSeconds = (meta && meta.time) ? meta.time : 0;
+      const timeHtml = Utils.formatDuration(timeInSeconds);
 
       card.innerHTML = `
         <div class="book-cover">${coverHtml}</div>
         <div class="book-info">
-          <div class="book-title" title="${escapeHtml(book.title || book.filename)}">${escapeHtml(book.title || book.filename)}</div>
-          <div class="book-author">${escapeHtml(book.author || '未知作者')}</div>
-          
+          <div class="book-title" title="${Utils.escapeHtml(book.title || book.filename)}">${Utils.escapeHtml(book.title || book.filename)}</div>
+          <div class="book-author">${Utils.escapeHtml(book.author || '未知作者')}</div>
           <div class="book-meta">
             <div class="book-time">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               ${timeHtml}
             </div>
-            <div class="book-date">${formatDate(book.lastOpened)}</div>
+            <div class="book-date">${Utils.formatDate(book.lastOpened)}</div>
           </div>
-          
           <div class="progress-bar-container">
             <div class="progress-header">
               <span>阅读进度</span>
@@ -183,14 +164,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         </button>
       `;
 
-      // Open book
       card.addEventListener('click', (e) => {
         if (e.target.closest('.book-delete')) return;
         window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id);
       });
 
-      // FIX P1-E: Revoke the blob URL as soon as the image finishes loading
-      // (or fails) so the browser can free the underlying Blob memory.
+      // FIX P1-E: revoke 仍保留 load/error 监听（图片从网络加载时机不确定）
       if (coverObjectUrl) {
         const coverImg = card.querySelector('.cover-img');
         if (coverImg) {
@@ -199,13 +178,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      // Delete book
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm(`确定要移除《${book.title || book.filename}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
+          // v1.7.0: 删除前显式 revoke ObjectURL（不依赖 load/error 事件）
+          const savedUrl = card.dataset.coverUrl;
+          if (savedUrl) URL.revokeObjectURL(savedUrl);
           await EpubStorage.removeBook(book.id);
           card.remove();
-          // Reload shelf
           await loadBookshelf();
         }
       });
@@ -214,12 +194,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // v1.7.0: clearAll 改为 Promise.all 并行删除
   btnClearAll.addEventListener('click', async () => {
     if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
       const books = await EpubStorage.getRecentBooks();
-      for (const book of books) {
-        await EpubStorage.removeBook(book.id);
-      }
+      await Promise.all(books.map(b => EpubStorage.removeBook(b.id)));
       await loadBookshelf();
     }
   });
@@ -228,103 +207,78 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function loadAnnotations(filterType = 'all') {
     const allHighlights = await EpubStorage.getAllHighlights() || {};
     const bookKeys = Object.keys(allHighlights);
-    
+
     const recentBooks = await EpubStorage.getRecentBooks();
     const bookMetaMap = {};
-    for (const b of recentBooks) {
-      bookMetaMap[b.id] = b;
-    }
+    for (const b of recentBooks) bookMetaMap[b.id] = b;
 
-    let hasAny = false;
-    annotationsContainer.innerHTML = '';
-
-    // v1.2.2: Compile all annotations into a single flat array for global time sorting
     let flatAnnotations = [];
+    annotationsContainer.innerHTML = '';
 
     for (const bookId of bookKeys) {
       const highlights = allHighlights[bookId] || [];
       const bookContext = bookMetaMap[bookId] || { title: '未知书籍' };
-      
       for (const hl of highlights) {
-         // Attach lookup context used for deletion and display
-         hl._bookId      = bookId;
-         // FIX P1-F: _originalIndex was computed here but never read; deletion
-         // already uses CFI matching (not index), so the variable was dead code.
-         hl._bookContext = bookContext;
-
-         // Filter logic
-         const isNoteOnly = hl.color === 'transparent';
-         if (filterType === 'highlight' && isNoteOnly) continue;
-         if (filterType === 'note' && !isNoteOnly) continue;
-
-         flatAnnotations.push(hl);
+        hl._bookId      = bookId;
+        hl._bookContext = bookContext;
+        const isNoteOnly = hl.color === 'transparent';
+        if (filterType === 'highlight' && isNoteOnly)  continue;
+        if (filterType === 'note'      && !isNoteOnly) continue;
+        flatAnnotations.push(hl);
       }
     }
 
-    // Apply Sorting
-    flatAnnotations.sort((a, b) => {
-      return currentSort === 'desc' 
-        ? b.timestamp - a.timestamp 
-        : a.timestamp - b.timestamp;
-    });
+    flatAnnotations.sort((a, b) =>
+      currentSort === 'desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
+    );
 
-    if (flatAnnotations.length > 0) hasAny = true;
-
-    // Render sorted annotations
     for (const hl of flatAnnotations) {
-       const isNoteOnly = hl.color === 'transparent';
-       const item = document.createElement('div');
-       item.className = 'annotation-item';
-              item.innerHTML = `
-          <div class="annotation-content">
-            <div class="annotation-header">
-              <div class="annotation-book" title="在阅读器中定位">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                ${escapeHtml(hl._bookContext.title || hl._bookContext.filename)}
-              </div>
-              <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${sanitizeColor(hl.color)}33; color: ${sanitizeColor(hl.color)};`}">
-                ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
-              </div>
+      const isNoteOnly = hl.color === 'transparent';
+      const item = document.createElement('div');
+      item.className = 'annotation-item';
+      item.innerHTML = `
+        <div class="annotation-content">
+          <div class="annotation-header">
+            <div class="annotation-book" title="在阅读器中定位">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              ${Utils.escapeHtml(hl._bookContext.title || hl._bookContext.filename)}
             </div>
-            <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : sanitizeColor(hl.color)}">${escapeHtml(hl.text)}</div>
-            ${hl.note ? `<div class="annotation-note">${escapeHtml(hl.note)}</div>` : ''}
-            <div class="annotation-footer">
-              <span class="annotation-meta">创建于 ${formatDate(hl.timestamp)}</span>
-              <button class="annotation-delete-btn" title="删除标注">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
-              </button>
+            <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${sanitizeColor(hl.color)}33; color: ${sanitizeColor(hl.color)};`}">
+              ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
             </div>
           </div>
-        `;
+          <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : sanitizeColor(hl.color)}">${Utils.escapeHtml(hl.text)}</div>
+          ${hl.note ? `<div class="annotation-note">${Utils.escapeHtml(hl.note)}</div>` : ''}
+          <div class="annotation-footer">
+            <span class="annotation-meta">创建于 ${Utils.formatDate(hl.timestamp)}</span>
+            <button class="annotation-delete-btn" title="删除标注">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/></svg>
+            </button>
+          </div>
+        </div>
+      `;
 
-       // Click book title to open reader
-       item.querySelector('.annotation-book').addEventListener('click', (e) => {
-          if (hl._bookContext.filename) {
-             window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(hl._bookId) + '&target=' + encodeURIComponent(hl.cfi);
-          }
-       });
+      item.querySelector('.annotation-book').addEventListener('click', () => {
+        if (hl._bookContext.filename) {
+          window.location.href = chrome.runtime.getURL('reader/reader.html') +
+            '?bookId=' + encodeURIComponent(hl._bookId) +
+            '&target=' + encodeURIComponent(hl.cfi);
+        }
+      });
 
-       // Delete annotation
-       item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
-          e.stopPropagation();
-          if (confirm('确定要删除这条标注吗？')) {
-             // Retrieve fresh list to ensure correct deletion indexing
-             const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
-             // Filter it out via CFI match instead of index since indexing might have drifted in sorted state
-             const updated = currentHighlights.filter(h => h.cfi !== hl.cfi);
-             await EpubStorage.saveHighlights(hl._bookId, updated);
-             loadAnnotations(filterType);
-          }
-       });
+      item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm('确定要删除这条标注吗？')) {
+          const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
+          await EpubStorage.saveHighlights(hl._bookId, currentHighlights.filter(h => h.cfi !== hl.cfi));
+          loadAnnotations(filterType);
+        }
+      });
 
-       annotationsContainer.appendChild(item);
+      annotationsContainer.appendChild(item);
     }
 
-    if (!hasAny) {
-      annotationsEmpty.classList.add('show');
-    } else {
-      annotationsEmpty.classList.remove('show');
-    }
+    annotationsEmpty.classList.toggle('show', flatAnnotations.length === 0);
   }
 
   // --- Export Annotations ---
@@ -332,40 +286,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
       const allHighlights = await EpubStorage.getAllHighlights() || {};
-      const recentBooks = await EpubStorage.getRecentBooks();
+      const recentBooks   = await EpubStorage.getRecentBooks();
       let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
-      
       let hasData = false;
       for (const book of recentBooks) {
         const hls = allHighlights[book.id];
         if (hls && hls.length > 0) {
           hasData = true;
-          md += `## 《${escapeHtml(book.title || book.filename)}》\n\n`;
-          md += `*作者：${escapeHtml(book.author || '未知')}*\n\n`;
-          
-          // Sort chronologically by timestamp
-          hls.sort((a,b) => a.timestamp - b.timestamp).forEach(hl => {
+          md += `## 《${Utils.escapeHtml(book.title || book.filename)}》\n\n`;
+          md += `*作者：${Utils.escapeHtml(book.author || '未知')}*\n\n`;
+          hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
             md += `> ${hl.text.trim().replace(/\n/g, '\n> ')}\n\n`;
-            if (hl.note) {
-              md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
-            }
-            md += `---\n\n`; // Issue 8: Using correct newline sequences
+            if (hl.note) md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
+            md += `---\n\n`;
           });
-          md += `\n\n`; // Final separator per book
+          md += `\n\n`;
         }
       }
-
-      if (!hasData) {
-        alert('此时还没有可以导出的笔记！');
-        return;
-      }
-
-      // Download as markdown file
+      if (!hasData) { alert('此时还没有可以导出的笔记！'); return; }
       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
       a.href = url;
-      a.download = `epub_notes_${new Date().toISOString().slice(0,10)}.md`;
+      a.download = `epub_notes_${new Date().toISOString().slice(0, 10)}.md`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -373,43 +316,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // --- Utils ---
-  function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-  }
-
-  // FIX P0-NEW-1: Validate CSS color to prevent style-based XSS injection
+  // --- Utils (local, color validation only) ---
+  // v1.7.0: escapeHtml / formatDate / formatDuration 迁移至 Utils (utils.js)
   function sanitizeColor(colorStr) {
-    if (!colorStr) return '#ffeb3b'; // Default fallback yellow
-    // Match hex colors (e.g. #fff, #ffeb3b, #ffeb3b33) or literal 'transparent'
-    const colorRegex = /^#[0-9a-fA-F]{3,8}$|^transparent$/;
-    return colorRegex.test(colorStr) ? colorStr : '#ffeb3b';
-  }
-
-  function formatDate(timestamp) {
-    if (!timestamp) return '未知时间';
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now - date;
-
-    if (diff < 60000) return '刚刚';
-    if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
-    if (diff < 604800000) return Math.floor(diff / 86400000) + ' 天前';
-
-    return date.toLocaleDateString('zh-CN');
-  }
-
-  function formatTime(seconds) {
-    if (seconds === undefined || seconds === null) return '0秒';
-    if (seconds < 60) return `${Math.max(0, seconds)}秒`;
-    const mins = Math.floor(seconds / 60);
-    if (mins < 60) return `${mins}分钟`;
-    const hrs = Math.floor(mins / 60);
-    const m = mins % 60;
-    return m > 0 ? `${hrs}小时${m}分` : `${hrs}小时`;
+    if (!colorStr) return '#ffeb3b';
+    return /^#[0-9a-fA-F]{3,8}$|^transparent$/.test(colorStr) ? colorStr : '#ffeb3b';
   }
 });

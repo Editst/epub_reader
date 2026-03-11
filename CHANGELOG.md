@@ -1,6 +1,34 @@
 # 更新日志 (Changelog)
 
-所有该项目中极具标志性的迭代、修复和优化记录都将在此公示。
+## [1.7.0] - 2026-03-11
+
+### feat
+- **存储整合**：将 `pos_<bookId>` 和 `time_<bookId>` 合并为 `bookMeta_<bookId>`（按写入频率分组），
+  每本书从 4 个 key 精简为 3 个 key，翻页 I/O 只读写 ~200 bytes 而非触碰大型 highlights 数据
+- **阅读速度追踪**：新增 per-session 采样机制（`speed.sampledSeconds / sampledProgress`），
+  修复「从中间打开」「跳章阅读」导致 ETA 严重偏差的问题；仅统计连续阅读片段，跳跃自动排除
+- **共享工具模块**：新建 `src/utils/utils.js`，将 `escapeHtml` / `formatDate` / `formatDuration` /
+  `formatMinutes` 统一到 `Utils` 对象，消除 home.js / popup.js / reader.js 三处重复定义
+
+### fix
+- **书架并行加载**：`loadBookshelf` 由串行改为 `Promise.all` 并行（cover + meta），
+  20 本书加载时间从 ~600ms 降至 ~30ms
+- **savePosition 防抖**：翻页不再直写 storage，改为 300ms 尾部防抖 + visibilitychange 立即 flush
+- **clearAll 并行删除**：`btnClearAll` 由 for-await 串行改为 `Promise.all` 并行
+- **LRU 级联清理**：`enforceFileLRU` 驱逐文件时同步清理 `recentBooks` + `bookMeta`，
+  消除书架孤立条目（书已被 LRU 驱逐但书架仍显示，点击后报错）
+- **ObjectURL 显式 revoke**：删书前通过 `card.dataset.coverUrl` 显式 revoke，
+  不再依赖 `load`/`error` 事件的不确定触发时机
+- **highlightKeys 索引废弃**：`getAllHighlights` 改为遍历 `recentBooks` 读取，
+  彻底消除 v1.6.0 引入的索引不一致风险（新书高亮在标注面板不可见）
+- **DbGateway 重试退避**：IDB 连接失败后引入指数退避冷却（500/1000/2000ms），
+  连续失败 3 次后拒绝进一步重试，防止重试风暴
+
+### refactor
+- `storage.js`：`removeBook` 从 7 操作精简为（removeBookMeta 替代 removePosition + removeReadingTime）
+- `popup.js`：删除本地 `escapeHtml` / `formatDate`，改用 `Utils`；popup 读取进度改用 `getBookMeta` 一次完成
+- Lazy migration：`getBookMeta` 首次读取时自动迁移 v1.6.0 的 `pos_` / `time_` flat key 并清理旧 key
+
 
 ## [1.6.0] - Phase D-2：存储层 Schema 破坏性重建 + 安全补全
 

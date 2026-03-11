@@ -1,40 +1,30 @@
 // Popup logic - file picker and recent books
+// v1.7.0: escapeHtml / formatDate 迁移至 Utils (utils.js)
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const openBtn = document.getElementById('open-btn');
-  const homeBtn = document.getElementById('home-btn');
+  const openBtn   = document.getElementById('open-btn');
+  const homeBtn   = document.getElementById('home-btn');
   const fileInput = document.getElementById('file-input');
-  const recentList = document.getElementById('recent-list');
-  const emptyState = document.getElementById('empty-state');
+  const recentList= document.getElementById('recent-list');
+  const emptyState= document.getElementById('empty-state');
 
-  // Load recent books
   await loadRecentBooks();
 
-  // Open file button click
-  openBtn.addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  // Home shelf button click
+  openBtn.addEventListener('click', () => fileInput.click());
   homeBtn.addEventListener('click', () => {
     chrome.tabs.create({ url: chrome.runtime.getURL('home/home.html') });
     window.close();
   });
 
-  // File selected
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const arrayBuffer = await file.arrayBuffer();
-    // D-1-C: generateBookId is now async (SHA-256).
     const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-    // D-1-G: storeFile internalises LRU — no separate enforceFileLRU needed.
     await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
-
-    const readerUrl = chrome.runtime.getURL('reader/reader.html') +
-      '?bookId=' + encodeURIComponent(bookId);
-    chrome.tabs.create({ url: readerUrl });
+    chrome.tabs.create({
+      url: chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId)
+    });
     window.close();
   });
 
@@ -45,15 +35,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     emptyState.style.display = 'none';
-
     recentList.innerHTML = '';
-    // Process items sequentially to resolve all async cover getters
+
     for (const book of books) {
       const item = document.createElement('div');
       item.className = 'recent-item';
-      
-      // Fetch cover
-      // FIX P1-E: Pair createObjectURL with revokeObjectURL via img load/error events.
+
       const coverBlob = await EpubStorage.getCover(book.id);
       let coverObjectUrl = null;
       let coverHtml;
@@ -64,22 +51,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         coverHtml = '📖';
       }
 
-      // Fetch progress
-      const pos = await EpubStorage.getPosition(book.id);
-      const progressText = (pos && pos.percentage) ? `${pos.percentage}%` : '';
+      // v1.7.0: getBookMeta 一次读取 pos（合并原来的 getPosition 调用）
+      const meta = await EpubStorage.getBookMeta(book.id);
+      const progressText = (meta && meta.pos && meta.pos.percentage)
+        ? `${meta.pos.percentage}%` : '';
 
       item.innerHTML = `
         <div class="recent-item-icon">${coverHtml}</div>
         <div class="recent-item-info">
-          <div class="recent-item-title" title="${escapeHtml(book.title || book.filename)}">${escapeHtml(book.title || book.filename)}</div>
-          <div class="recent-item-date">${escapeHtml(book.author || '未知作者')}</div>
-          <div class="recent-item-date" style="margin-top:2px;">${formatDate(book.lastOpened)}</div>
+          <div class="recent-item-title" title="${Utils.escapeHtml(book.title || book.filename)}">${Utils.escapeHtml(book.title || book.filename)}</div>
+          <div class="recent-item-date">${Utils.escapeHtml(book.author || '未知作者')}</div>
+          <div class="recent-item-date" style="margin-top:2px;">${Utils.formatDate(book.lastOpened, '')}</div>
         </div>
         ${progressText ? `<div class="recent-item-progress">${progressText}</div>` : ''}
         <button class="recent-item-remove" title="移除">✕</button>
       `;
 
-      // Revoke blob URL as soon as the image loads (or fails)
       if (coverObjectUrl) {
         const coverImg = item.querySelector('.cover-img');
         if (coverImg) {
@@ -88,25 +75,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
-      // Click to reopen - pass filename so reader loads from IndexedDB
       item.querySelector('.recent-item-info').addEventListener('click', () => {
-        const readerUrl = chrome.runtime.getURL('reader/reader.html') +
-          '?bookId=' + encodeURIComponent(book.id);
-        chrome.tabs.create({ url: readerUrl });
+        chrome.tabs.create({
+          url: chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id)
+        });
         window.close();
       });
 
-      // Remove from recent
       item.querySelector('.recent-item-remove').addEventListener('click', async (e) => {
         e.stopPropagation();
-        // FIX P1-G: The old code only cleaned up recent-list, position, reading-time
-        // and the file blob — it silently left behind highlights, bookmarks and the
-        // cover image.  EpubStorage.removeBook() performs a complete cascading
-        // delete (recentBook + position + readingTime + cover + highlights +
-        // bookmarks + locations + file) so storage stays consistent no matter
-        // which surface the user removes the book from.
         await EpubStorage.removeBook(book.id);
-
         item.remove();
         const remaining = await EpubStorage.getRecentBooks();
         if (remaining.length === 0) {
@@ -116,28 +94,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       recentList.appendChild(item);
-    } // end for loop
+    }
   }
 });
-
-// D-1-G: storeFileData wrapper removed. Use EpubStorage.storeFile() directly (LRU is internal).
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
-function formatDate(timestamp) {
-  if (!timestamp) return '';
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = now - date;
-
-  if (diff < 60000) return '刚刚';
-  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前';
-  if (diff < 604800000) return Math.floor(diff / 86400000) + ' 天前';
-
-  return date.toLocaleDateString('zh-CN');
-}

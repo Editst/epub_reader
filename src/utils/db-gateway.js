@@ -15,11 +15,17 @@
  * D-1-E: put() / delete() 等待 tx.oncomplete，确保落盘后再 resolve。
  */
 const DbGateway = {
-  DB_NAME:    'EpubReaderDB',
-  DB_VERSION: 4,
-  _dbPromise: null,
+  DB_NAME:      'EpubReaderDB',
+  DB_VERSION:   4,
+  _dbPromise:   null,
+  _retryCount:  0,       // C-1: consecutive connection failure counter
+  _retryLimit:  3,       // refuse to reconnect after this many successive failures
 
   async connect() {
+    // C-1: refuse to hammer IDB after repeated failures (e.g. disk full, incognito limits)
+    if (this._retryCount >= this._retryLimit) {
+      throw new Error(`[DbGateway] IDB connection failed ${this._retryLimit} times consecutively. Refusing further retries.`);
+    }
     if (this._dbPromise) return this._dbPromise;
     this._dbPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
@@ -46,9 +52,19 @@ const DbGateway = {
           db.createObjectStore('locations', { keyPath: 'bookId' });
       };
 
-      request.onsuccess = (e) => resolve(e.target.result);
+      request.onsuccess = (e) => {
+        this._retryCount = 0; // reset on success
+        resolve(e.target.result);
+      };
       request.onerror   = (e) => {
         this._dbPromise = null;
+        this._retryCount++;
+        // Exponential backoff: auto-reset counter after a cooling period
+        // so transient failures don't permanently block future attempts.
+        const cooldown = Math.min(500 * Math.pow(2, this._retryCount), 8000);
+        setTimeout(() => {
+          if (this._retryCount > 0) this._retryCount--;
+        }, cooldown);
         reject(e.target.error);
       };
     });

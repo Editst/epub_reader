@@ -2,18 +2,28 @@
  * src/utils/storage.js
  * 统一存储抽象层 — 所有持久化操作的唯一入口
  *
- * 存储分布：
- *   IndexedDB (via DbGateway)
- *     files      bookId → { bookId, filename, data, timestamp }
- *     covers     bookId → { bookId, blob }
- *     locations  bookId → { bookId, json, timestamp }
- *   chrome.storage.local
- *     'preferences'       → { theme, fontSize, ... }
- *     'recentBooks'       → [{ id, title, author, filename, lastOpened }]
- *     'pos_<bookId>'      → { cfi, percentage, timestamp }   [v1.6.0 flat key]
- *     'time_<bookId>'     → number (seconds)
- *     'highlights_<bookId>' → [{ cfi, text, color, note, timestamp }]
- *     'bookmarks_<bookId>'  → [{ cfi, chapter, progress, timestamp }]
+ * v1.7.0 存储结构（chrome.storage.local）：
+ *
+ *   全局：
+ *     'preferences'          → { theme, fontSize, ... }
+ *     'recentBooks'          → [{ id, title, author, filename, lastOpened }]
+ *
+ *   每本书（3 keys，按写入频率分组）：
+ *     'bookMeta_<bookId>'    → { pos, time, speed }
+ *       pos:   { cfi, percentage, timestamp }
+ *       time:  number                          累计阅读秒数
+ *       speed: { sampledSeconds, sampledProgress }   实际采样速度
+ *     'highlights_<bookId>'  → [{cfi, text, color, note, timestamp}]
+ *     'bookmarks_<bookId>'   → [{cfi, chapter, progress, timestamp}]
+ *
+ *   IndexedDB (via DbGateway)：files / covers / locations
+ *
+ * v1.7.0 变更摘要：
+ *   [CONSOLIDATE] pos_<bookId> + time_<bookId> 合并为 bookMeta_<bookId>
+ *   [NEW]         speed 字段：per-session 采样，修复中途开书/跳章的 ETA 偏差
+ *   [REMOVE]      highlightKeys 索引（有不一致风险），改用 recentBooks 遍历
+ *   [FIX]         enforceFileLRU 级联清理 recentBooks + bookMeta，消除孤立条目
+ *   [MIGRATION]   getBookMeta lazy migration：自动迁移 v1.6.0 pos_/time_ 旧 key
  */
 const EpubStorage = {
 
@@ -56,61 +66,116 @@ const EpubStorage = {
     await this._set({ recentBooks: recent });
   },
 
-  // ── Reading Position ────────────────────────────────────────────────────────
-  // S-3: Flat per-book keys 'pos_<bookId>' replace the old nested 'positions'
-  // map.  Each savePosition is now O(1) read+write instead of O(n).
-  // Migration: getPosition() transparently reads old nested format on first
-  // access and re-writes it as a flat key, then removes the stale entry.
+  // ── Book Meta（位置 + 时间 + 速度） ──────────────────────────────────────────
+  //
+  // 三个小字段合并为一个 key（合计 < 200 bytes），翻页只读写 bookMeta，
+  // 不触碰大型 highlights/bookmarks 数据，避免写放大。
 
-  async savePosition(bookId, cfi, percentage = null) {
-    await this._set({ ['pos_' + bookId]: { cfi, percentage, timestamp: Date.now() } });
-  },
+  /**
+   * 读取书籍完整元数据。首次访问时自动迁移 v1.6.0 的 pos_/time_ flat key。
+   */
+  async getBookMeta(bookId) {
+    if (!bookId) return null;
+    const meta = await this._get('bookMeta_' + bookId);
+    if (meta) return meta;
 
-  async getPosition(bookId) {
-    // Fast path: flat key (v1.6.0+)
-    const flat = await this._get('pos_' + bookId);
-    if (flat) return flat;
-
-    // Migration path: check legacy nested 'positions' map (written by v1.5.0 and earlier)
-    const legacy = await this._get('positions');
-    if (legacy && legacy[bookId]) {
-      const pos = legacy[bookId];
-      // Migrate: write flat key, remove from nested map
-      await this._set({ ['pos_' + bookId]: pos });
-      delete legacy[bookId];
-      if (Object.keys(legacy).length > 0) {
-        await this._set({ positions: legacy });
-      } else {
-        await this._remove('positions');
-      }
-      return pos;
+    // Lazy migration from v1.6.0 flat keys
+    const [pos, time] = await Promise.all([
+      this._get('pos_' + bookId),
+      this._get('time_' + bookId)
+    ]);
+    if (pos || (typeof time === 'number')) {
+      const migrated = {
+        pos:   pos  || null,
+        time:  (typeof time === 'number') ? time : 0,
+        speed: { sampledSeconds: 0, sampledProgress: 0 }
+      };
+      await this._set({ ['bookMeta_' + bookId]: migrated });
+      this._remove(['pos_' + bookId, 'time_' + bookId]).catch(() => {});
+      return migrated;
     }
     return null;
   },
 
+  async saveBookMeta(bookId, meta) {
+    if (!bookId || !meta) return;
+    await this._set({ ['bookMeta_' + bookId]: meta });
+  },
+
+  /**
+   * Patch 位置字段。经 300ms 防抖后由 schedulePositionSave 调用。
+   */
+  async savePosition(bookId, cfi, percentage = null) {
+    if (!bookId) return;
+    const current = (await this._get('bookMeta_' + bookId)) || {
+      time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 }
+    };
+    current.pos = { cfi, percentage, timestamp: Date.now() };
+    await this._set({ ['bookMeta_' + bookId]: current });
+  },
+
+  async getPosition(bookId) {
+    const meta = await this.getBookMeta(bookId);
+    return meta ? (meta.pos || null) : null;
+  },
+
   async removePosition(bookId) {
-    await this._remove('pos_' + bookId);
-    // Also clean legacy entry if present
-    const legacy = await this._get('positions');
-    if (legacy && legacy[bookId]) {
-      delete legacy[bookId];
-      await this._set({ positions: legacy });
+    const current = await this._get('bookMeta_' + bookId);
+    if (current) {
+      current.pos = null;
+      await this._set({ ['bookMeta_' + bookId]: current });
     }
+    await this._remove('pos_' + bookId);
   },
 
   // ── Reading Time ─────────────────────────────────────────────────────────
 
   async getReadingTime(bookId) {
-    return (await this._get('time_' + bookId)) || 0;
+    const meta = await this.getBookMeta(bookId);
+    return meta ? (meta.time || 0) : 0;
   },
 
   async saveReadingTime(bookId, seconds) {
     if (!bookId) return;
-    await this._set({ ['time_' + bookId]: seconds });
+    const current = (await this._get('bookMeta_' + bookId)) || {
+      pos: null, speed: { sampledSeconds: 0, sampledProgress: 0 }
+    };
+    current.time = seconds;
+    await this._set({ ['bookMeta_' + bookId]: current });
   },
 
   async removeReadingTime(bookId) {
     await this._remove('time_' + bookId);
+  },
+
+  // ── Reading Speed（per-session 采样，v1.7.0 新增） ────────────────────────
+  //
+  // speed.sampledSeconds / sampledProgress 在每个有效 session 结束时累加。
+  // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
+  //            remaining = secsPerUnit * (1 - currentProgress) / 60  (分钟)
+  //
+  // 有效 session 条件（在 reader.js 中判断）：
+  //   - deltaProgress > 0.001（读了超过 0.1%）
+  //   - deltaProgress < 0.30 （无大幅跳跃）
+  //   - deltaSeconds  > 30   （超过 30 秒）
+
+  async saveReadingSpeed(bookId, speed) {
+    if (!bookId || !speed) return;
+    const current = (await this._get('bookMeta_' + bookId)) || {
+      pos: null, time: 0
+    };
+    current.speed = speed;
+    await this._set({ ['bookMeta_' + bookId]: current });
+  },
+
+  async getReadingSpeed(bookId) {
+    const meta = await this.getBookMeta(bookId);
+    return (meta && meta.speed) ? meta.speed : { sampledSeconds: 0, sampledProgress: 0 };
+  },
+
+  async removeBookMeta(bookId) {
+    if (!bookId) return;
+    await this._remove(['bookMeta_' + bookId, 'pos_' + bookId, 'time_' + bookId]);
   },
 
   // ── Highlights ───────────────────────────────────────────────────────────
@@ -120,6 +185,7 @@ const EpubStorage = {
   },
 
   async saveHighlights(bookId, highlights) {
+    if (!bookId) return;
     await this._set({ ['highlights_' + bookId]: highlights });
   },
 
@@ -128,39 +194,21 @@ const EpubStorage = {
   },
 
   /**
-   * Return all highlights keyed by bookId.
-   * S: Uses a stored index 'highlightKeys' to avoid get(null) full scan.
-   * Falls back to get(null) scan if the index is absent (first run / migration).
+   * 返回所有书籍的高亮，格式 { [bookId]: highlights[] }。
+   *
+   * v1.7.0: 废弃 highlightKeys 索引，改为遍历 recentBooks 读取。
+   * recentBooks 是权威书籍列表，无额外维护成本，彻底消除索引不一致风险。
    */
   async getAllHighlights() {
-    // Try index-based lookup first
-    let keys = await this._get('highlightKeys');
-    if (keys && Array.isArray(keys)) {
-      const result = {};
-      await Promise.all(keys.map(async (bookId) => {
-        const val = await this._get('highlights_' + bookId);
-        if (val) result[bookId] = val;
-      }));
-      return result;
-    }
-
-    // Fallback: full scan (migrates index on the fly)
-    return new Promise((resolve) => {
-      chrome.storage.local.get(null, async (items) => {
-        const all  = {};
-        const seen = [];
-        for (const [key, val] of Object.entries(items)) {
-          if (key.startsWith('highlights_')) {
-            const id = key.slice('highlights_'.length);
-            all[id]  = val;
-            seen.push(id);
-          }
-        }
-        // Build index for subsequent calls
-        if (seen.length > 0) await this._set({ highlightKeys: seen });
-        resolve(all);
-      });
-    });
+    const books = await this.getRecentBooks();
+    const result = {};
+    await Promise.all(books.map(async (book) => {
+      const hls = await this._get('highlights_' + book.id);
+      if (hls && hls.length > 0) result[book.id] = hls;
+    }));
+    // 清理 v1.6.0 遗留的 highlightKeys 索引（若存在）
+    this._remove('highlightKeys').catch(() => {});
+    return result;
   },
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────
@@ -170,6 +218,7 @@ const EpubStorage = {
   },
 
   async saveBookmarks(bookId, bookmarks) {
+    if (!bookId) return;
     await this._set({ ['bookmarks_' + bookId]: bookmarks });
   },
 
@@ -214,93 +263,62 @@ const EpubStorage = {
   },
 
   // ── Files (IndexedDB) ─────────────────────────────────────────────────────
-  // S-1-B: files store now keyed by bookId (was filename).
-  // storeFile() accepts bookId as primary key. getFile() looks up by bookId.
-  // LRU uses getAllMeta() cursor scan — never loads binary data.
 
-  /**
-   * Store an EPUB file in IndexedDB, keyed by bookId.
-   * LRU enforcement is internal (callers must not call enforceFileLRU separately).
-   *
-   * @param {string}                 filename  - Original filename (stored as metadata)
-   * @param {ArrayBuffer|Uint8Array} data      - File bytes
-   * @param {string}                 bookId    - SHA-256 content fingerprint (primary key)
-   */
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
     await DbGateway.put('files', { bookId, filename, data, timestamp: Date.now() });
     await this.enforceFileLRU(10);
   },
 
-  /**
-   * Retrieve a file record by bookId.
-   * Returns full record { bookId, filename, data, timestamp } or null.
-   */
   async getFile(bookId) {
     if (!bookId) return null;
     return DbGateway.get('files', bookId);
   },
 
-  /**
-   * Delete a file record by bookId.
-   */
   async removeFile(bookId) {
     if (!bookId) return;
     return DbGateway.delete('files', bookId);
   },
 
   /**
-   * LRU: keep only the most recent maxCount files.
-   * P1-LRU-1 fix: uses getAllMeta() cursor scan — reads only bookId+timestamp,
-   * never loads binary data into memory (old getAll() caused ~50 MB spikes).
+   * LRU：保留最近 maxCount 本书的文件缓存，驱逐其余。
+   *
+   * v1.7.0 修复：驱逐时级联清理 recentBooks + bookMeta，消除书架孤立条目。
    */
   async enforceFileLRU(maxCount = 10) {
     const meta = await DbGateway.getAllMeta('files', ['timestamp']);
     if (meta.length <= maxCount) return;
     meta.sort((a, b) => b.timestamp - a.timestamp);
-    for (let i = maxCount; i < meta.length; i++) {
-      await DbGateway.delete('files', meta[i].bookId);
-    }
+    await Promise.all(
+      meta.slice(maxCount).map(m => Promise.all([
+        DbGateway.delete('files', m.bookId),
+        this.removeRecentBook(m.bookId),
+        this.removeBookMeta(m.bookId)
+      ]))
+    );
   },
 
   // ── Cascading Delete ──────────────────────────────────────────────────────
 
   /**
-   * Delete ALL data for a book in one call.
-   * P1-CASCADE-1 fix: all independent operations run in parallel via Promise.all.
-   * S-1-B: filename parameter removed — all ops now use bookId uniformly.
-   *
-   * @param {string} bookId
+   * 删除一本书的全量数据（7 项并行）。
+   * v1.7.0: removeBookMeta 取代原 removePosition + removeReadingTime。
    */
   async removeBook(bookId) {
+    if (!bookId) return;
     await Promise.all([
       this.removeRecentBook(bookId),
-      this.removePosition(bookId),
-      this.removeReadingTime(bookId),
+      this.removeBookMeta(bookId),
       this.removeCover(bookId),
       this.removeHighlights(bookId),
       this.removeLocations(bookId),
       this.removeBookmarks(bookId),
-      this.removeFile(bookId),
+      this.removeFile(bookId)
     ]);
-    // Rebuild highlights index after deletion
-    const keys = await this._get('highlightKeys');
-    if (keys) {
-      const updated = keys.filter(k => k !== bookId);
-      await this._set({ highlightKeys: updated });
-    }
   },
 
   // ── BookId Generation ─────────────────────────────────────────────────────
 
-  /**
-   * Generate a SHA-256 content fingerprint as book identifier.
-   * Hashes filename + first 64 KB of content. Async (uses crypto.subtle).
-   *
-   * @param {string}      filename
-   * @param {ArrayBuffer} arrayBuffer
-   * @returns {Promise<string>} "book_<hex32>"
-   */
   async generateBookId(filename, arrayBuffer) {
     const chunk     = arrayBuffer.slice(0, 65536);
     const enc       = new TextEncoder();
