@@ -5,12 +5,12 @@
 ---
 
 ## [v1.9.0] - CSP 收敛与内联样式清理 (Security Hardening)
-**核心目标**：完成 v1.9 路线中的 C-1~C-7，消除 `unsafe-inline` 样式豁免。
+**核心目标**：完成 v1.9 路线中的 C-1~C-6，并为 C-7（移除 `unsafe-inline`）做收尾准备。
 
 - `reader.js`：`showLoadError` 从 `style.cssText` 切换到 `.reader-error-*`；翻页过渡改为 `.reader-main-dimmed` class。
 - `search.js`：搜索结果与高亮采用 `.search-result-item` / `.search-highlight` 等类；状态文案仅使用 `textContent`。
 - `toc.js`：空目录提示改为 DOM + `.toc-empty`。
-- `manifest.json`：`style-src` 移除 `'unsafe-inline'`。
+- `manifest.json`：`style-src` **暂保留** `'unsafe-inline'`（仍有内联样式依赖，计划在 v1.9.1 清除）。
 - 测试：`test/run_tests.js` 新增 `v1.9 CSP 收敛` 用例组，覆盖上述迁移点。
 
 ---
