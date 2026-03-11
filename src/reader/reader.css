@@ -798,6 +798,10 @@ html, body {
 }
 
 /* --- Image Viewer --- */
+.image-viewer-overlay.is-hidden {
+  display: none;
+}
+
 .image-viewer-overlay {
   position: fixed;
   inset: 0;
@@ -1402,3 +1406,11 @@ svg.epubjs-annotation {
   text-decoration: underline;
 }
 
+
+body.image-viewer-open {
+  overflow: hidden;
+}
+
+.image-viewer-zoomable {
+  cursor: zoom-in !important;
+}

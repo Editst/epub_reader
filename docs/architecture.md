@@ -1,6 +1,6 @@
 # EPUB Reader — 系统架构文档
 
-版本：v1.8.0  
+版本：v1.9.2（对齐 comprehensive_repost）  
 更新：2026-03-11
 
 ---
@@ -419,6 +419,15 @@ Annotations.hookRendition(rendition): void
 ---
 
 ## 8. 已知技术债务
+
+### 8.0 comprehensive_repost 审计新增结论（1.x 收尾重点）
+
+1. `EpubStorage._get/_set/_remove` 尚未向上抛出 `chrome.runtime.lastError`，导致存储失败可能静默。
+2. `bookMeta` 的位置/时长/速度写入仍是并发 RMW（read-modify-write）模型，存在字段覆盖窗口。
+3. `getAllHighlights()` 仅按 `recentBooks` 遍历，历史书籍（不在前 20）标注可能“不可见但未丢失”。
+4. home/popup/image-viewer 仍保留部分 `style.*` 运行时直写，阻碍 CSP 最终移除 `unsafe-inline`。
+
+> 以上项不建议在 1.x 中做结构性重构，统一放入 v1.9.2 低风险治理批次。
 
 ### P2 (计划 v1.9.0)
 - **ID 2.3**：`home.js` 重新渲染时未及时回收 `ObjectURL`。

@@ -231,3 +231,11 @@ body {
   display: none;
 }
   
+
+.is-hidden {
+  display: none !important;
+}
+
+.recent-item-date-secondary {
+  margin-top: 2px;
+}

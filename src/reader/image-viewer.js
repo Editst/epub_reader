@@ -58,7 +58,7 @@ const ImageViewer = {
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
-      if (this.overlay.style.display === 'none') return;
+      if (this.overlay.classList.contains('is-hidden')) return;
       if (e.key === 'Escape') this.close();
       if (e.key === '+' || e.key === '=') this.zoom(0.3);
       if (e.key === '-') this.zoom(-0.3);
@@ -73,14 +73,14 @@ const ImageViewer = {
   open(src) {
     this.resetTransform();
     this.img.src = src;
-    this.overlay.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
+    this.overlay.classList.remove('is-hidden');
+    document.body.classList.add('image-viewer-open');
   },
 
   close() {
-    this.overlay.style.display = 'none';
+    this.overlay.classList.add('is-hidden');
     this.img.src = '';
-    document.body.style.overflow = '';
+    document.body.classList.remove('image-viewer-open');
   },
 
   zoom(delta) {
@@ -110,7 +110,7 @@ const ImageViewer = {
       const images = doc.querySelectorAll('img, image, svg image');
 
       images.forEach((img) => {
-        img.style.cursor = 'zoom-in';
+        img.classList.add('image-viewer-zoomable');
         img.addEventListener('click', (e) => {
           e.preventDefault();
           e.stopPropagation();

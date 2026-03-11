@@ -26,6 +26,7 @@
  *   [MIGRATION]   getBookMeta lazy migration：自动迁移 v1.6.0 pos_/time_ 旧 key
  */
 const EpubStorage = {
+  _bookMetaQueue: new Map(),
 
   // ── Preferences ────────────────────────────────────────────────────────────
 
@@ -107,11 +108,10 @@ const EpubStorage = {
    */
   async savePosition(bookId, cfi, percentage = null) {
     if (!bookId) return;
-    const current = (await this._get('bookMeta_' + bookId)) || {
-      time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 }
-    };
-    current.pos = { cfi, percentage, timestamp: Date.now() };
-    await this._set({ ['bookMeta_' + bookId]: current });
+    await this._enqueueBookMetaWrite(bookId, (current) => {
+      current.pos = { cfi, percentage, timestamp: Date.now() };
+      return current;
+    });
   },
 
   async getPosition(bookId) {
@@ -137,11 +137,10 @@ const EpubStorage = {
 
   async saveReadingTime(bookId, seconds) {
     if (!bookId) return;
-    const current = (await this._get('bookMeta_' + bookId)) || {
-      pos: null, speed: { sampledSeconds: 0, sampledProgress: 0 }
-    };
-    current.time = seconds;
-    await this._set({ ['bookMeta_' + bookId]: current });
+    await this._enqueueBookMetaWrite(bookId, (current) => {
+      current.time = seconds;
+      return current;
+    });
   },
 
   async removeReadingTime(bookId) {
@@ -161,11 +160,10 @@ const EpubStorage = {
 
   async saveReadingSpeed(bookId, speed) {
     if (!bookId || !speed) return;
-    const current = (await this._get('bookMeta_' + bookId)) || {
-      pos: null, time: 0
-    };
-    current.speed = speed;
-    await this._set({ ['bookMeta_' + bookId]: current });
+    await this._enqueueBookMetaWrite(bookId, (current) => {
+      current.speed = speed;
+      return current;
+    });
   },
 
   async getReadingSpeed(bookId) {
@@ -201,12 +199,21 @@ const EpubStorage = {
    */
   async getAllHighlights() {
     const books = await this.getRecentBooks();
+    const allItems = await this._getAll();
     const result = {};
-    await Promise.all(books.map(async (book) => {
-      const hls = await this._get('highlights_' + book.id);
-      if (hls && hls.length > 0) result[book.id] = hls;
+    const bookIds = new Set(books.map(b => b.id));
+
+    for (const key of Object.keys(allItems || {})) {
+      if (key.startsWith('highlights_')) {
+        bookIds.add(key.slice('highlights_'.length));
+      }
+    }
+
+    await Promise.all(Array.from(bookIds).map(async (bookId) => {
+      const hls = await this._get('highlights_' + bookId);
+      if (hls && hls.length > 0) result[bookId] = hls;
     }));
-    // 清理 v1.6.0 遗留的 highlightKeys 索引（若存在）
+
     this._remove('highlightKeys').catch(() => {});
     return result;
   },
@@ -337,18 +344,57 @@ const EpubStorage = {
   // ── Internal Helpers ──────────────────────────────────────────────────────
 
   async _get(key) {
-    return new Promise(resolve =>
-      chrome.storage.local.get([key], result => resolve(result[key]))
-    );
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get([key], result => {
+        if (chrome.runtime && chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        resolve(result[key]);
+      });
+    });
+  },
+
+  async _getAll() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get(null, result => {
+        if (chrome.runtime && chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        resolve(result || {});
+      });
+    });
   },
 
   async _set(data) {
-    return new Promise(resolve => chrome.storage.local.set(data, resolve));
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set(data, () => {
+        if (chrome.runtime && chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        resolve();
+      });
+    });
   },
 
   async _remove(key) {
-    return new Promise(resolve =>
-      chrome.storage.local.remove(Array.isArray(key) ? key : [key], resolve)
-    );
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.remove(Array.isArray(key) ? key : [key], () => {
+        if (chrome.runtime && chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        resolve();
+      });
+    });
+  },
+
+  async _enqueueBookMetaWrite(bookId, mutator) {
+    const prev = this._bookMetaQueue.get(bookId) || Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(async () => {
+        const current = (await this._get('bookMeta_' + bookId)) || {
+          pos: null,
+          time: 0,
+          speed: { sampledSeconds: 0, sampledProgress: 0 }
+        };
+        const updated = mutator(current) || current;
+        await this._set({ ['bookMeta_' + bookId]: updated });
+      });
+    this._bookMetaQueue.set(bookId, next.finally(() => {
+      if (this._bookMetaQueue.get(bookId) === next) this._bookMetaQueue.delete(bookId);
+    }));
+    return next;
   }
 };
