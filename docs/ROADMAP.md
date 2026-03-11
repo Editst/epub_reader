@@ -32,20 +32,20 @@
 **优先级更新**：v1.7.0 验收阶段发现 3 个 P1 级功能 bug，v1.8.0 首要任务是修复，其次完成原 CSS 清理计划。
 
 **P1 Bug 修复**：
-- [ ] BUG-01：Popup 首次打开新书无反应（`showOpenFilePicker` 替代 `<input type="file">`）
-- [ ] BUG-02：ETA 不准确（`_cachedSpeed` 内存同步 + session 起点重置 + 阈值调优）
-- [ ] BUG-03：缩放后位置偏移（`start.cfi` 锚点 + 字号变化 CFI 锁保护）
+- [x] BUG-01：Popup 首次打开新书无反应（`showOpenFilePicker` 替代 `<input type="file">`）
+- [x] BUG-02：ETA 不准确（`_cachedSpeed` 内存同步 + session 起点重置 + 阈值调优）
+- [x] BUG-03：缩放后位置偏移（`start.cfi` 锚点 + 字号变化 CFI 锁保护）
 
 **原有 CSS 清理**：
 
 **目标**：统一显隐控制，消除 CSS 变量冲突，为移除 `unsafe-inline` 铺路。
 
 - [ ] S-1：home.css 变量私有命名空间（`--home-*`），消除与 themes.css 的双轨冲突
-- [ ] S-2：themes.css 补充 `[data-theme="custom"]` 块
+- [x] S-2：themes.css 补充 `[data-theme="custom"]` 块
 - [ ] S-3：display 控制统一为 CSS class（消除 7 处 `style.display` 直写）
-- [ ] S-4：popup.css 外联化（234 行内联 CSS → `popup.css`）
-- [ ] S-5：reader.html / home.html 补充 `<meta name="color-scheme">`
-- [ ] S-6：drag-overlay HTML 预置于 reader.html，移出 innerHTML 赋值
+- [x] S-4：popup.css 外联化（234 行内联 CSS → `popup.css`）
+- [x] S-5：reader.html / home.html / popup.html 补充 `<meta name="color-scheme">`
+- [x] S-6：drag-overlay HTML 预置于 reader.html，移出 innerHTML 赋值
 
 ---
 
@@ -53,13 +53,13 @@
 
 **前提**：v1.8.0 完成。
 
-- [ ] C-1：`showLoadError()` 5 处 `style.cssText` → CSS class
-- [ ] C-2：`reader.js` opacity 动画 → CSS transition class
-- [ ] C-3：`search.js` 4 处 `style.*` → `.search-result-item` CSS
-- [ ] C-4：`search.js mark.style.cssText` → `.search-highlight` CSS class
-- [ ] C-5：`search.js statusEl.innerHTML` → textContent + CSS class
-- [ ] C-6：`toc.js` empty inline style → `.toc-empty` CSS class
-- [ ] C-7：manifest `style-src` 移除 `'unsafe-inline'`
+- [x] C-1：`showLoadError()` 5 处 `style.cssText` → CSS class
+- [x] C-2：`reader.js` opacity 动画 → CSS transition class
+- [x] C-3：`search.js` 4 处 `style.*` → `.search-result-item` CSS
+- [x] C-4：`search.js mark.style.cssText` → `.search-highlight` CSS class
+- [x] C-5：`search.js statusEl.innerHTML` → textContent + CSS class
+- [x] C-6：`toc.js` empty inline style → `.toc-empty` CSS class
+- [x] C-7：manifest `style-src` 移除 `'unsafe-inline'`
 
 ---
 

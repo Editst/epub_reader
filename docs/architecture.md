@@ -439,3 +439,8 @@ Annotations.hookRendition(rendition): void
 2. **工具层**：`db-gateway.js`, `utils.js`, `storage.js` (依赖前者)
 3. **子模块**：`image-viewer.js`, `annotations.js`, `toc.js`, `search.js`, `bookmarks.js`, `highlights.js` (依赖工具层)
 4. **主控制器**：`reader.js` (必须最后加载，负责调度上述所有模块)
+
+
+## v1.9 架构注记
+- UI 显隐与视觉状态进一步收敛为 CSS class，减少 JS 内联样式写入。
+- CSP 策略收敛后，样式来源统一至外联 CSS + 主题变量覆盖路径。

@@ -14,20 +14,6 @@ const Search = (function() {
   let currentSearchId = 0;
   let _lastSearchAlertCfi = null; // v1.2.0: Track search highlights to prevent memory/visual leaks
 
-  // Escape HTML utility to prevent XSS
-  function escapeHtml(unsafe) {
-    return (unsafe || '').replace(/[&<"'>]/g, function (match) {
-      const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-      };
-      return map[match];
-    });
-  }
-
   function init() {
     panel = document.getElementById('search-panel');
     overlay = document.getElementById('sidebar-overlay');
@@ -81,7 +67,7 @@ const Search = (function() {
     book = b;
     rendition = r;
     if (resultsList) resultsList.innerHTML = '';
-    if (statusEl) statusEl.innerHTML = '';
+    if (statusEl) statusEl.textContent = '';
     if (searchInput) searchInput.value = '';
     clearSearchHighlight();
   }
@@ -145,6 +131,7 @@ const Search = (function() {
     isSearching = true;
     resultsList.innerHTML = '';
     statusEl.textContent = '准备搜索...';
+    statusEl.classList.remove('search-status-empty');
     searchBtn.disabled = true;
 
     try {
@@ -186,7 +173,8 @@ const Search = (function() {
 
       if (searchId === currentSearchId) {
         if (results.length === 0) {
-          statusEl.innerHTML = '<span style="color:var(--text-muted)">暂无结果</span>';
+          statusEl.textContent = '暂无结果';
+          statusEl.classList.add('search-status-empty');
         } else if (results.length >= MAX_RESULTS) {
           statusEl.textContent = `找到极多结果，仅显示前 ${MAX_RESULTS} 条以保护性能`;
         } else {
@@ -208,64 +196,49 @@ const Search = (function() {
 
   function renderPartialResults(results, query) {
     resultsList.innerHTML = '';
-    
+
     results.forEach(res => {
       const itemEl = document.createElement('div');
-      itemEl.className = 'bookmark-item';
-      itemEl.style.cursor = 'pointer';
-      itemEl.style.userSelect = 'none';
-      
+      itemEl.className = 'bookmark-item search-result-item';
+
       const textEl = document.createElement('div');
-      textEl.className = 'bookmark-title';
-      textEl.style.lineHeight = '1.4';
-      textEl.style.whiteSpace = 'normal'; // Allow wrapping for context
-      textEl.style.fontSize = '13px';
-      
-      // Sanitize the excerpt to prevent XSS (only needed for safety in base logic, but we'll use DOM text nodes)
-      const excerpt = res.excerpt.trim();
-      
-      // Escape query for regex
+      textEl.className = 'bookmark-title search-result-text';
+
+      const excerpt = (res.excerpt || '').trim();
       const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const regex = new RegExp(`(${safeQuery})`, 'gi');
-      
-      // FIX P0-NEW-3: Use DOM manipulation instead of innerHTML replacement
+
       const parts = excerpt.split(regex);
       parts.forEach(part => {
         if (new RegExp(`^${safeQuery}$`, 'i').test(part)) {
           const mark = document.createElement('mark');
+          mark.className = 'search-highlight';
           mark.textContent = part;
-          // Note: using class 'search-highlight' to be extracted in the CSP step later, 
-          // but inline styles temporarily for smooth transition
-          mark.style.cssText = 'background:var(--text-accent);color:#fff;padding:0 2px;border-radius:2px;';
           textEl.appendChild(mark);
         } else if (part) {
           textEl.appendChild(document.createTextNode(part));
         }
       });
-      
+
       itemEl.appendChild(textEl);
-      
-      // Click event to navigate and highlight the document text
+
       itemEl.addEventListener('click', () => {
-        // Remove active class from all items
-        const allItems = resultsList.querySelectorAll('.bookmark-item');
-        allItems.forEach(el => el.style.background = '');
-        
-        // Emphasize this item
-        itemEl.style.background = 'var(--bg-hover)';
+        const allItems = resultsList.querySelectorAll('.search-result-item');
+        allItems.forEach(el => el.classList.remove('active'));
+        itemEl.classList.add('active');
 
         if (rendition && rendition.annotations) {
-          clearSearchHighlight(); // v1.2.0: Clean up previous mark
-          // Add temporary highlight
-          rendition.annotations.highlight(res.cfi, {}, (e) => {}, "epubjs-search-highlight", { "fill": "yellow", "fill-opacity": "0.5" });
+          clearSearchHighlight();
+          rendition.annotations.highlight(res.cfi, {}, () => {}, 'epubjs-search-highlight', { fill: 'yellow', 'fill-opacity': '0.5' });
           _lastSearchAlertCfi = res.cfi;
           rendition.display(res.cfi);
         }
       });
-      
+
       resultsList.appendChild(itemEl);
     });
   }
+
 
   // v1.2.0: Utility to clear the last search highlight to prevent visual/memory pollution
   function clearSearchHighlight() {

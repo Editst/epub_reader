@@ -51,7 +51,10 @@ const TOC = {
     this.container.innerHTML = '';
 
     if (!navigation || !navigation.toc || navigation.toc.length === 0) {
-      this.container.innerHTML = '<div style="padding: 20px; color: var(--text-muted); font-size: 14px; text-align: center;">本书没有目录</div>';
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'toc-empty';
+      emptyEl.textContent = '本书没有目录';
+      this.container.appendChild(emptyEl);
       return;
     }
 

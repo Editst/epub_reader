@@ -4,6 +4,7 @@
  */
 const test  = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 // ─── 全局 Mock 环境 ───────────────────────────────────────────────────────────
 const _store = {};
@@ -110,10 +111,17 @@ global.indexedDB = {
 };
 
 // ─── Load source modules ───────────────────────────────────────────────────────
-const { Utils }       = require('./src/utils/utils.js');
-const { DbGateway }   = require('./src/utils/db-gateway.js');
+const vm = require('node:vm');
+function loadGlobalConst(filePath, constName) {
+  const code = fs.readFileSync(filePath, 'utf8');
+  vm.runInThisContext(`${code}
+;global.${constName} = ${constName};`, { filename: filePath });
+  return global[constName];
+}
+const Utils = loadGlobalConst('src/utils/utils.js', 'Utils');
+const DbGateway = loadGlobalConst('src/utils/db-gateway.js', 'DbGateway');
 global.DbGateway = DbGateway;
-const { EpubStorage } = require('./src/utils/storage.js');
+const EpubStorage = loadGlobalConst('src/utils/storage.js', 'EpubStorage');
 global.EpubStorage = EpubStorage;
 
 // Mock DbGateway for storage tests (overrides IDB calls)
@@ -936,3 +944,77 @@ test.describe('集成：完整阅读会话', () => {
   });
 });
 
+
+
+// ─── v1.8 CSS/HTML 收尾项（文档对照） ───────────────────────────────────────
+test.describe('v1.8 剩余项收尾', () => {
+  test.it('S-4: popup.html 已外联 popup.css，不再包含内联 <style>', () => {
+    const popupHtml = fs.readFileSync('src/popup/popup.html', 'utf8');
+    assert.ok(popupHtml.includes('href="popup.css"'));
+    assert.ok(!popupHtml.includes('<style>'));
+  });
+
+  test.it('S-5: reader/home/popup 三入口包含 color-scheme 声明', () => {
+    const files = ['src/reader/reader.html', 'src/home/home.html', 'src/popup/popup.html'];
+    for (const f of files) {
+      const html = fs.readFileSync(f, 'utf8');
+      assert.ok(html.includes('<meta name="color-scheme" content="light dark">'), `missing in ${f}`);
+    }
+  });
+
+  test.it('S-2: themes.css 提供 [data-theme="custom"] 主题变量块', () => {
+    const css = fs.readFileSync('src/styles/themes.css', 'utf8');
+    assert.ok(css.includes('[data-theme="custom"]'));
+    assert.ok(css.includes('--reader-bg'));
+    assert.ok(css.includes('--reader-text'));
+  });
+
+  test.it('S-6: drag-overlay 结构已移入 reader.html，reader.js 不再 innerHTML 注入', () => {
+    const html = fs.readFileSync('src/reader/reader.html', 'utf8');
+    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+    assert.ok(html.includes('id="drag-overlay"'));
+    assert.ok(!js.includes('dragOverlay.innerHTML'));
+  });
+});
+
+
+// ─── v1.9 CSP unsafe-inline 消除（TDD） ────────────────────────────────────
+test.describe('v1.9 CSP 收敛', () => {
+  test.it('C-7: manifest style-src 不再包含 unsafe-inline', () => {
+    const manifest = fs.readFileSync('src/manifest.json', 'utf8');
+    assert.ok(!manifest.includes("'unsafe-inline'"));
+  });
+
+  test.it('C-1/C-2: reader.js 不再使用 style.cssText 与 opacity 直写', () => {
+    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+    assert.ok(!js.includes('style.cssText'));
+    assert.ok(!js.includes('readerMain.style.opacity'));
+  });
+
+  test.it('C-1/C-2: reader.css 提供错误态与过渡 class', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(css.includes('.reader-error-wrapper'));
+    assert.ok(css.includes('.reader-main-dimmed'));
+  });
+
+  test.it('C-3/C-4/C-5: search.js 移除内联样式与 status innerHTML', () => {
+    const js = fs.readFileSync('src/reader/search.js', 'utf8');
+    assert.ok(!js.includes('statusEl.innerHTML'));
+    assert.ok(!js.includes('mark.style.cssText'));
+    assert.ok(!js.includes('itemEl.style.'));
+    assert.ok(!js.includes('textEl.style.'));
+  });
+
+  test.it('C-3/C-4/C-5: reader.css 提供搜索样式 class', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(css.includes('.search-result-item'));
+    assert.ok(css.includes('.search-highlight'));
+    assert.ok(css.includes('.search-status-empty'));
+  });
+
+  test.it('C-6: toc.js 空目录不再 innerHTML style 字符串', () => {
+    const js = fs.readFileSync('src/reader/toc.js', 'utf8');
+    assert.ok(!js.includes('<div style='));
+    assert.ok(js.includes('toc-empty'));
+  });
+});
