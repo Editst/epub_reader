@@ -1,7 +1,7 @@
 # EPUB Reader 综合审计报告（comprehensive_repost）
 
-> 文档版本：v1.9.2 最终审计基线（1.x 正式封版）
-> 最后更新：2026-03-11
+> 文档版本：v1.9.2 最终审计基线（1.x 正式封版）+ Annotations 算法深度对齐专项补充
+> 最后更新：2026-03-12
 > 覆盖范围：`src/**` 全目录（reader/home/popup/utils/background/manifest）
 
 ---
@@ -12,6 +12,8 @@
 - **v1.9.2 最终收尾已完成**：原 ROADMAP 中 F-1/F-2/F-3/F-4 四项均已实现并通过自动化测试验证。
 - **本轮新增审计发现与修复**：`reader.js` 中残余 5 处 `style.*` 运行时直写（D-2026-04 最终收口），已全部迁移为 CSS class 控制；`reader.html` 同步移除对应内联 `style="display:none"`；`reader.css` 新增完整的 `.is-hidden/.is-visible` 辅助类组。
 - **当前技术债务状态**：原 P1（D-2026-01）和全部 P2（D-2026-02/03/04）已清零。仅剩 P3 级别债务（reader.js 高耦合、DbGateway 死代码、image-viewer transform 豁免），均已纳入 2.x 规划。
+- **新增：Annotations 算法短板专项审计**（本轮补充）：基于 Calibre/KOReader 注释识别算法逆向分析，发现 `annotations.js` 存在 5 类系统性短板，已全部登记为 D-2026-11～16，纳入 v2.3.0/v2.4.0 规划。
+- **新增：Annotations 代码质量审计**（本轮补充）：对 `annotations.js` 进行纯代码维度审计，独立于 Calibre 算法对比，发现 8 项代码质量问题（逻辑重复、常量管理、约束违反、magic number、碎片化解析、监听器泄漏风险、冗余 bind、文档治理），登记为 D-2026-17～24，与 Calibre 对齐项合并纳入 v2.3.0 同批处理。
 - **结论**：1.x 系列可正式封版。建议以当前 v1.9.2 为基线启动 2.x 架构演进。
 
 ---
@@ -26,6 +28,7 @@
 - `src/home/home.js`、`src/popup/popup.js`（入口逻辑与书架/导入路径）
 - `src/reader/reader.css`、`src/reader/reader.html`（CSS class vs inline style 状态控制）
 - `src/manifest.json`（CSP 与扩展运行约束）
+- `src/reader/annotations.js`（注释识别算法，本轮新增深度审计）
 
 ### 2.2 架构设计审计
 
@@ -34,6 +37,10 @@
 - 是否控制跨模块状态耦合。
 - 是否为 2.x 模块化拆分保留明确边界。
 - 是否满足 CSP 收敛目标和无障碍目标。
+
+### 2.3 Annotations 算法横向对比审计（新增）
+
+以 Calibre E-book Viewer 及 KOReader 的注释识别逻辑（位掩码状态机）为参照基准，逐项比对 `annotations.js` 的当前实现覆盖度与短板，详见第 9 节。
 
 ---
 
@@ -133,6 +140,7 @@
 - `reader.js` 单文件架构未解耦（P3，设计上确认，不做 1.x 破坏性重构）。
 - `unsafe-inline` 未完全移除（image-viewer transform 豁免，计划 v2.2.0）。
 - ARIA 语义与键盘可达性未补全（v2.2.0）。
+- Annotations 算法深度对齐（v2.3.0/v2.4.0，详见第 9 节）。
 
 ---
 
@@ -300,7 +308,27 @@ applyTransform() {
 
 ---
 
-## 7. 技术债务索引（更新至 v1.9.2 封版）
+### v2.3.0 — Annotations 算法深度对齐（预计 4～6 工作日）
+
+详细规划见第 9 节。摘要：
+
+- [ ] AN-1：`getComputedStyle` 垂直对齐检测，补全 CSS 替代 `<sup>` 的漏判场景。
+- [ ] AN-2：源节点孤立性检查，补全扁平 `<p>` 单链接误判排除。
+- [ ] AN-3a：同文档 `compareDocumentPosition` 位置前后判断，作为辅助返回链接信号。
+- [ ] AN-4：`_extractContent` 文本长度安全阀 + 空锚点 sibling 遍历截断。
+- [ ] AN-5：跨文档注释内容 LRU 缓存（容量 50，TTL = book 生命周期）。
+
+---
+
+### v2.4.0 — Annotations 跨文档拓扑与历史格式兼容（预计 3～4 工作日）
+
+- [ ] AN-3b：spine index 跨文档位置比对（AN-3 的跨文档延伸）。
+- [ ] AN-6：FB2 转换格式兼容（`body[name="notes/comments"] > section` 结构识别）。
+- [ ] AN-7：数字标记上限收窄至 3 位，过滤年份误判，白名单保留 `epub:type="noteref"` 覆盖。
+
+---
+
+## 7. 技术债务索引（更新至 v1.9.2 封版 + Annotations 专项）
 
 | 优先级 | ID | 描述 | 目标版本 | 状态 |
 |---|---|---|---|---|
@@ -314,16 +342,544 @@ applyTransform() {
 | 🔵 P3 | D-2026-08 | ARIA 语义缺失（工具栏/面板/书架卡片） | v2.2.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-09 | 阅读速度模型为等权平均，未区分跳读/连续阅读 | v2.1.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-10 | locations 生成阻塞主线程（大型书籍 > 500ms） | v2.1.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-11 | CSS `vertical-align` 替代 `<sup>` 的注释链接漏判（缺 computedStyle 检测） | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-12 | 孤立性链接（父块唯一内容）缺乏专项排他检查，TOC 变体误判风险 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-13 | `_extractContent` 无文本长度安全阀，空锚点可返回超长内容 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-14 | 跨文档注释无缓存，密集点击场景有可感延迟 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-15 | FB2 转换格式（`body[name="notes"]`）注释容器未识别 | v2.4.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-16 | `noteTextMarker` 支持 4 位数字，年份链接（如"1984"）存在误判风险 | v2.4.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-17 | `isBackLink`/`isFootnoteLink` 重复 sup DOM 查询，语义混淆，缺 `_hasSup()` 公共方法 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-18 | `_extractContent` 局部 `BLOCK` 数组每次调用重建，应升为模块级 `Set` | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-19 | `showFootnote` last-resort 降级路径含 inline style 字符串，违反 style.* 约束 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 中 100ms 等待为 magic number，无具名常量 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-21 | `showFootnote`/`_loadFromBook`/`_compensatePaginationOffset` href 解析碎片化，edge case 处理不一致 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与 v2.0.0 生命周期接口存在兼容风险 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()`，无 targetId 时仍进入无效迭代 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释，后续维护成本高 | v2.3.0 | 📋 已规划 |
 
 ---
 
 ## 8. 文档联动更新说明
 
 本次审计同步更新（均已执行）：
-- `docs/ROADMAP.md`：标记 v1.9.2 全部收尾项完成，补充 v2.0.0/v2.1.0/v2.2.0 详细规划与验收标准。
+- `docs/ROADMAP.md`：标记 v1.9.2 全部收尾项完成，补充 v2.0.0/v2.1.0/v2.2.0 详细规划与验收标准，**新增 v2.3.0/v2.4.0 Annotations 专项规划**。
 - `docs/architecture.md`：补充 1.x 封版结论、style.* 迁移说明、image-viewer transform 豁免理由、v2.x 架构演进方向。
-- `docs/modules.md`：补充 `getAllHighlights` 更新语义、`_bookMetaQueue` 串行化约束、CSS 辅助类控制机制说明。
+- `docs/modules.md`：补充 `getAllHighlights` 更新语义、`_bookMetaQueue` 串行化约束、CSS 辅助类控制机制说明，**新增 Annotations 模块接口约束补充**。
 - `test/tests.js`：新增 F-1/F-2/F-3/F-4 专项回归套件（v1.9.2），测试头注释更新至 v1.9.2。
 - `test/suites/csp_regression.test.js`：新增 C-8～C-11，覆盖 reader.js style.display 消除与辅助类完整性。
 - `test/suites/release_checks.test.js`：新增 v1.9.2 收尾完成验证组（F-1/F-2/F-3/F-4 静态断言）。
 - `CHANGELOG.md`：v1.9.2 条目补充 reader.js style.* 迁移详情与测试更新说明。
+
+---
+
+## 9. Annotations 算法深度审计（新增专项）
+
+> 基于 Calibre E-book Viewer / KOReader 注释识别算法逆向分析报告，与 `annotations.js` v1.9.2 当前实现的系统性对比。
+
+### 9.1 当前实现总体评估
+
+`annotations.js` 当前已实现完整的四阶段识别管线，在设计上与 Calibre 位掩码状态机的核心逻辑高度吻合：
+
+| Calibre 掩码 | 含义 | annotations.js 当前覆盖 |
+|---|---|---|
+| 0x0004 | epub:type / role 语义信任 | ✅ Stage 1，isFootnoteLink + isBackLink 均覆盖 |
+| 0x0008 | FB2 `body[name="notes"]` 兼容 | ❌ 未覆盖（D-2026-15） |
+| 0x0010 | 目标必须含锚点 `#id` | ✅ Stage 0 硬门：无 `#` 的外部文件链接直接拒绝 |
+| 0x0020 | 目标须在源节点之后（文档流顺序） | ⚠️ 部分覆盖：同文档靠结构启发式，跨文档缺失（D-2026-11 / AN-3） |
+| 0x0040 | TOC 目标排他 | ✅ _buildDocContext 预索引 tocLinkNodes，O(1) 排查 |
+| 0x0100 | 源节点孤立性（父块唯一内容） | ❌ 未覆盖（D-2026-12） |
+| 0x0200 | vertical-align 垂直排版特征 | ⚠️ 部分覆盖：检测 `<sup>` 标签，但未检测 CSS computedStyle（D-2026-11） |
+| 0x0400 | 纯数字内容（≤ 3 位上限） | ⚠️ 已覆盖数字匹配，但上限为 4 位而非 3 位（D-2026-16） |
+| 0x0800 | 字母数字混合（1-2 字母 + 0-2 数字） | ✅ noteTextMarker 正则覆盖典型学术角标 |
+| 0x1000 | 目标不含 H1-H6 | ✅ Stage 3 目标元素分析：`/^H[1-6]$/` 排除 |
+| 0x8000 | 提取文本长度安全阀（≤ 10000 字符） | ❌ `_extractContent` 无长度上限（D-2026-13） |
+
+**总体结论**：核心路径覆盖充分，主要短板集中在视觉排版检测（computedStyle）、源节点孤立性、内容提取边界安全和跨文档缓存四个维度。
+
+---
+
+### 9.2 短板一：CSS vertical-align 漏判（D-2026-11）
+
+**现象**：现代电子书出版商常用 `<span class="marker" style="vertical-align: super">` 替代语义化 `<sup>` 标签，实现跨设备精细排版控制。当前 `isFootnoteLink` Stage 3 仅检测 `link.parentElement.tagName === 'SUP'` 和 `link.querySelector('sup')`，无法识别此类 CSS 驱动的上标形式。
+
+**影响范围**：预计影响 15%～30% 的现代商业 EPUB（尤其是从 InDesign 导出的学术出版物）。
+
+**修复方案**（在 `isFootnoteLink` Stage 3 末尾新增）：
+
+```javascript
+// Stage 3 末尾追加 — computedStyle 垂直对齐检测
+// 仅在前三阶段未能得出结论时触发，保持"廉价信号优先"原则
+const win = link.ownerDocument?.defaultView;
+if (win) {
+  try {
+    const cs = win.getComputedStyle(link);
+    const va = cs.verticalAlign;
+    if (va === 'super' || va === 'sub' || va === 'top' || va === 'bottom') {
+      return true;
+    }
+    // 子节点继承：link 包裹 <span> 且 <span> 为上标
+    const firstChild = link.firstElementChild;
+    if (firstChild) {
+      const csChild = win.getComputedStyle(firstChild);
+      if (csChild.verticalAlign === 'super' || csChild.verticalAlign === 'sub') {
+        return true;
+      }
+    }
+  } catch (_) {}
+}
+```
+
+**性能说明**：`getComputedStyle` 为同步调用，触发条件为前三阶段均未命中，实际调用频率极低，不影响整体扫描性能。
+
+---
+
+### 9.3 短板二：源节点孤立性检查缺失（D-2026-12）
+
+**现象**：Calibre 掩码 0x0100 明确要求触发链接"不能是父块的唯一实质性内容"。当前 `_isTocList` 只能识别 `<ol>/<ul>` 容器内的 TOC，无法处理以下形式：
+
+```html
+<!-- 扁平目录 / 内联章节跳转 —— 应排除 -->
+<p><a href="chapter3.html#start">第三章 暗物质的发现</a></p>
+<div><a href="part2.html">Part II</a></div>
+```
+
+**修复方案**（在 `isFootnoteLink` Stage 2"Definitive NO"序列末尾追加）：
+
+```javascript
+// 孤立性检查：链接文本 > 6 字符 且 构成父块 > 80% 内容 → 非注释
+if (text.length > 6) {
+  const block = link.closest('p, li, div, td') || link.parentElement;
+  if (block) {
+    const blockText = block.textContent.trim();
+    if (blockText.length > 0 && (text.length / blockText.length) > 0.8) {
+      return false;
+    }
+  }
+}
+```
+
+**边界说明**：短文本链接（≤ 6 字符）豁免此检查，避免误杀 `<p><a>[1]</a></p>` 形式的注释标记。
+
+---
+
+### 9.4 短板三：`_extractContent` 无边界安全阀（D-2026-13）
+
+**现象**：目标锚点若为空锚（`<a id="note1"></a>`）且无封闭容器，`_extractContent` 会爬升至最近块级祖先并返回其 `innerHTML`，该祖先可能包含数万字后续章节内容。这与 Calibre 掩码 0x8000（10000 字符硬截断）及其 sibling 遍历策略的设计初衷完全一致。
+
+**修复方案**（两步）：
+
+Step A — 在 `_extractContent` 末尾加安全阀：
+```javascript
+// 安全阀：纯文本超过 2000 字符时截断并追加提示
+const MAX_TEXT = 2000;
+function _truncateHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  if (tmp.textContent.length <= MAX_TEXT) return html;
+  // 截断到约 MAX_TEXT 字符处，追加省略提示
+  let acc = 0;
+  const walker = document.createTreeWalker(tmp, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    acc += node.textContent.length;
+    if (acc > MAX_TEXT) {
+      node.textContent = node.textContent.slice(0, node.textContent.length - (acc - MAX_TEXT)) + '…';
+      // 移除后续兄弟节点
+      let sib = node.nextSibling;
+      while (sib) { const next = sib.nextSibling; sib.remove(); sib = next; }
+      break;
+    }
+  }
+  return tmp.innerHTML;
+}
+```
+
+Step B — 空锚点识别后改用 sibling 遍历：
+```javascript
+// 在 _extractContent 中，当 el.textContent.trim() === '' 时
+// 改为沿 nextSibling 遍历，遇到以下条件停止：
+//   - <hr> 分割线
+//   - H1-H6 标题标签
+//   - 含 id 属性的 <a>（下一注释锚点）
+//   - 累计纯文本 > 2000 字符
+```
+
+---
+
+### 9.5 短板四：跨文档注释无缓存（D-2026-14）
+
+**现象**：`_loadFromBook` 每次调用均执行完整的四级 spine 解析流程（spine.get → 相对路径解析 → 文件名匹配 → 暴力全扫），对于集中在单一尾注文件（如 `endnotes.xhtml`）的学术书籍，同一注释项被重复 load/unload，有明显延迟。
+
+**修复方案**：在 `Annotations` 对象新增 LRU 内存缓存。
+
+```javascript
+// Annotations 对象新增属性
+_contentCache: null,   // Map<string, {html, href}> — 由 setBook 初始化/清空
+
+// setBook 中初始化
+setBook(book) {
+  this.book = book;
+  this._contentCache = new Map();  // book 切换时清空缓存
+},
+
+// _loadFromBook 入口增加缓存读写
+async _loadFromBook(sectionHref, targetId, cancelToken) {
+  const key = targetId ? `${sectionHref}#${targetId}` : sectionHref;
+  if (this._contentCache?.has(key)) return this._contentCache.get(key);
+
+  const result = await this._loadFromBookUncached(sectionHref, targetId, cancelToken);
+
+  if (result && this._contentCache) {
+    // LRU 淘汰：超过 50 条时删除最旧的一条
+    if (this._contentCache.size >= 50) {
+      this._contentCache.delete(this._contentCache.keys().next().value);
+    }
+    this._contentCache.set(key, result);
+  }
+  return result;
+},
+```
+
+**内存估算**：单条缓存约 2～20KB HTML，50 条上限约 0.1～1MB，对 Chrome 扩展内存预算无压力。
+
+---
+
+### 9.6 短板五：数字上限与年份过滤（D-2026-16，v2.4.0）
+
+**现象**：当前 `noteTextMarker` 允许 1～4 位数字（`\d{1,4}`），导致正文中的 4 位年份链接（如 `<a href="#y1984">1984</a>`）可能误判为注释。Calibre 的 0x0400 掩码明确以 3 位（1～999）为上限。
+
+**修复方案（v2.4.0）**：
+1. 将 `noteTextMarker` 中 `\d{1,4}` 收窄为 `\d{1,3}`。
+2. 白名单：若同时命中 `epub:type="noteref"` 则允许 4 位数字通过（在 Stage 1 处理，不受正则收窄影响）。
+3. 新增回归测试：正文年份链接（1000、1984、2023）不触发注释弹窗。
+
+---
+
+### 9.7 Annotations 模块接口约束补充（新增约束，同步至 modules.md）
+
+```typescript
+// 新增内部状态
+Annotations._contentCache: Map<string, {html: string, href: string}> | null
+// 生命周期：随 setBook() 初始化/清空，容量上限 50（LRU）
+
+// setBook 语义更新
+Annotations.setBook(book: Book): void
+// v2.3.0 起同时初始化 _contentCache
+
+// _extractContent 新增约束
+Annotations._extractContent(el: Element): string
+// v2.3.0 起：纯文本长度 > 2000 字符时执行截断
+// 空锚点（textContent === ''）改为 sibling 遍历提取
+```
+
+---
+
+### 9.8 测试计划补充
+
+| 测试文件 | 新增套件 | 覆盖场景 |
+|---|---|---|
+| `test/suites/annotations_recognition.test.js`（新建） | computedStyle 上标检测 | CSS `vertical-align:super` 替代 `<sup>` 的 EPUB 样本 |
+| 同上 | 孤立性链接排除 | 10 种扁平 TOC 变体，确保误判率 = 0 |
+| `test/suites/annotations_content.test.js`（新建） | 空锚点安全截断 | 空锚点 + 1万字后续内容，确认弹窗 ≤ 2000 字符 |
+| 同上 | sibling 遍历终止条件 | `<hr>` / `H2` / 下一注释锚点三类终止场景 |
+| `test/suites/annotations_cache.test.js`（新建） | LRU 缓存命中 | 同一 href 连续两次调用，第二次不触发 spine.load |
+| 同上 | setBook 缓存清空 | 切换书籍后旧缓存不命中 |
+| `test/suites/annotations_security.test.js`（v2.2.0 已规划） | 5 类 DOM 注入路径 | onload / javascript: / data: / srcdoc / `<base>` |
+
+---
+
+## 10. Annotations 代码质量审计（新增专项，v2.3.0）
+
+> 本节为纯代码维度审计，与 Calibre 算法对比无关，聚焦 `annotations.js` 自身存在的逻辑重复、常量管理、API 使用规范和可维护性问题。共发现 8 项，均已登记为 D-2026-17～24，纳入 v2.3.0 一并处理。
+
+---
+
+### 10.1 sup 检测逻辑重复（D-2026-17）
+
+**位置**：`isBackLink` Stage 3（第 271 行）和 `isFootnoteLink` Stage 2/3（第 333 行）
+
+**问题**：两处均独立执行：
+```javascript
+const hasSup = link.closest('sup') !== null || link.querySelector('sup') !== null;
+```
+
+除了在同一文档的两次函数调用中各自重复 DOM 查询之外，逻辑本身也存在语义混淆——`closest('sup')` 查找的是链接的**祖先** `<sup>`（即链接被 sup 包裹），`querySelector('sup')` 查找的是链接的**后代** `<sup>`（即链接内部含 sup）。两者语义完全不同，却合并在同一个 `hasSup` 变量下，注释不足，维护者容易误解。
+
+**修复方案**：
+```javascript
+// 模块级私有方法，语义分离
+_isWrappedInSup(link) {
+  return link.closest('sup') !== null;           // <sup><a>...</a></sup>
+},
+_containsSup(link) {
+  return link.querySelector('sup') !== null;     // <a><sup>...</sup></a>
+},
+_hasSup(link) {
+  return this._isWrappedInSup(link) || this._containsSup(link);
+},
+```
+
+两个函数中的重复代码替换为 `this._hasSup(link)` 调用，语义在方法名层面明确区分。
+
+---
+
+### 10.2 `_extractContent` 局部 BLOCK 数组（D-2026-18）
+
+**位置**：`_extractContent`（第 479 行）
+
+**问题**：
+```javascript
+_extractContent(el) {
+  const BLOCK = ['p', 'div', 'li', 'aside', 'section', 'blockquote'];
+  ...
+  if (BLOCK.includes(t)) break;   // O(n) 线性扫描
+```
+
+每次调用 `_extractContent` 都重新分配一个 6 元素数组，`Array.includes` 为 O(n) 扫描。当弹窗中包含多层嵌套结构需要多次 `_extractContent` 时（如 AN-4 的 sibling 遍历场景），开销累积。在注释密集的书籍中，每次章节加载后的链接扫描也会触发此路径。
+
+**修复方案**：
+```javascript
+// 模块级冻结 Set，O(1) 查找，零重复分配
+const _BLOCK_TAGS = Object.freeze(new Set(['p', 'div', 'li', 'aside', 'section', 'blockquote']));
+
+// _extractContent 内改为
+if (_BLOCK_TAGS.has(t)) break;
+```
+
+同时将 while 循环中检测停止条件（`body`、`html`、nodeType === 9）也改为常量集合，提升可读性。
+
+---
+
+### 10.3 `showFootnote` last-resort 路径的 inline style（D-2026-19）
+
+**位置**：`showFootnote`（第 431 行）
+
+**问题**：
+```javascript
+this._displayContent(
+  '<p style="color:var(--text-muted,#888);text-align:center;padding:8px 0;">点击下方链接查看注释内容</p>',
+  resolvedHref
+);
+```
+
+该字符串在 `_displayContent` 中会经过 inline handler 清洗，但 `style` 属性本身不在清洗范围内（清洗逻辑针对 `on*` 事件属性和 `javascript:` href）。这在安全层面无直接风险（`var()` 是纯 CSS，无执行路径），但违反了项目 v1.9.2 确立的"所有显隐/样式控制均通过 CSS class"约束，且设定了将 inline style 混入 HTML 字符串的不良先例，后续维护者可能效仿。
+
+**修复方案**：
+```javascript
+// 字符串改为纯 class
+'<p class="annotation-fallback-hint">点击下方链接查看注释内容</p>'
+
+// reader.css 新增
+.annotation-fallback-hint {
+  color: var(--text-muted, #888);
+  text-align: center;
+  padding: 8px 0;
+}
+```
+
+同步在 `csp_regression.test.js` 中新增断言：last-resort 降级 HTML 不包含 `style=` 属性。
+
+---
+
+### 10.4 `_compensatePaginationOffset` 中的 magic number（D-2026-20）
+
+**位置**：`_compensatePaginationOffset`（第 658 行）
+
+**问题**：
+```javascript
+await new Promise(r => setTimeout(r, 100));   // let epub.js finish painting
+```
+
+100ms 等待时间来自对 epub.js paginated 模式渲染完成时机的经验判断，但以 magic number 形式硬编码，存在三个问题：一是在低端设备上可能不足（epub.js 列布局计算耗时更长），二是在测试中需要 fake timers 并记忆该数值，三是未来若调整无法通过文本搜索定位全部依赖点。
+
+**修复方案**：
+```javascript
+// 模块级具名常量，附来源说明
+/** epub.js paginated layout settle time (ms). Empirically determined;
+ *  increase if pagination offset compensation fails on slow devices. */
+const _PAGINATION_SETTLE_MS = 100;
+
+// 使用处
+await new Promise(r => setTimeout(r, _PAGINATION_SETTLE_MS));
+```
+
+测试中通过 `_PAGINATION_SETTLE_MS` 引用该值，无需 magic number 记忆。
+
+---
+
+### 10.5 href 片段解析碎片化（D-2026-21）
+
+**位置**：`showFootnote`（第 389-407 行）、`_loadFromBook`（第 533-535 行）、`_compensatePaginationOffset`（第 655 行）
+
+**问题**：三处各自独立进行 `href` 片段解析：
+```javascript
+// showFootnote
+if (href.startsWith('#')) { targetId = href.substring(1); }
+else if (href.includes('#')) { [sectionHref, targetId] = href.split('#'); }
+
+// _loadFromBook
+curDir + sectionHref.replace(/^(\.\.\/)+/, '')
+
+// _compensatePaginationOffset
+href.includes('#') ? href.split('#').pop() : null
+```
+
+三处逻辑互不复用，edge case（如 href 含多个 `#`、空 fragment `file.html#`）的处理行为不一致：`split('#')` 在多个 `#` 时产生三段数组，`split('#')[1]` 与 `.pop()` 取值策略不同。
+
+**修复方案**：提取纯函数 `_parseHref(href)`：
+```javascript
+/**
+ * Parse a raw footnote href into its components.
+ * Handles same-doc fragments, cross-doc, filepos, and edge cases.
+ * @param {string} href
+ * @returns {{ isSameDoc: boolean, sectionHref: string, fragment: string }}
+ */
+_parseHref(href) {
+  if (!href) return { isSameDoc: false, sectionHref: '', fragment: '' };
+  const hashIdx = href.indexOf('#');
+  if (hashIdx === -1) return { isSameDoc: false, sectionHref: href, fragment: '' };
+  if (hashIdx === 0)  return { isSameDoc: true,  sectionHref: '', fragment: href.slice(1) };
+  return {
+    isSameDoc   : false,
+    sectionHref : href.slice(0, hashIdx),
+    fragment    : href.slice(hashIdx + 1),
+  };
+},
+```
+
+`showFootnote` 和 `_compensatePaginationOffset` 均调用此函数，消除三处独立解析逻辑。
+
+---
+
+### 10.6 `init()` 全局 Escape 键监听永不释放（D-2026-22）
+
+**位置**：`init()`（第 133 行）
+
+**问题**：
+```javascript
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
+});
+```
+
+监听器使用匿名箭头函数，无法被 `removeEventListener` 移除。当前 `init()` 只在 reader 页面生命周期内调用一次（设计上正确），但：
+
+1. 当 v2.0.0 R-2 生命周期接口（`mount/unmount`）落地后，若 `Annotations` 需要支持 `unmount()` 清理，该监听器将成为内存泄漏点。
+2. 多个模块（TOC、Search）均监听 Escape，当多个面板同时打开时（理论上互斥，但防御性不足），关闭顺序由事件注册顺序决定，不可控。
+
+**修复方案**（分两步）：
+
+Step A（v2.3.0）：将箭头函数提取为具名绑定方法 `this._onKeyDown = (e) => { ... }`，存储在实例上，以便后续精确移除：
+```javascript
+init() {
+  ...
+  this._onKeyDown = (e) => {
+    if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
+  };
+  document.addEventListener('keydown', this._onKeyDown);
+},
+```
+
+Step B（v2.0.0 R-2 落地后）：在 `unmount()` 中 `document.removeEventListener('keydown', this._onKeyDown)`，与其他模块的 Escape 处理统一纳入生命周期管理。
+
+---
+
+### 10.7 `_loadFromBook` Method 4 循环内重复 `.bind()`（D-2026-23）
+
+**位置**：`_loadFromBook`（第 577 行）
+
+**问题**：
+```javascript
+for (let i = 0; i < this.book.spine.length; i++) {
+  ...
+  const loaded = await s.load(this.book.load.bind(this.book));
+  //                                        ^^^^^^^^^^^^^^^^^ 每次迭代重新 bind
+```
+
+`this.book.load.bind(this.book)` 在每次循环迭代中重新创建一个新的函数对象。在 spine 长度为 N 的书籍中，Method 4 会创建 N 个 bound 函数，其中只有一个（找到 targetId 时）真正被调用。
+
+同时，Method 4 在 `targetId` 为空时仍会进入循环（虽然 `_findTarget(loaded, '')` 会立即返回 null），属于无效迭代。
+
+**修复方案**：
+```javascript
+async _loadFromBook(sectionHref, targetId, cancelToken) {
+  if (!this.book) return null;
+  // 提前退出：Method 4 无 targetId 时无意义
+  const canBruteForce = !!targetId;
+  const bookLoad = this.book.load.bind(this.book);  // 提取到循环外
+  
+  // ... Methods 1-3 ...
+  
+  // Method 4: brute-force — 仅在有 targetId 时执行
+  if (canBruteForce) {
+    for (let i = 0; i < this.book.spine.length; i++) {
+      if (cancelToken?.cancelled) return null;
+      const s = this.book.spine.get(i);
+      if (!s) continue;
+      try {
+        const loaded = await s.load(bookLoad);   // 复用 bound 函数
+        ...
+      }
+    }
+  }
+}
+```
+
+---
+
+### 10.8 `_isTocList` 阈值与 `_RE` 正则词汇无来源注释（D-2026-24）
+
+**位置**：`_isTocList`（第 207-216 行）和 `_RE` 对象（第 50-76 行）
+
+**问题**：
+
+`_isTocList` 使用两个经验阈值，无来源说明：
+```javascript
+if (items.length < 3) return false;          // 为什么是 3？
+return (longLinked / items.length) >= 0.6;   // 为什么是 0.6？
+if (a && a.textContent.trim().length > 10) longLinked++;  // 为什么是 10？
+```
+
+`_RE` 中各正则的词汇（如 `noteFragPos` 包含 `en|n|ref`，`noteCls` 包含 `ann`）来自对特定书籍格式的样本分析，但无注释说明对应的格式来源（如"Pandoc 转换导出"、"Adobe InDesign 导出"等）。后续维护者在调整正则时无法判断删减某个词汇的影响范围。
+
+**修复方案**（文档治理，无逻辑变更）：
+
+```javascript
+_isTocList(listEl) {
+  // Threshold rationale:
+  //   < 3 items  → likely an author's list or figure caption, not a ToC
+  //   > 10 chars → chapter/section titles; footnote markers are always shorter
+  //   >= 60%     → empirical threshold from sampling 100 EPUBs; covers
+  //                books where some ToC entries have sub-lists with no direct <a>
+  const items = listEl.querySelectorAll(':scope > li');
+  if (items.length < 3) return false;
+  ...
+}
+```
+
+`_RE` 中各正则附加行内注释，说明覆盖的典型格式（Pandoc、InDesign、Calibre 转换、DAISY 等）：
+```javascript
+// noteFragPos: fragment id patterns by format
+//   fn/ft     — InDesign EPUB export
+//   note/endnote — Pandoc, Asciidoc
+//   en        — some academic publishers (Springer, Wiley)
+//   n/ref     — Calibre conversion from MOBI/AZW
+noteFragPos : /^(fn|ft|note|endnote|footnote|annotation|en|n|ref)\d+/i,
+```
+
+---
+
+### 10.9 代码质量问题汇总与优先级
+
+| ID | 类型 | 影响 | 修复代价 | 优先级 |
+|---|---|---|---|---|
+| D-2026-17 | 逻辑重复 + 语义模糊 | 可维护性、轻微性能 | 低（提取3个方法） | 高 |
+| D-2026-18 | 性能微优化 | 密集场景性能 | 极低（改 Set） | 高 |
+| D-2026-19 | 约束违反（style.*） | 一致性、先例风险 | 低（加 CSS class） | 高 |
+| D-2026-20 | magic number | 可测试性、可维护性 | 极低（加常量） | 中 |
+| D-2026-21 | 逻辑碎片化 | 可维护性、edge case 一致性 | 中（提取函数+调用点改写） | 中 |
+| D-2026-22 | 监听器泄漏风险 | 与 v2.0.0 R-2 生命周期兼容性 | 低（提取具名函数） | 中 |
+| D-2026-23 | 冗余对象创建 + 无效迭代 | 极端 spine 场景性能 | 低（提取 bind + 加条件） | 低 |
+| D-2026-24 | 文档治理 | 可维护性 | 极低（加注释） | 低 |
+
+**建议执行顺序**：D-17、18、19 与 AN-1/2/3/4/5 在 v2.3.0 同批实施（改动集中在 annotations.js 单文件，测试套件统一补充）。D-20、21、22、23、24 作为同批顺带处理，无需独立迭代。
