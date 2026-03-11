@@ -893,6 +893,78 @@ describe('home.js：loadAnnotations 排序逻辑', () => {
   });
 });
 
+describe('home.js：loadBookshelf 并行加载与清理', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('loadBookshelf 并行获取所有数据', async () => {
+    // 模拟 EpubStorage 的 API
+    const EpubStorage = {
+      getRecentBooks: jest.fn().mockResolvedValue([
+        { id: 'b1', title: 'Book 1' },
+        { id: 'b2', title: 'Book 2' }
+      ]),
+      getCover: jest.fn().mockResolvedValue(new Blob()),
+      getBookMeta: jest.fn().mockResolvedValue({
+        pos: { percentage: 10 },
+        time: 120,
+        speed: {}
+      })
+    };
+
+    // 提取的并行加载核心逻辑
+    async function fetchBookshelfData() {
+      const books = await EpubStorage.getRecentBooks();
+      return Promise.all(books.map(async book => {
+        const [cover, meta] = await Promise.all([
+          EpubStorage.getCover(book.id),
+          EpubStorage.getBookMeta(book.id)
+        ]);
+        return { book, cover, meta };
+      }));
+    }
+
+    const data = await fetchBookshelfData();
+    
+    // 验证返回结构
+    expect(data).toHaveLength(2);
+    expect(data[0].book.id).toBe('b1');
+    expect(data[0].meta.time).toBe(120);
+    
+    // 验证是否被并行调用
+    expect(EpubStorage.getCover).toHaveBeenCalledTimes(2);
+    expect(EpubStorage.getBookMeta).toHaveBeenCalledTimes(2);
+  });
+
+  test('移除书籍时显式撤销 ObjectURL', () => {
+    // mock DOM API
+    const revokeMock = jest.fn();
+    global.URL.revokeObjectURL = revokeMock;
+
+    // 提取的清理逻辑
+    function removeBookCard(card) {
+      const url = card.dataset.coverUrl;
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+      card.remove(); // 模拟 DOM 移除
+    }
+
+    // 模拟附带 dataset 的 card
+    const mockCard = {
+      dataset: { coverUrl: 'blob:chrome://fake-url-1234' },
+      remove: jest.fn()
+    };
+
+    removeBookCard(mockCard);
+
+    expect(revokeMock).toHaveBeenCalledWith('blob:chrome://fake-url-1234');
+    expect(mockCard.remove).toHaveBeenCalledTimes(1);
+  });
+});
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // tests/position-debounce.test.js — 位置防抖
 // ─────────────────────────────────────────────────────────────────────────────

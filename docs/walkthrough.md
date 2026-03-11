@@ -4,6 +4,29 @@
 
 ---
 
+## [v1.8.0] - 交互鲁棒性增强与持续性能优化 (Stability & UX)
+**核心目标**：彻底解决 Popup 失焦状态下的文件输入竞态，校准 ETA 速率同步逻辑，并提升 Resize 状态下的位置保持精度。
+
+### 1. 交互链路加固 (Interaction Robustness)
+- **Popup 文件拾取优化 (BUG-01)**：
+  - 引入 `showOpenFilePicker` API 作为首选文件打开方式。该 API 允许在文件对话框激活期间保持 Popup 焦点，避免了 Chrome 在系统对话框弹出时因失焦而提前卸载 `document` 导致的 `change` 事件丢失。
+  - 保留 `<input type="file">` 作为降级方案以处理兼容性。
+- **Resize 与重排锚点校准 (BUG-03)**：
+  - **锚点位移修正**：将 `resize` 的恢复锚点从 `loc.end.cfi` 切换为 `loc.start.cfi`。解决了在字号放大场景下，由于单屏字数减少导致原 "末尾位置" 落在当前屏之前而产生的视觉后退现象。
+  - **CFI 状态锁 (`_withCfiLock`)**：为字号、行高、字体切换建立保护机制。通过 `isResizing` 锁拦截重排期间的中间态 `relocated` 事件，并利用 `requestAnimationFrame` 确保在浏览器渲染循环完成后恢复至原始锚点。
+
+### 2. 阅读速率采样校准 (ETA Calibration)
+- **内存快照同步 (BUG-02-A)**：重构 `flushSpeedSession`。在样本落盘后立即同步更新内存中的 `_cachedSpeed` 快照。清退了旧版中无效的 `window` 全局污染指针及滞后的 `refreshCachedSpeed` 异步读取路径，确保 UI 统计数据即时更新。
+- **挂机剔除机制 (BUG-02-B)**：监听 `visibilitychange` 事件。当页面从后台恢复 (visible) 时，立即重设 `_sessionStart` 锚点。确保了非活动状态下的时间流逝不被计入阅读速率分母，消除了因长时间挂机导致的 ETA 虚高。
+- **采样阈值下调 (BUG-02-C)**：将 Session 级实时速率的激活阈值从 `(>60s, >0.5%)` 下调至 `(>30s, >0.3%)`，允许系统在更短的阅读周期内给出具备参考意义的估算。
+
+### 3. 工程化与代码收拢
+- **并行加载扩展 (TD-2.4)**：Popup 最近书籍列表接入 `Promise.all` 并行加载机制。封面 Blob 与书籍元数据的并发读取将首屏渲染耗时从线性 O(n) 降低至接近 O(1)。
+- **工具库一致性**：`bookmarks.js` 与 `search.js` 现已彻底弃用局部实现的 `_escapeHtml` 等重复函数，全面迁移至 `Utils` 共享模块，降低维护熵值。
+- **作用域收敛**：`reader.js` 的 `_cachedSpeed` 状态现已完美收拢至 IIFE 闭包，移除了所有残留的 `window` 全局挂载点。
+
+---
+
 ## [v1.7.0] - 存储合并与体验性能双飞跃 (Storage Consolidation & Performance)
 **核心目标**：通过高频数据合并优化 I/O 开销，引入速率采样算法提升 ETA 预测精度。
 

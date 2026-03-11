@@ -3,9 +3,18 @@
  * Orchestrates epub.js rendering, settings, navigation, and all modules
  *
  * v1.7.0 变更：
- *   [SPEED]   per-session 阅读速度追踪（_sessionStart）修复中途开书/跳章 ETA 偏差
+ *   [SPEED]    per-session 阅读速度追踪（_sessionStart）修复中途开书/跳章 ETA 偏差
  *   [DEBOUNCE] savePosition 改为 300ms 防抖（schedulePositionSave），翻页不直写
- *   [UTILS]   格式化函数迁移至 Utils（Utils.formatDuration / Utils.formatMinutes）
+ *   [UTILS]    格式化函数迁移至 Utils
+ *
+ * v1.8.0 变更：
+ *   [BUG-02-A] flushSpeedSession 直接更新内存缓存 _cachedSpeed，废弃无效的
+ *              window._cachedSpeed + refreshCachedSpeed + _origFlushSpeedSession 占位代码
+ *   [BUG-02-B] visibilitychange visible 时重置 _sessionStart，排除挂机时间被计入速度
+ *   [BUG-02-C] session 实时速度触发阈值从 (>60s, >0.5%) 降至 (>30s, >0.3%)
+ *   [BUG-03-A] resize 改用 loc.start.cfi 作为锚点（原 end.cfi 会在字号变大时导致后退）
+ *   [BUG-03-B] 字号/行高/字间距变化引入 _withCfiLock，等待重排完成后恢复位置
+ *   [TD-2.5]   消除 window._cachedSpeed 全局变量，改为 IIFE 内模块级 _cachedSpeed
  */
 (function () {
   'use strict';
@@ -17,20 +26,21 @@
   let currentFileName = '';
   let isBookLoaded = false;
   let currentStableCfi = null;
-  let isResizing = false;
+  let isResizing = false;    // 缩放/布局重排保护锁（期间忽略 relocated 事件）
   let _navLock = false;
 
   // --- Reading Stats State ---
-  let readingTimer        = null;
+  let readingTimer         = null;
   let activeReadingSeconds = 0;
 
-  // --- Speed Tracking State (in-memory, not persisted) ---
-  // _sessionStart: progress + timestamp at which the current reading session began.
-  // Flushed to EpubStorage.saveReadingSpeed() on visibilitychange or progress jump.
+  // --- Speed Tracking State ---
+  // _cachedSpeed: 内存缓存，由 flushSpeedSession 在写入 storage 后同步更新。
+  // 消除原 window._cachedSpeed（全局污染）和失效的 refreshCachedSpeed() 路径。
+  let _cachedSpeed    = null;  // { sampledSeconds, sampledProgress }
   let _sessionStart   = null;  // { progress: number, timestamp: number }
-  let _lastProgress   = 0;     // progress at last relocated event (0-1)
-  let _posTimer       = null;  // debounce timer for savePosition
-  let _lastPercent    = null;  // last known percent (for flush on visibilitychange)
+  let _lastProgress   = 0;     // 上一次 relocated 事件的进度 (0-1)
+  let _posTimer       = null;  // savePosition 防抖 timer id
+  let _lastPercent    = null;  // 上一次已知百分比（visibilitychange flush 用）
 
   // --- DOM Elements ---
   const welcomeScreen   = document.getElementById('welcome-screen');
@@ -71,7 +81,7 @@
     setupEventListeners();
     setupDragAndDrop();
 
-    const params     = new URLSearchParams(window.location.search);
+    const params      = new URLSearchParams(window.location.search);
     const bookIdParam = params.get('bookId');
     const targetCfi   = params.get('target');
     if (bookIdParam) {
@@ -97,7 +107,6 @@
     document.getElementById('btn-next').addEventListener('click', () => navNext());
     document.addEventListener('keydown', handleKeyNav);
 
-    // D-1-A: wheel — paginated mode only
     document.getElementById('reader-main').addEventListener('wheel', (e) => {
       if (!isBookLoaded || !rendition) return;
       if (currentPrefs.layout === 'scrolled') return;
@@ -135,10 +144,12 @@
       btn.addEventListener('click', () => setLayout(btn.dataset.layout));
     });
 
+    // ── 字号 / 行高 / 字体 ── 带 CFI 锁（v1.8.0 BUG-03-B）
     fontSizeSlider.addEventListener('input', (e) => {
       const size = parseInt(e.target.value);
       fontSizeValue.textContent = size + 'px';
-      applyFontSize(size);
+      currentPrefs.fontSize = size;
+      _withCfiLock(() => updateCustomStyles());
     });
     fontSizeSlider.addEventListener('change', (e) => {
       EpubStorage.savePreferences({ fontSize: parseInt(e.target.value) });
@@ -147,14 +158,16 @@
     lineHeightSlider.addEventListener('input', (e) => {
       const val = parseInt(e.target.value) / 10;
       lineHeightValue.textContent = val.toFixed(1);
-      applyLineHeight(val);
+      currentPrefs.lineHeight = val;
+      _withCfiLock(() => updateCustomStyles());
     });
     lineHeightSlider.addEventListener('change', (e) => {
       EpubStorage.savePreferences({ lineHeight: parseInt(e.target.value) / 10 });
     });
 
     fontFamilySelect.addEventListener('change', (e) => {
-      applyFontFamily(e.target.value);
+      currentPrefs.fontFamily = e.target.value;
+      _withCfiLock(() => updateCustomStyles());
       EpubStorage.savePreferences({ fontFamily: e.target.value });
     });
 
@@ -178,6 +191,7 @@
 
     document.getElementById('reader-main').addEventListener('click', () => ensureFocus());
 
+    // ── Resize 保护（v1.8.0 BUG-03-A：改用 start.cfi）
     let resizeTimer;
     let preResizeCfi = null;
     window.addEventListener('resize', () => {
@@ -185,7 +199,9 @@
       isResizing = true;
       if (!preResizeCfi) {
         const loc = rendition.currentLocation();
-        if (loc && loc.end) preResizeCfi = loc.end.cfi;
+        // v1.8.0 BUG-03-A: 使用 start.cfi（用户正在读的内容起点）
+        // 原 end.cfi 在字号放大后行变短，end 对应内容落入前一屏，造成视觉后退
+        if (loc && loc.start) preResizeCfi = loc.start.cfi;
       }
       clearTimeout(resizeTimer);
       resizeTimer = setTimeout(async () => {
@@ -208,6 +224,40 @@
         e.target.closest('.toolbar-btn') ||
         e.target.closest('.annotation-popup');
       if (!isInsidePanel) closeAllPanels();
+    });
+  }
+
+  // --- CFI 锁（v1.8.0 BUG-03-B）────────────────────────────────────────────
+  /**
+   * 在执行可能触发 epub.js 内部重排的同步操作前后，保护当前阅读位置。
+   *
+   * 操作模式：
+   *   1. 记录当前 loc.start.cfi 作为恢复锚点
+   *   2. 设置 isResizing = true，阻止期间 relocated 事件写入 storage
+   *   3. 执行 fn()（同步，如 updateCustomStyles）
+   *   4. 等待两个 rAF 让 epub.js 完成重排
+   *   5. display(savedCfi) 恢复到锚点位置
+   *   6. 解锁 isResizing，手动触发一次 onLocationChanged
+   *
+   * @param {Function} fn  同步操作（不应返回 Promise）
+   */
+  function _withCfiLock(fn) {
+    if (!rendition || !isBookLoaded) {
+      fn();
+      return;
+    }
+    const loc = rendition.currentLocation();
+    const savedCfi = (loc && loc.start) ? loc.start.cfi : currentStableCfi;
+    isResizing = true;
+    fn();
+    // 等待两帧：第一帧 epub.js 处理样式，第二帧 layout 完成
+    requestAnimationFrame(() => {
+      requestAnimationFrame(async () => {
+        if (savedCfi) await rendition.display(savedCfi);
+        isResizing = false;
+        const newLoc = rendition.currentLocation();
+        if (newLoc && newLoc.start) onLocationChanged(newLoc);
+      });
     });
   }
 
@@ -338,9 +388,8 @@
   function showLoadError(msg) {
     showLoading(false);
     document.getElementById('welcome-screen').style.display = 'none';
-    const readerMain = document.getElementById('reader-main');
-    readerMain.innerHTML = '';
-
+    const rm = document.getElementById('reader-main');
+    rm.innerHTML = '';
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--reader-text,#333)';
     const icon = document.createElement('div');
@@ -356,10 +405,9 @@
     btn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,#e94560,#c23152);color:white;font-weight:600;cursor:pointer;font-size:14px';
     btn.textContent = '重新选择文件';
     btn.addEventListener('click', () => document.getElementById('file-input').click());
-    wrapper.appendChild(icon); wrapper.appendChild(title);
-    wrapper.appendChild(detail); wrapper.appendChild(btn);
-    readerMain.appendChild(wrapper);
-    readerMain.style.display = 'block';
+    wrapper.append(icon, title, detail, btn);
+    rm.appendChild(wrapper);
+    rm.style.display = 'block';
   }
 
   async function loadFileByBookId(bookId) {
@@ -434,14 +482,19 @@
       if (typeof Search !== 'undefined' && Search.reset) Search.reset();
       if (readingTimer) { clearInterval(readingTimer); readingTimer = null; }
       activeReadingSeconds = 0;
+      _cachedSpeed  = null;
+      _sessionStart = null;
+      _lastProgress = 0;
     }
 
     book = ePub(arrayBuffer);
     const prefs = await EpubStorage.getPreferences();
 
-    // v1.7.0: 通过 getBookMeta 一次读取 time + speed（合并读取，减少 storage 操作）
     const meta = await EpubStorage.getBookMeta(currentBookId);
     activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
+
+    // v1.8.0 BUG-02-A: 直接初始化内存缓存，不依赖 storage 异步读取路径
+    _cachedSpeed = (meta && meta.speed) ? meta.speed : { sampledSeconds: 0, sampledProgress: 0 };
 
     currentPrefs.fontSize   = prefs.fontSize   || 18;
     currentPrefs.lineHeight = prefs.lineHeight  || 1.8;
@@ -487,7 +540,7 @@
 
     await book.ready;
 
-    // Cover extraction (fire-and-forget)
+    // 封面提取（fire-and-forget）
     (async () => {
       try {
         const coverUrl = await book.coverUrl();
@@ -498,7 +551,7 @@
       } catch (e) { console.warn('Failed to extract cover:', e); }
     })();
 
-    const metadata = await book.loaded.metadata;
+    const metadata   = await book.loaded.metadata;
     bookTitleEl.textContent = metadata.title || currentFileName;
     document.title = (metadata.title || currentFileName) + ' - EPUB Reader';
 
@@ -527,8 +580,7 @@
     Highlights.setBookDetails(currentBookId, currentFileName, rendition);
     setTimeout(() => ensureFocus(), 300);
 
-    // v1.7.0: 速度追踪 — 记录本次打开时的进度作为 session 起点
-    // 等 locations 就绪后再设置，确保 progress 计算准确
+    // 速度追踪：等 locations 就绪后初始化 session 起点
     const initSpeedTracking = (progress) => {
       _sessionStart = { progress, timestamp: Date.now() };
       _lastProgress = progress;
@@ -581,8 +633,8 @@
   // --- Location / Progress ---
 
   /**
-   * Debounced position save — 300ms trailing debounce.
-   * visibilitychange 时立即 flush，不等待 debounce 到期。
+   * 300ms 尾部防抖 — 翻页不直写 storage。
+   * visibilitychange 时通过 flushPositionSave() 立即写入。
    */
   function schedulePositionSave(bookId, cfi, percent) {
     clearTimeout(_posTimer);
@@ -591,9 +643,6 @@
     }, 300);
   }
 
-  /**
-   * 立即写入当前位置，清除 pending debounce（用于 visibilitychange flush）。
-   */
   function flushPositionSave() {
     clearTimeout(_posTimer);
     if (currentBookId && currentStableCfi) {
@@ -602,14 +651,17 @@
   }
 
   /**
-   * 结束当前 session，将有效的 (deltaTime, deltaProgress) 样本累加到 speed。
+   * 结束当前 speed session，将有效样本累加到 _cachedSpeed 并写入 storage。
+   *
+   * v1.8.0 BUG-02-A：直接操作 _cachedSpeed 内存变量，写入 storage 后无需再读。
+   *   原实现通过 getReadingSpeed() 从 storage 读取再写入，
+   *   且 refreshCachedSpeed() 的调用路径从未被挂接，_cachedSpeed 始终为旧值。
    *
    * 有效 session 条件：
-   *   - deltaProgress > 0.001：读了至少 0.1%（滤除几乎没读的会话）
-   *   - deltaProgress < 0.30 ：单次不超过 30%（超过视为跳跃，不计速度）
-   *   - deltaSeconds  > 30   ：超过 30 秒（滤除快速翻页/测试）
+   *   - deltaProgress ∈ (0.001, 0.30)：读了 0.1%–30%（滤除无效和跳跃）
+   *   - deltaSeconds  > 30             ：超过 30 秒（滤除快速测试）
    *
-   * @param {number|null} newStartProgress  null = session 结束不续期；数字 = 跳跃后重设起点
+   * @param {number|null} newStartProgress  null = session 结束；数字 = 跳跃后重设起点
    */
   async function flushSpeedSession(newStartProgress = null) {
     if (!_sessionStart || !currentBookId || !isBookLoaded) return;
@@ -619,11 +671,13 @@
 
     if (deltaProgress > 0.001 && deltaProgress < 0.30 && deltaSeconds > 30) {
       try {
-        const stored = await EpubStorage.getReadingSpeed(currentBookId);
-        const spd = stored || { sampledSeconds: 0, sampledProgress: 0 };
-        spd.sampledSeconds  += deltaSeconds;
-        spd.sampledProgress += deltaProgress;
-        await EpubStorage.saveReadingSpeed(currentBookId, spd);
+        // v1.8.0: 直接累加内存缓存，不从 storage 读取
+        if (!_cachedSpeed) _cachedSpeed = { sampledSeconds: 0, sampledProgress: 0 };
+        _cachedSpeed = {
+          sampledSeconds:  _cachedSpeed.sampledSeconds  + deltaSeconds,
+          sampledProgress: _cachedSpeed.sampledProgress + deltaProgress
+        };
+        await EpubStorage.saveReadingSpeed(currentBookId, _cachedSpeed);
       } catch (e) {
         console.warn('[Speed] Failed to save speed sample:', e);
       }
@@ -645,8 +699,7 @@
       progressSlider.value = percent;
       progressCurrent.textContent = percent.toFixed(1) + '%';
 
-      // v1.7.0: 跳跃检测 — 单次进度变化超过 5% 视为手动跳转
-      // 当前 session 计入速度样本，然后以新位置重设起点
+      // 跳跃检测：单次进度变化超过 5% 视为手动跳转（TOC / 进度条拖动）
       if (_sessionStart && Math.abs(progress - _lastProgress) > 0.05) {
         flushSpeedSession(progress); // async, non-blocking
       }
@@ -664,7 +717,6 @@
     }
 
     currentStableCfi = location.start.cfi;
-    // v1.7.0: 防抖写入，翻页不直接触发 storage write
     schedulePositionSave(currentBookId, currentStableCfi, percent);
 
     updateBookmarkButtonState();
@@ -684,27 +736,38 @@
     }, 1000);
   }
 
-  // visibilitychange: 立即 flush 位置 + 时间 + speed session
+  // visibilitychange：立即 flush 位置 + 时间 + speed session
+  // v1.8.0 BUG-02-B：页面重新可见时重置 session 起点，排除挂机时间
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && currentBookId && isBookLoaded) {
-      flushPositionSave();
-      EpubStorage.saveReadingTime(currentBookId, activeReadingSeconds);
-      flushSpeedSession(null); // session 结束，不续期
+    if (document.hidden) {
+      if (currentBookId && isBookLoaded) {
+        flushPositionSave();
+        EpubStorage.saveReadingTime(currentBookId, activeReadingSeconds);
+        flushSpeedSession(null); // session 结束，不续期
+      }
+    } else {
+      // 页面重新激活：以当前位置为新 session 起点，排除挂机时间段
+      if (isBookLoaded && _lastProgress > 0) {
+        _sessionStart = { progress: _lastProgress, timestamp: Date.now() };
+      }
     }
   });
 
   /**
    * 更新底部阅读统计栏。
    *
-   * v1.7.0 ETA 算法：
-   *   优先使用历史累积速度（sampledSeconds / sampledProgress）估算。
-   *   次选当前 session 的实时速度（仅当 session 读了 > 1min 且 > 0.5%）。
-   *   最终 fallback：基于章节数量的静态估算（400 字/分钟）。
+   * v1.8.0 ETA 算法（在 v1.7.0 基础上修复三处缺陷）：
    *
-   * 相比 v1.6.0 修复的核心问题：
-   *   v1.6.0 用 totalTime / currentProgress，「从中间打开」时分母包含
-   *   未曾阅读的 0~起点 进度，导致估算严重偏低。
-   *   v1.7.0 只统计实际阅读时间对应的实际进度增量，与起始位置无关。
+   *   优先：历史累积速度 _cachedSpeed（跨 session，不受起点影响）
+   *     - 要求 sampledProgress > 0.01（累计读了 > 1%）
+   *     - 要求 sampledSeconds  > 120  （累计读了 > 2 分钟）
+   *     - v1.8.0 fix：_cachedSpeed 在 flushSpeedSession 后立即同步，不再滞后
+   *
+   *   次选：当前 session 实时速度
+   *     - v1.8.0 fix：阈值从 (>60s, >0.5%) 降至 (>30s, >0.3%)，更快给出估算
+   *     - v1.8.0 fix：_sessionStart 在 visibilitychange visible 时重置，不含挂机时间
+   *
+   *   Fallback：静态估算（每 location ≈ 150 字，400 字/分钟）
    */
   function updateReadingStats() {
     if (!progressTime || !rendition || !book) return;
@@ -723,22 +786,19 @@
         const remainingProgress = 1 - progress;
         let remainingMinutes = null;
 
-        // 优先：历史累积速度（跨 session，不受起点影响）
-        // 使用内存中已知的 _sessionStart.progress 来判断是否有有效历史数据
-        // 历史速度由 EpubStorage 在 session flush 时写入，这里用缓存读取
-        // （updateReadingStats 可能每分钟调用一次，不每次都读 storage）
-        if (window._cachedSpeed &&
-            window._cachedSpeed.sampledProgress > 0.01 &&
-            window._cachedSpeed.sampledSeconds > 120) {
-          const secsPerUnit = window._cachedSpeed.sampledSeconds / window._cachedSpeed.sampledProgress;
+        // 优先：历史累积速度
+        if (_cachedSpeed &&
+            _cachedSpeed.sampledProgress > 0.01 &&
+            _cachedSpeed.sampledSeconds > 120) {
+          const secsPerUnit = _cachedSpeed.sampledSeconds / _cachedSpeed.sampledProgress;
           remainingMinutes = Math.round(secsPerUnit * remainingProgress / 60);
         }
 
-        // 次选：当前 session 实时速度（session 内读了 > 1min 且 > 0.5%）
+        // 次选：当前 session 实时速度（v1.8.0: 阈值降至 30s + 0.3%）
         if (remainingMinutes === null && _sessionStart) {
           const sessionDeltaProgress = _lastProgress - _sessionStart.progress;
           const sessionDeltaSeconds  = (Date.now() - _sessionStart.timestamp) / 1000;
-          if (sessionDeltaProgress > 0.005 && sessionDeltaSeconds > 60) {
+          if (sessionDeltaProgress > 0.003 && sessionDeltaSeconds > 30) {
             const secsPerUnit = sessionDeltaSeconds / sessionDeltaProgress;
             remainingMinutes = Math.round(secsPerUnit * remainingProgress / 60);
           }
@@ -746,8 +806,8 @@
 
         // Fallback：静态估算（每 location ≈ 150 字，400 字/分钟）
         if (remainingMinutes === null) {
-          const totalLocations = book.locations.length();
-          const charsTotal     = totalLocations * 150;
+          const totalLocations  = book.locations.length();
+          const charsTotal      = totalLocations * 150;
           const estTotalMinutes = charsTotal / 400;
           remainingMinutes = Math.max(0, Math.round(estTotalMinutes * remainingProgress));
         }
@@ -758,20 +818,6 @@
 
     progressTime.textContent = `阅读时长: ${readStr} | 预计剩余: ${remainingStr}`;
   }
-
-  // v1.7.0: 缓存历史速度到 window._cachedSpeed，避免每次 updateReadingStats 读 storage
-  // 在 openBook 加载 meta 后设置，在 flushSpeedSession 写入后更新
-  async function refreshCachedSpeed() {
-    if (!currentBookId) return;
-    window._cachedSpeed = await EpubStorage.getReadingSpeed(currentBookId);
-  }
-
-  // 覆写 flushSpeedSession 以在 flush 后刷新缓存
-  const _origFlushSpeedSession = flushSpeedSession;
-  // Note: 由于 flushSpeedSession 已在上方声明为 async function，
-  // 我们通过事后调用 refreshCachedSpeed 来保持缓存同步
-  // openBook 末尾在 locations ready 后调用一次
-  // flushSpeedSession 执行后自动调用（见下方 wrap）
 
   function findTocItem(items, href) {
     for (const item of items) {
@@ -869,7 +915,8 @@
     EpubStorage.savePreferences({ layout });
 
     if (book && isBookLoaded) {
-      const currentCfi = rendition.currentLocation()?.start?.cfi;
+      const loc = rendition.currentLocation();
+      const currentCfi = loc && loc.start ? loc.start.cfi : null;
       rendition.destroy();
       rendition = book.renderTo('epub-viewer', {
         width: '100%', height: '100%', spread: 'auto',
@@ -902,9 +949,11 @@
     }
   }
 
-  function applyFontSize(size)   { if (!rendition) return; currentPrefs.fontSize   = size;   updateCustomStyles(); }
-  function applyLineHeight(val)  { if (!rendition) return; currentPrefs.lineHeight  = val;    updateCustomStyles(); }
-  function applyFontFamily(fam)  { if (!rendition) return; currentPrefs.fontFamily  = fam;    updateCustomStyles(); }
+  // applyFontSize / applyLineHeight / applyFontFamily 由 setupEventListeners
+  // 中的 _withCfiLock 包裹调用，此处只保留裸操作函数供内部使用
+  function applyFontSize(size)  { currentPrefs.fontSize = size;   updateCustomStyles(); }
+  function applyLineHeight(val) { currentPrefs.lineHeight = val;  updateCustomStyles(); }
+  function applyFontFamily(fam) { currentPrefs.fontFamily = fam;  updateCustomStyles(); }
 
   function showLoading(show) {
     loadingOverlay.style.display = show ? 'flex' : 'none';

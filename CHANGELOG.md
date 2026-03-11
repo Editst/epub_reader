@@ -1,5 +1,23 @@
 # 更新日志 (Changelog)
 
+## [1.8.0] - 2026-03-11
+
+### fix
+- **BUG-01 popup 首次打开文件无反应**：将 `<input type="file">` 触发方式改为 `showOpenFilePicker` API，
+  消除文件对话框弹出时 Chrome popup 失焦导致 document 提前卸载的竞态问题
+- **BUG-02 ETA 不准确**：修复 `flushSpeedSession` 写入 storage 后未同步 `_cachedSpeed` 内存缓存，
+  导致历史速度路径永远不生效；修复 `visibilitychange` 重激活时未重置 session 起点，
+  挂机时间被计入速度分母；降低 session 实时速度触发阈值（60s→30s，0.5%→0.3%）
+- **BUG-03 缩放后位置偏移**：resize 和字号变化统一改用 `loc.start.cfi` 保存锚点（原 `end.cfi`）；
+  `applyFontSize/applyLineHeight` 增加 CFI 锁保护，等待 epub.js 重排完成后恢复位置
+
+### refactor
+- 消除 `window._cachedSpeed` 全局变量，改为模块级 `let _cachedSpeed`
+- 废弃未完成的 `_origFlushSpeedSession` / `refreshCachedSpeed` 占位代码
+- `bookmarks.js`、`search.js` 内的 escapeHtml / formatDate 迁移至 Utils
+
+---
+
 ## [1.7.0] - 2026-03-11
 
 ### feat
