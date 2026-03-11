@@ -309,10 +309,10 @@
     const loc = rendition.currentLocation();
     if (loc && loc.atStart && currentPrefs.layout !== 'scrolled') {
       try {
-        readerMain.style.opacity = '0';
+        readerMain.classList.add('reader-main-dimmed');
         await rendition.prev();
       } finally {
-        readerMain.style.opacity = '1';
+        readerMain.classList.remove('reader-main-dimmed');
         setTimeout(() => { _navLock = false; }, 150);
       }
     } else {
@@ -374,27 +374,35 @@
 
   function showLoadError(msg) {
     showLoading(false);
-    document.getElementById('welcome-screen').style.display = 'none';
+    const ws = document.getElementById('welcome-screen');
+    if (ws) ws.classList.add('is-hidden');
     const rm = document.getElementById('reader-main');
     rm.innerHTML = '';
+
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--reader-text,#333)';
+    wrapper.className = 'reader-error-wrapper';
+
     const icon = document.createElement('div');
-    icon.style.cssText = 'font-size:48px;margin-bottom:16px';
+    icon.className = 'reader-error-icon';
     icon.textContent = '📚';
+
     const title = document.createElement('h2');
-    title.style.cssText = 'margin-bottom:8px';
+    title.className = 'reader-error-title';
     title.textContent = '书籍加载失败';
+
     const detail = document.createElement('p');
-    detail.style.cssText = 'color:#e94560;text-align:center;max-width:80%;margin-bottom:20px;line-height:1.5';
+    detail.className = 'reader-error-detail';
     detail.textContent = msg;
+
     const btn = document.createElement('button');
-    btn.style.cssText = 'padding:10px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,#e94560,#c23152);color:white;font-weight:600;cursor:pointer;font-size:14px';
+    btn.className = 'reader-error-btn';
     btn.textContent = '重新选择文件';
     btn.addEventListener('click', () => document.getElementById('file-input').click());
+
     wrapper.append(icon, title, detail, btn);
     rm.appendChild(wrapper);
-    rm.style.display = 'block';
+    rm.classList.remove('is-hidden');
+    rm.classList.add('reader-main-error');
   }
 
   async function loadFileByBookId(bookId) {
@@ -460,6 +468,7 @@
   async function openBook(arrayBuffer) {
     welcomeScreen.style.display = 'none';
     readerMain.style.display = 'flex';
+    readerMain.classList.remove('reader-main-error');
     bottomBar.style.display = 'flex';
 
     if (book) {

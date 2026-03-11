@@ -976,3 +976,45 @@ test.describe('v1.8 剩余项收尾', () => {
     assert.ok(!js.includes('dragOverlay.innerHTML'));
   });
 });
+
+
+// ─── v1.9 CSP unsafe-inline 消除（TDD） ────────────────────────────────────
+test.describe('v1.9 CSP 收敛', () => {
+  test.it('C-7: manifest style-src 不再包含 unsafe-inline', () => {
+    const manifest = fs.readFileSync('src/manifest.json', 'utf8');
+    assert.ok(!manifest.includes("'unsafe-inline'"));
+  });
+
+  test.it('C-1/C-2: reader.js 不再使用 style.cssText 与 opacity 直写', () => {
+    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+    assert.ok(!js.includes('style.cssText'));
+    assert.ok(!js.includes('readerMain.style.opacity'));
+  });
+
+  test.it('C-1/C-2: reader.css 提供错误态与过渡 class', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(css.includes('.reader-error-wrapper'));
+    assert.ok(css.includes('.reader-main-dimmed'));
+  });
+
+  test.it('C-3/C-4/C-5: search.js 移除内联样式与 status innerHTML', () => {
+    const js = fs.readFileSync('src/reader/search.js', 'utf8');
+    assert.ok(!js.includes('statusEl.innerHTML'));
+    assert.ok(!js.includes('mark.style.cssText'));
+    assert.ok(!js.includes('itemEl.style.'));
+    assert.ok(!js.includes('textEl.style.'));
+  });
+
+  test.it('C-3/C-4/C-5: reader.css 提供搜索样式 class', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(css.includes('.search-result-item'));
+    assert.ok(css.includes('.search-highlight'));
+    assert.ok(css.includes('.search-status-empty'));
+  });
+
+  test.it('C-6: toc.js 空目录不再 innerHTML style 字符串', () => {
+    const js = fs.readFileSync('src/reader/toc.js', 'utf8');
+    assert.ok(!js.includes('<div style='));
+    assert.ok(js.includes('toc-empty'));
+  });
+});

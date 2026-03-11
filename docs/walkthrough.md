@@ -4,6 +4,17 @@
 
 ---
 
+## [v1.9.0] - CSP 收敛与内联样式清理 (Security Hardening)
+**核心目标**：完成 v1.9 路线中的 C-1~C-7，消除 `unsafe-inline` 样式豁免。
+
+- `reader.js`：`showLoadError` 从 `style.cssText` 切换到 `.reader-error-*`；翻页过渡改为 `.reader-main-dimmed` class。
+- `search.js`：搜索结果与高亮采用 `.search-result-item` / `.search-highlight` 等类；状态文案仅使用 `textContent`。
+- `toc.js`：空目录提示改为 DOM + `.toc-empty`。
+- `manifest.json`：`style-src` 移除 `'unsafe-inline'`。
+- 测试：`test/run_tests.js` 新增 `v1.9 CSP 收敛` 用例组，覆盖上述迁移点。
+
+---
+
 ## [v1.8.0] - 交互鲁棒性增强与持续性能优化 (Stability & UX)
 **核心目标**：彻底解决 Popup 失焦状态下的文件输入竞态，校准 ETA 速率同步逻辑，并提升 Resize 状态下的位置保持精度。
 

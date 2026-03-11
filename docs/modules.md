@@ -354,3 +354,9 @@ Annotations.hookRendition(rendition: Rendition): void
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
+
+
+## v1.9 更新摘要
+- 搜索模块改为 class 驱动样式（`search-result-item` / `search-highlight` / `search-status-empty`）。
+- 目录模块空态改为 `.toc-empty`。
+- Reader 错误态改为 `.reader-error-*` class，翻页过渡使用 `.reader-main-dimmed`。

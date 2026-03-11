@@ -53,13 +53,13 @@
 
 **前提**：v1.8.0 完成。
 
-- [ ] C-1：`showLoadError()` 5 处 `style.cssText` → CSS class
-- [ ] C-2：`reader.js` opacity 动画 → CSS transition class
-- [ ] C-3：`search.js` 4 处 `style.*` → `.search-result-item` CSS
-- [ ] C-4：`search.js mark.style.cssText` → `.search-highlight` CSS class
-- [ ] C-5：`search.js statusEl.innerHTML` → textContent + CSS class
-- [ ] C-6：`toc.js` empty inline style → `.toc-empty` CSS class
-- [ ] C-7：manifest `style-src` 移除 `'unsafe-inline'`
+- [x] C-1：`showLoadError()` 5 处 `style.cssText` → CSS class
+- [x] C-2：`reader.js` opacity 动画 → CSS transition class
+- [x] C-3：`search.js` 4 处 `style.*` → `.search-result-item` CSS
+- [x] C-4：`search.js mark.style.cssText` → `.search-highlight` CSS class
+- [x] C-5：`search.js statusEl.innerHTML` → textContent + CSS class
+- [x] C-6：`toc.js` empty inline style → `.toc-empty` CSS class
+- [x] C-7：manifest `style-src` 移除 `'unsafe-inline'`
 
 ---
 

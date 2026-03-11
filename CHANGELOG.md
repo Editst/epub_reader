@@ -1,5 +1,14 @@
 # 更新日志 (Changelog)
 
+## [1.9.0] - 2026-03-11
+
+### 🔐 CSP `unsafe-inline` 消除（Phase v1.9）
+- **C-1 / C-2 (`reader.js`)**：`showLoadError()` 的 `style.cssText` 全量迁移为 CSS class（`.reader-error-*`），`navPrev` 的 `opacity` 直写改为 `.reader-main-dimmed` class 过渡。
+- **C-3 / C-4 / C-5 (`search.js`)**：移除搜索结果项与高亮的内联样式写入；新增 `.search-result-item`、`.search-result-text`、`.search-highlight`、`.search-status-empty`；`statusEl.innerHTML` 改为 `textContent + class`。
+- **C-6 (`toc.js`)**：空目录提示由 `innerHTML` 内联 style 改为 DOM 创建 + `.toc-empty` class。
+- **C-7 (`manifest.json`)**：`style-src` 移除 `'unsafe-inline'`，收敛为 `style-src 'self' https://fonts.googleapis.com`。
+- **测试**：`test/run_tests.js` 新增 `v1.9 CSP 收敛` 套件，覆盖 C-1~C-7 的静态约束检查。
+
 ## [1.8.0] - 2026-03-11
 
 ### fix
