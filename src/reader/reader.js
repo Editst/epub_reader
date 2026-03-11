@@ -60,10 +60,10 @@
 
     // Check if opened with a file parameter
     const params = new URLSearchParams(window.location.search);
-    const fileName = params.get('file');
-    const targetCfi = params.get('target');
-    if (fileName) {
-      await loadFileFromIndexedDB(fileName);
+    const bookIdParam = params.get('bookId');
+    const targetCfi   = params.get('target');
+    if (bookIdParam) {
+      await loadFileByBookId(bookIdParam);
       if (targetCfi && rendition) {
         // Navigate directly to the requested annotation
         rendition.display(targetCfi);
@@ -96,9 +96,13 @@
     // Keyboard navigation - only on document (iframe events handled separately)
     document.addEventListener('keydown', handleKeyNav);
 
-    // Mouse wheel for page turning in paginated mode
+    // D-1-A: Mouse wheel page-turning — paginated mode only.
+    // In scrolled layout the wheel must reach the iframe so the browser can
+    // scroll the content naturally.  Calling preventDefault() there blocked
+    // all scrolling, making scrolled layout completely unusable with a mouse.
     document.getElementById('reader-main').addEventListener('wheel', (e) => {
       if (!isBookLoaded || !rendition) return;
+      if (currentPrefs.layout === 'scrolled') return; // let browser scroll
       e.preventDefault();
       if (e.deltaY > 0 || e.deltaX > 0) {
         navNext();
@@ -437,12 +441,17 @@
     try {
       showLoading(true);
       currentFileName = file.name;
-      currentBookId = EpubStorage.generateBookId(file.name, file.size);
 
       const arrayBuffer = await file.arrayBuffer();
 
-      // Store file in IndexedDB asynchronously so it doesn't block loading the book
-      storeFileInIndexedDB(file.name, new Uint8Array(arrayBuffer)).catch(e => {
+      // D-1-C: generateBookId is now async (SHA-256). Must await before openBook
+      // so currentBookId is set before position/highlights are fetched inside openBook.
+      currentBookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
+
+      // D-1-G: storeFile now internalises LRU; no separate enforceFileLRU call needed.
+      // D-1-C: pass bookId so the record caches it — loadFileFromIndexedDB reads it
+      //        back directly instead of re-hashing, avoiding byteLength vs size bugs.
+      EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), currentBookId).catch(e => {
         console.warn('Failed to store book in IndexedDB:', e);
       });
 
@@ -491,34 +500,27 @@
     readerMain.style.display = 'block';
   }
 
-  /**
-   * Store file data in IndexedDB for later reopening via recent books.
-   */
-  function storeFileInIndexedDB(filename, uint8Array) {
-    return EpubStorage.storeFile(filename, uint8Array).then(async () => {
-      // Trigger centralized LRU
-      if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
-    });
-  }
-
-  async function loadFileFromIndexedDB(fileName) {
+  // S-1-C: renamed from loadFileFromIndexedDB. Now takes bookId directly.
+  // getFile(bookId) is O(1) IDB primary key lookup — no filename indirection.
+  async function loadFileByBookId(bookId) {
     try {
       showLoading(true);
-      const data = await EpubStorage.getFile(fileName);
-      if (data) {
-        currentFileName = fileName;
-        currentBookId = EpubStorage.generateBookId(fileName, data.byteLength);
+      const record = await EpubStorage.getFile(bookId);
+      if (record && record.data) {
+        currentBookId   = bookId;
+        currentFileName = record.filename || '';
         try {
-          const buffer = data.buffer || data;
+          const buffer = record.data.buffer || record.data;
           await openBook(buffer);
         } catch (err) {
-          console.error('Failed to load EPUB:', err);
+          console.error('loadFileByBookId: openBook failed', err);
           showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
         }
       } else {
-        showLoadError('想不到该书籍的缓存数据或由于缓存限制已被自动清理，请通过"打开文件"重新导入。');
+        showLoadError('该书籍缓存不存在或已被自动清理，请通过"打开文件"重新导入。');
       }
     } catch (e) {
+      console.error('loadFileByBookId error:', e);
       showLoadError('读取缓存数据失败。请重新导入该电子书。');
     }
   }
@@ -788,9 +790,11 @@
           }
         }
       });
-      // Also handle mouse wheel inside iframe for paginated mode
+      // D-1-A: Mouse wheel inside iframe — paginated mode only.
+      // In scrolled layout, do not intercept; let the iframe scroll natively.
       doc.addEventListener('wheel', (e) => {
         if (!isBookLoaded || !rendition) return;
+        if (currentPrefs.layout === 'scrolled') return;
         e.preventDefault();
         if (e.deltaY > 0 || e.deltaX > 0) {
           navNext();
@@ -1034,6 +1038,12 @@
   }
 
   function setLayout(layout) {
+    // D-1-B: Keep in-memory state in sync immediately.
+    // currentPrefs.layout was only updated on the next openBook() call (via
+    // loadPreferences), so within the current session navPrev(), the wheel
+    // guards, and openBook gap selection all read a stale value.
+    currentPrefs.layout = layout;
+
     document.querySelectorAll('.layout-btn').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.layout === layout);
     });

@@ -26,16 +26,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Read file as ArrayBuffer and store temporarily
     const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+    // D-1-C: generateBookId is now async (SHA-256).
+    const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
+    // D-1-G: storeFile internalises LRU — no separate enforceFileLRU needed.
+    await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
 
-    // Store in IndexedDB for transfer to reader page
-    await storeFileData(file.name, uint8Array);
-
-    // Open reader page
     const readerUrl = chrome.runtime.getURL('reader/reader.html') +
-      '?file=' + encodeURIComponent(file.name);
+      '?bookId=' + encodeURIComponent(bookId);
     chrome.tabs.create({ url: readerUrl });
     window.close();
   });
@@ -93,7 +91,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Click to reopen - pass filename so reader loads from IndexedDB
       item.querySelector('.recent-item-info').addEventListener('click', () => {
         const readerUrl = chrome.runtime.getURL('reader/reader.html') +
-          '?file=' + encodeURIComponent(book.filename);
+          '?bookId=' + encodeURIComponent(book.id);
         chrome.tabs.create({ url: readerUrl });
         window.close();
       });
@@ -107,7 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // delete (recentBook + position + readingTime + cover + highlights +
         // bookmarks + locations + file) so storage stays consistent no matter
         // which surface the user removes the book from.
-        await EpubStorage.removeBook(book.id, book.filename);
+        await EpubStorage.removeBook(book.id);
 
         item.remove();
         const remaining = await EpubStorage.getRecentBooks();
@@ -122,13 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// Store file data in IndexedDB for transfer to reader page
-// Maintains a maximum of 5 books to prevent excessive disk space usage
-function storeFileData(filename, uint8Array) {
-  return EpubStorage.storeFile(filename, uint8Array).then(async () => {
-    if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
-  });
-}
+// D-1-G: storeFileData wrapper removed. Use EpubStorage.storeFile() directly (LRU is internal).
 
 function escapeHtml(text) {
   const div = document.createElement('div');

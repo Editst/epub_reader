@@ -3,6 +3,13 @@
  * Handles text selection, colored highlights, and custom note taking.
  */
 window.Highlights = (function () {
+  // D-1-H: Validate CSS color values before passing to epub.js SVG annotations.
+  // Same whitelist regex used in home.js to prevent CSS injection via stored color data.
+  function sanitizeColor(colorStr) {
+    if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
+    return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+  }
+
   let _rendition = null;
   let _bookId = '';
   let _fileName = '';
@@ -386,12 +393,14 @@ window.Highlights = (function () {
     try {
         // 1. Always render the base highlight if it has a color
         if (hl.color !== 'transparent') {
+            // D-1-H: sanitize color before passing to epub.js SVG fill attribute
+            const safeColor = sanitizeColor(hl.color);
             _rendition.annotations.highlight(
-                hl.cfi, 
-                {}, 
-                (e) => handleHighlightClick(e, hl.cfi), 
-                "epubjs-hl-base", 
-                { "fill": hl.color, "fill-opacity": "0.4" }
+                hl.cfi,
+                {},
+                (e) => handleHighlightClick(e, hl.cfi),
+                "epubjs-hl-base",
+                { "fill": safeColor, "fill-opacity": "0.4" }
             );
         }
 

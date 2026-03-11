@@ -2,6 +2,81 @@
 
 所有该项目中极具标志性的迭代、修复和优化记录都将在此公示。
 
+## [1.6.0] - Phase D-2：存储层 Schema 破坏性重建 + 安全补全
+
+> ⚠️ **破坏性变更**：IndexedDB 升级至 v4，所有书籍文件缓存、封面、位置缓存数据清空。用户需重新导入书籍。
+
+### 💥 破坏性变更
+
+- **IndexedDB 全表重建（DB v4）**：三个表（files / covers / locations）主键字段名统一为 `bookId`。旧数据无法迁移，安装后自动触发升级，所有已缓存的书籍文件需重新导入。
+
+- **URL 路由 token 从 `?file=` 改为 `?bookId=`**：书架、弹窗、标注跳转的所有路由链接均已更新。旧格式 URL（如从外部书签直接打开）将无法识别，需从书架重新点击进入。
+
+### 🐛 BUG 修复
+
+- **files 表主键 filename 引发无声数据损坏（P0-SCHEMA-1）**：同名文件会覆盖 IDB 记录但 bookId 关联元数据（highlights/covers/positions）不一致，导致内容错配且无任何错误提示。现主键改为 `bookId`（SHA-256 内容指纹），两本同名书不再相互覆盖。
+
+- **annotations.js 脚注弹窗 `on*` 事件注入（P0-ANNOTATIONS-1）**：EPUB 原始 HTML 包含内联 `onclick`/`onmouseover` 等属性，在 `chrome-extension://` 上下文下可执行（绕过 `script-src 'self'` CSP）。现在赋值前过滤所有 `on*` 属性和 `javascript:` href；跳转链接改为 DOM API 构建，不再使用 `innerHTML` 插入 `<a>` 标签。
+
+### ♻️ 重构
+
+- **`removeBook` 签名简化为 `removeBook(bookId)`**：移除 `filename` 参数。所有子操作统一使用 `bookId`，`Promise.all` 并行执行（原串行 7 次 I/O）。
+
+- **`enforceFileLRU` 不再加载文件二进制（P1-LRU-1）**：改用 `DbGateway.getAllMeta()` cursor 扫描，只读 `bookId + timestamp` 字段。消除了旧实现中 10 本书 × 5MB = 50MB 内存峰值。
+
+- **`DbGateway.getAllMeta()` 新接口**：cursor-based 只读元字段扫描，供 LRU 等需要轻量遍历的场景使用。
+
+- **`positions` 改为 flat key `pos_<bookId>`（P1-STORAGE-1）**：每次翻页存位置从 O(n) 读写全量嵌套对象降为 O(1)。内置迁移逻辑：首次读取旧格式时自动迁移并清理。
+
+- **`getAllHighlights` 索引化（P1-STORAGE-2）**：维护 `highlightKeys` 索引数组，后续调用不再 `get(null)` 全量扫描 storage。
+
+- **`_remove()` 内部方法提取**：消除三处重复的 `chrome.storage.local.remove Promise` 包装。
+
+- **`Object.assign` 追加方式消除（P2-STORAGE-3）**：`getBookmarks / saveBookmarks / removeBookmarks` 合并进主对象字面量。
+
+## [1.5.0] - Phase D-1：数据层加固与功能完整性修复
+
+### 💥 破坏性变更 (Breaking Change)
+
+- **BookId 升级为 SHA-256 内容指纹**（`storage.js` — D-1-C）  
+  `generateBookId` 从 32-bit djb2(filename+size) 升级为 `crypto.subtle.digest('SHA-256', filename+前64KB内容)`。
+  旧格式 `book_<base36>` 全面替换为 `book_<hex32>`。**所有旧版 bookId 关联的 position、highlights、bookmarks、locations 数据将因 key 变更而失联（本次破坏性更新已知，不做迁移）。** djb2 存在确定性碰撞：同名同大小文件必然产生相同 ID，SHA-256 将此概率降至密码学可忽略量级（< 3×10⁻²⁴）。`generateBookId` 现为 async 函数，所有调用点均已更新为 `await`。
+
+### 🐛 BUG 修复
+
+- **滚动布局下滚轮完全失效**（`reader.js` — D-1-A）  
+  `reader-main` 和 epub.js iframe 两处 `wheel` 事件处理器均无布局判断，`preventDefault()` 在滚动布局下阻截了 iframe 的原生滚动，导致 `flow: scrolled-doc` 模式无法用鼠标滚轮浏览。修复：新增 `if (currentPrefs.layout === 'scrolled') return` 早返回，仅分页模式拦截 wheel 事件。
+
+- **`setLayout` 切换后当前会话内 `currentPrefs.layout` 未同步**（`reader.js` — D-1-B）  
+  `setLayout(layout)` 持久化偏好后没有更新内存状态 `currentPrefs.layout`，导致同一会话内 `navPrev()` 的 atStart 判断、两处 wheel 守卫、及 `openBook` 的 gap 计算读取的是旧值。修复：在函数首行补充 `currentPrefs.layout = layout`。
+
+- **IndexedDB 写入在事务提交前即 resolve**（`db-gateway.js` — D-1-E）  
+  `put()` 和 `delete()` 监听的是 `req.onsuccess`，而 IndexedDB 规范保证数据持久化的信号是 `tx.oncomplete`。极端场景（进程崩溃、设备掉电）下可能导致"写入成功"但数据实际未落盘。两处均改为 `tx.oncomplete = () => resolve()`。
+
+### ♻️ 重构 (Refactor)
+
+- **`bookmarks.js` 存储访问归口 `EpubStorage`**（D-1-F）  
+  `Bookmarks.getBookmarks()` / `saveBookmarks()` 原直接调用 `chrome.storage.local.get/set`，绕过存储抽象层。现委托至 `EpubStorage.getBookmarks/saveBookmarks/removeBookmarks`（新增方法）。`removeBook()` 级联删除也同步改用 `this.removeBookmarks(bookId)`。
+
+- **`storeFile` LRU 内化，删除调用方冗余逻辑**（`storage.js` / `reader.js` / `home.js` / `popup.js` — D-1-G）  
+  `home.js` 的 `storeFileData()` 和 `reader.js` 的 `storeFileInIndexedDB()` 均在调用 `EpubStorage.storeFile()` 后重复触发 `enforceFileLRU()`。LRU 逻辑已内化到 `storeFile()` 自身，两处包装函数已删除，调用方改为直接调用 `EpubStorage.storeFile()`。
+
+- **`storeFile` 携带 bookId 存档**（`storage.js` / `reader.js` — D-1-C 联动）  
+  文件存储时附带预计算的 `bookId` 字段。`loadFileFromIndexedDB` 直接从记录读取 `bookId`，不再对 `data.byteLength` 重算，消除旧版存在的 `file.size` vs `data.byteLength` 不一致风险。
+
+- **`service-worker.js` 删除永不触发的 `onClicked` 监听器**（D-1-D）  
+  `manifest.json` 配置了 `action.default_popup`，MV3 规范下有 popup 时 `chrome.action.onClicked` 绝不触发。该监听器是死代码，已删除，消除对维护者的误导。
+
+### 🛡️ 安全
+
+- **`highlights.js` 高亮颜色值经 `sanitizeColor` 验证**（D-1-H）  
+  `renderHighlight()` 将 `hl.color` 直接传给 epub.js SVG `fill` 属性，未经验证。现通过新增的模块内 `sanitizeColor()` 函数（与 `home.js` 白名单正则一致）过滤后再传入，低风险路径完全闭合。
+
+### 🔧 工程
+
+- **统一 cache-busting 版本号至 `?v=6`**  
+  `reader.html` 升至 `?v=6`；`home.html` / `popup.html` 补充版本号（原无），统一三入口缓存策略。
+
 ## [1.4.1] - Home 入口存储网关归口补丁
 
 ### 🐛 BUG 与安全修复

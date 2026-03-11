@@ -26,19 +26,13 @@ const Bookmarks = {
   },
 
   async getBookmarks() {
-    const key = 'bookmarks_' + this.bookId;
-    return new Promise((resolve) => {
-      chrome.storage.local.get([key], (result) => {
-        resolve(result[key] || []);
-      });
-    });
+    // D-1-F: Delegate to EpubStorage to enforce unified storage access policy.
+    return EpubStorage.getBookmarks(this.bookId);
   },
 
   async saveBookmarks(bookmarks) {
-    const key = 'bookmarks_' + this.bookId;
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ [key]: bookmarks }, resolve);
-    });
+    // D-1-F: Delegate to EpubStorage.
+    return EpubStorage.saveBookmarks(this.bookId, bookmarks);
   },
 
   async toggle(cfi, chapterName, progress) {

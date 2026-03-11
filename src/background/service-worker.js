@@ -1,15 +1,13 @@
 // EPUB Reader - Service Worker (Manifest V3)
-// Handles extension lifecycle events
+// Handles extension lifecycle events.
+//
+// D-1-D: Removed the chrome.action.onClicked listener that was dead code.
+// When manifest.json specifies action.default_popup, Chrome opens the popup
+// on icon click and the onClicked event is NEVER fired (MV3 spec).
+// Keeping it misled maintainers into thinking two entry points were active.
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
     console.log('EPUB Reader extension installed.');
   }
-});
-
-// Open reader page when extension icon is clicked (fallback if popup is disabled)
-chrome.action.onClicked.addListener((tab) => {
-  chrome.tabs.create({
-    url: chrome.runtime.getURL('reader/reader.html')
-  });
 });

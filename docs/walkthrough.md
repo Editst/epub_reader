@@ -4,17 +4,44 @@
 
 ---
 
-## [v1.4.1] - 存储网关化补丁与收口
+## [v1.5.0 - v1.6.0] - Phase D 数据层加固与 Schema 重构 (Data Integrity & Storage Rebuild)
+**核心目标**：解决以 `filename` 作为主键导致的并发覆盖灾难，构建基于 SHA-256 的唯一身份校验体系。
+
+### 1. 存储底层 Schema 破坏性重建 (DB v4)
+- **指纹替换主键**：`files`, `covers`, `locations` 三张表的主键字段统一由 `filename` 迁移至 `bookId`。解决了同名书籍静默覆盖原始文件，但残留旧书元数据（如批注、位置等）的严重逻辑失真 (P0-SCHEMA-1)。 
+- **离线哈希赋码**：将 `generateBookId` 从基于名称+大小的非强计算迁移至基于 `filename` + 前 64KB 二进制切片的 SHA-256 内容指纹 `crypto.subtle.digest`，杜绝任何确定性碰撞风险。
+- **记录平铺降维**：阅读进度缓存 `positions` 由高耗时的单体大对象读写模式降级为按书扁平化存储 `pos_<bookId>`，单次查询从 O(n) 直接降低至 O(1)。
+- **路由重构**：所有跨页面跳转参数 Token (`reader.html?file=...`) 替换为更为精准的 `?bookId=...` 以适应指纹主键机制。
+
+### 2. 存储全生命周期治理
+- **IO 串行解耦**：清退了 `removeBook()` 内部执行删除 `recentBooks`、`positions`、`covers`、`files` 等 7 次独立 await I/O 的阻塞行为，彻底转换为 `Promise.all` 并发清理机制。
+- **LRU 扫描扫雷**：重构 `enforceFileLRU` 算法。不再全量拉取 5MB 以上的书籍二进制 Blob 导致内存溢出，改由网关暴露全新的 `getAllMeta()` 游标 (Cursor-based) 数据流接口，实现纯元字段的 0 内存开销扫描排序。
+- **安全落盘机制修补**：纠正了 IndexedDB `put` 和 `delete` 原依赖不可靠的 `req.onsuccess` 落盘判定，该旧机制在进程崩溃等极端情况将出现内存已决而磁盘未刷的假抛出。现全部锁定修复为安全的 `tx.oncomplete` 回调触发。
+
+### 3. 注释安全防线补全 (P0-ANNOTATIONS-1)
+- **DOM 内联属性绝育**：识别并修复了第三方 EPUB 内部恶意夹带 `<a onclick="...">` 与跨域伪协议引发的沙盒穿透执行。目前针对脚注浮层提取引擎，已在渲染前针对所有 `on*` 事件处理器和 `javascript:` 等恶意协议完成全套阉割。结合上个版本的 `escapeHtml` 等防御机制，现已彻底收拢内至 CSS 边界、外至 DOM 结构的 XSS 纵深缺口。
+
+
+## [v1.4.1] - 存储入口全收拢与源码深度审计 (Security & Storage Finalization)
 **日期**：2026-03-11  
-**核心目标**：彻底消除 IndexedDB 分散连接隐患，实现 100% 网关化。
+**核心目标**：彻底消除 IndexedDB 分散连接隐患，并完成全链路安全与内存审计。
 
-### 1. 存储入口最终收敛
+### 1. 存储入口最终收敛 (Phase C Final)
 - **Home 入口修复**：排查并移除 `home.js` 中 `storeFileData` 使用的原生 `indexedDB.open('EpubReaderDB', 3)` 调用。改为透传至 `EpubStorage.storeFile`，确保全项目 IndexedDB 事务 100% 经由 `DbGateway` 单例。
-- **风险规避**：消除了主页上传书籍时可能产生的 Schema 版本冲突及底层连接死锁。
+- **架构一致性**：确认全项目（Reader/Home/Popup）仅存一个 DB 连接入口（v3 存储架构），彻底规避 Schema 冲突与连接死锁风险。
 
-### 2. 文档规范化重整
-- **架构文档合并**：废除 `task.md`，将其历史清单与 `walkthrough.md` 深度缝合，确立以 Walkthrough 为核心的单一技术事实来源。
-- **版本对齐**：同步更新 `manifest.json` 及 `README` 至 v1.4.1。
+### 2. 全项目源代码深度审计 (Security & Performance)
+- **全链路 XSS 防护**：
+  - `search.js`：验证 DOM-based 高亮逻辑，弃用 `innerHTML` 拼串，采用 `TextNode` + `mark` 元素手动挂载，根除搜索注入风险。
+  - `home.js` / `popup.js`：对所有注入 UI 的动态字段（书名、作者、笔记等）强制通过 `escapeHtml` 转义。
+  - `reader.js` / `annotations.js`：验证 `sanitizeColor` 校验函数，阻断 style 注入。
+- **内存泄露治理**：
+  - **Blob 自动回收**：在 `home.js` 和 `popup.js` 封面图逻辑中植入 `onload/onerror` 自动 `revokeObjectURL` 机制，解决常驻页面时的内存堆积。
+  - **事件管理**：确认 `highlights.js` 在 iframe 重建时能正确解绑旧版 `selected` 事件，根除累加监听器导致的 UI 闪烁。
+
+### 3. 工程资产与债务记录
+- **文档核心化**：废除 `task.md`，将全量开发史清单合并至本文件，确立单一事实来源。
+- **债务标记**：识别 `home.css` 与 `themes.css` 存在的 CSS 变量命名空间重叠问题，列入后续治理计划。
 
 ---
 

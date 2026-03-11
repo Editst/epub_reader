@@ -601,17 +601,26 @@ const Annotations = {
    * @param {string} href  -- navigation target (CFI or path#fragment)
    */
   _displayContent(html, href) {
-    // Strip back-link anchors so the popup doesn't show "return" arrows
-    this.body.innerHTML = html
+    // S-2 / P0-ANNOTATIONS-1: Strip inline event handlers and javascript: hrefs
+    // before assigning to innerHTML.  EPUB content may embed on* attributes
+    // (onclick, onmouseover, …) which execute in chrome-extension:// context
+    // despite script-src 'self' CSP (inline handlers bypass script-src).
+    const sanitized = html
       .replace(_RE.cleanBackref, '')
-      .replace(_RE.cleanFnref,   '');
+      .replace(_RE.cleanFnref,   '')
+      .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+      .replace(/ href\s*=\s*(?:"[^"]*"|'[^']*')/gi, m => /javascript:/i.test(m) ? ' href="#"' : m);
+    this.body.innerHTML = sanitized;
 
     this.titleEl.textContent = '注释';
 
     const jumpWrap = document.createElement('div');
     jumpWrap.className = 'annotation-jump-link';
-    jumpWrap.innerHTML = '<a href="javascript:void(0)">跳转到注释位置 →</a>';
-    jumpWrap.querySelector('a').addEventListener('click', async (e) => {
+    // Build jump link via DOM API — no innerHTML with string interpolation
+    const anchor = document.createElement('a');
+    anchor.href        = '#';
+    anchor.textContent = '跳转到注释位置 →';
+    anchor.addEventListener('click', async (e) => {
       e.preventDefault();
       this.close();
       if (!this.rendition || !href) return;
@@ -628,6 +637,7 @@ const Annotations = {
         } catch (__) { console.warn('Annotation: navigate failed', href); }
       }
     });
+    jumpWrap.appendChild(anchor);
     this.body.appendChild(jumpWrap);
 
     this.overlay.style.display = 'block';

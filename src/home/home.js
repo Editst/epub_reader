@@ -102,23 +102,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Read and store
     const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-    
-    // Use the same store function as popup
-    await storeFileData(file.name, uint8Array);
+    // D-1-C: generateBookId is now async (SHA-256).
+    const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
+    // D-1-G: storeFile internalises LRU — no separate enforceFileLRU needed.
+    await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
 
-    // Open Reader
-    window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(file.name);
+    window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
   });
-
-  // Helper from popup
-  function storeFileData(filename, uint8Array) {
-    return EpubStorage.storeFile(filename, uint8Array).then(async () => {
-      if (EpubStorage.enforceFileLRU) await EpubStorage.enforceFileLRU(10);
-    });
-  }
 
   // --- Bookshelf ---
   async function loadBookshelf() {
@@ -195,7 +186,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Open book
       card.addEventListener('click', (e) => {
         if (e.target.closest('.book-delete')) return;
-        window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(book.filename);
+        window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id);
       });
 
       // FIX P1-E: Revoke the blob URL as soon as the image finishes loading
@@ -212,7 +203,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm(`确定要移除《${book.title || book.filename}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
-          await EpubStorage.removeBook(book.id, book.filename);
+          await EpubStorage.removeBook(book.id);
           card.remove();
           // Reload shelf
           await loadBookshelf();
@@ -227,7 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
       const books = await EpubStorage.getRecentBooks();
       for (const book of books) {
-        await EpubStorage.removeBook(book.id, book.filename);
+        await EpubStorage.removeBook(book.id);
       }
       await loadBookshelf();
     }
@@ -309,7 +300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
        // Click book title to open reader
        item.querySelector('.annotation-book').addEventListener('click', (e) => {
           if (hl._bookContext.filename) {
-             window.location.href = chrome.runtime.getURL('reader/reader.html') + '?file=' + encodeURIComponent(hl._bookContext.filename) + '&target=' + encodeURIComponent(hl.cfi);
+             window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(hl._bookId) + '&target=' + encodeURIComponent(hl.cfi);
           }
        });
 
