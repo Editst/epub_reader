@@ -16,6 +16,13 @@
   - **CFI 状态锁 (`_withCfiLock`)**：为字号、行高、字体切换建立保护机制。通过 `isResizing` 锁拦截重排期间的中间态 `relocated` 事件，并利用 `requestAnimationFrame` 确保在浏览器渲染循环完成后恢复至原始锚点。
 
 ### 2. 阅读速率采样校准 (ETA Calibration)
+### 3. CSS / HTML 收尾清理
+
+- **Popup 样式外联 (S-4)**：将 `popup.html` 的内联 `<style>` 拆分为独立文件 `popup.css`，便于维护与后续 CSP 收敛。
+- **主题变量补全 (S-2)**：在 `themes.css` 新增 `[data-theme="custom"]` 变量块，确保自定义主题在未注入覆写前仍有稳定回退。
+- **页面色彩声明 (S-5)**：`reader.html`、`home.html`、`popup.html` 统一加入 `<meta name="color-scheme" content="light dark">`。
+- **拖拽遮罩结构预置 (S-6)**：拖拽层由 `reader.js` 动态 `innerHTML` 注入改为 `reader.html` 预置结构 + class 切换显示。
+
 - **内存快照同步 (BUG-02-A)**：重构 `flushSpeedSession`。在样本落盘后立即同步更新内存中的 `_cachedSpeed` 快照。清退了旧版中无效的 `window` 全局污染指针及滞后的 `refreshCachedSpeed` 异步读取路径，确保 UI 统计数据即时更新。
 - **挂机剔除机制 (BUG-02-B)**：监听 `visibilitychange` 事件。当页面从后台恢复 (visible) 时，立即重设 `_sessionStart` 锚点。确保了非活动状态下的时间流逝不被计入阅读速率分母，消除了因长时间挂机导致的 ETA 虚高。
 - **采样阈值下调 (BUG-02-C)**：将 Session 级实时速率的激活阈值从 `(>60s, >0.5%)` 下调至 `(>30s, >0.3%)`，允许系统在更短的阅读周期内给出具备参考意义的估算。

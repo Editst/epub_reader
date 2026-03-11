@@ -20,6 +20,7 @@
 
 - **⏱️ 进度毫秒级同步 (Progress Sync)**
   - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
+  - v1.8 收尾：Popup 样式外联为 `src/popup/popup.css`，并补全 `custom` 主题变量与 `color-scheme` 页面声明。
   - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固，再无由于重绘导致的 0% 进度闪断。
 
 - **🔍 智能检索与注释 (Search & Footnotes)**

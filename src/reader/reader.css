@@ -911,6 +911,10 @@ html, body {
 }
 
 /* --- Drag & Drop Overlay --- */
+.drag-overlay.hidden {
+  display: none;
+}
+
 .drag-overlay {
   position: fixed;
   inset: 0;
