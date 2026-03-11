@@ -160,3 +160,43 @@
   --toc-active-bg: rgba(58, 125, 68, 0.1);
   --toc-hover-bg: rgba(40, 80, 40, 0.04);
 }
+
+
+/* --- Custom Theme (runtime colors come from reader.js overrides) --- */
+[data-theme="custom"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f8fa;
+  --bg-toolbar: rgba(255, 255, 255, 0.92);
+  --bg-sidebar: #ffffff;
+  --bg-overlay: rgba(0, 0, 0, 0.35);
+  --bg-tooltip: #ffffff;
+
+  --text-primary: #2d2d2d;
+  --text-secondary: #666666;
+  --text-muted: #888888;
+  --text-accent: #e94560;
+
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.12);
+
+  --btn-primary-bg: linear-gradient(135deg, #e94560, #c23152);
+  --btn-primary-text: #ffffff;
+  --btn-hover-bg: rgba(0, 0, 0, 0.06);
+
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-track: transparent;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --shadow-popup: 0 12px 40px rgba(0, 0, 0, 0.15);
+
+  --reader-bg: #ffffff;
+  --reader-text: #2d2d2d;
+
+  --progress-bg: rgba(0, 0, 0, 0.08);
+  --progress-fill: linear-gradient(90deg, #e94560, #c23152);
+
+  --toc-active-bg: rgba(233, 69, 96, 0.1);
+  --toc-hover-bg: rgba(0, 0, 0, 0.04);
+}
