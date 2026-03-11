@@ -131,7 +131,7 @@ const Annotations = {
       .addEventListener('click', () => this.close());
     this.overlay.addEventListener('click', () => this.close());
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.popup.style.display !== 'none') this.close();
+      if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
     });
   },
 
@@ -640,8 +640,8 @@ const Annotations = {
     jumpWrap.appendChild(anchor);
     this.body.appendChild(jumpWrap);
 
-    this.overlay.style.display = 'block';
-    this.popup.style.display   = 'flex';
+    this.overlay.classList.add('is-visible');
+    this.popup.classList.add('is-visible');
   },
 
   /**
@@ -667,8 +667,8 @@ const Annotations = {
   },
 
   close() {
-    this.overlay.style.display = 'none';
-    this.popup.style.display   = 'none';
+    this.overlay.classList.remove('is-visible');
+    this.popup.classList.remove('is-visible');
     this.body.innerHTML        = '';
   },
 

@@ -25,7 +25,7 @@
   </div>
 
   <!-- Loading Overlay -->
-  <div class="loading-overlay" id="loading-overlay" style="display:none;">
+  <div class="loading-overlay is-hidden" id="loading-overlay">
     <div class="loading-spinner"></div>
     <p class="loading-text">正在加载书籍...</p>
   </div>
@@ -104,7 +104,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h3.016C21.606 16.394 24 13.593 24 10.51 24 5.8 18.627 2 12 2z"/></svg>
           </button>
         </div>
-        <div id="custom-theme-options" class="custom-theme-options" style="display: none;">
+        <div id="custom-theme-options" class="custom-theme-options">
           <div class="custom-color-row">
             <label class="custom-color-label">背景颜色</label>
             <input type="color" id="custom-bg-color" class="custom-color-input" value="#ffffff">
@@ -194,7 +194,7 @@
   </div>
 
   <!-- Main Reader Area -->
-  <main class="reader-main" id="reader-main" style="display:none;">
+  <main class="reader-main" id="reader-main">
     <!-- Navigation arrows -->
     <button class="nav-arrow nav-prev" id="btn-prev" title="上一页 (←)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -208,7 +208,7 @@
   </main>
 
   <!-- Bottom Progress Bar -->
-  <footer class="bottom-bar" id="bottom-bar" style="display:none;">
+  <footer class="bottom-bar" id="bottom-bar">
     <div class="progress-container">
       <input type="range" class="progress-slider" id="progress-slider" min="0" max="100" value="0" step="0.1">
       <div class="progress-info">
@@ -241,8 +241,8 @@
   </div>
 
   <!-- Annotation Popup -->
-  <div class="annotation-overlay" id="annotation-overlay" style="display:none;"></div>
-  <div class="annotation-popup" id="annotation-popup" style="display:none;">
+  <div class="annotation-overlay" id="annotation-overlay"></div>
+  <div class="annotation-popup" id="annotation-popup">
     <div class="annotation-popup-header">
       <span class="annotation-popup-title" id="annotation-title">注释</span>
       <button class="annotation-popup-close" id="annotation-close">

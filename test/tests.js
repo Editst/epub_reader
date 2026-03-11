@@ -1,15 +1,20 @@
 /**
- * EPUB Reader v1.7.0 — 完整测试套件
+ * EPUB Reader v1.9.2 — 完整测试套件
  *
  * 框架：Jest（Node.js）
  * 覆盖范围：
  *   - utils/utils.js       （纯函数，全量覆盖）
  *   - utils/storage.js     （Mock chrome.storage.local + DbGateway）
  *   - utils/db-gateway.js  （Mock indexedDB）
- *   - reader/reader.js     （速度追踪、防抖、ETA 算法）
+ *   - reader/reader.js     （速度追踪、防抖、ETA 算法、style.* 迁移回归）
  *   - reader/highlights.js （高亮状态机）
  *   - reader/bookmarks.js  （书签增删查）
  *   - home/home.js         （书架渲染、标注管理）
+ *   - v1.9.2 专项回归：
+ *       F-1 storage 故障注入（lastError reject 验证）
+ *       F-2 bookMeta 并发写一致性（串行队列）
+ *       F-3 getAllHighlights 全量 key 扫描（书架外书籍）
+ *       F-4 style.* 迁移验证（class 切换无回退）
  *
  * 运行：
  *   npm install --save-dev jest
@@ -1551,5 +1556,221 @@ describe('BUG-02 端到端：中途开书 + 多 session 累积 ETA', () => {
     const v16_eta = Math.round((1080 / 60) / currentProgress * remainingProgress);
     expect(v16_eta).toBeLessThan(etaMinutes); // v1.6.0 低估
     expect(etaMinutes).toBeGreaterThan(v16_eta);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// tests/v1.9.2_regression.test.js — v1.9.2 收尾修复的专项回归测试
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── F-1：storage.js 错误上抛（故障注入）─────────────────────────────────────
+
+describe('F-1：chrome.storage.local 错误上抛（v1.9.2 P1 修复）', () => {
+  beforeEach(() => {
+    chrome.storage.local._reset();
+    // 注入 lastError
+    chrome.runtime.lastError = null;
+  });
+
+  afterEach(() => {
+    chrome.storage.local.get.mockRestore?.();
+    chrome.storage.local.set.mockRestore?.();
+    chrome.storage.local.remove.mockRestore?.();
+    chrome.runtime.lastError = null;
+  });
+
+  test('_get 遭遇 lastError 时 reject 而非 resolve', async () => {
+    const origGet = chrome.storage.local.get;
+    chrome.storage.local.get = jest.fn((keys, cb) => {
+      chrome.runtime.lastError = { message: 'QuotaExceeded' };
+      cb({});
+      chrome.runtime.lastError = null;
+    });
+
+    await expect(EpubStorage._get('preferences')).rejects.toBeDefined();
+    chrome.storage.local.get = origGet;
+  });
+
+  test('_set 遭遇 lastError 时 reject 而非 resolve', async () => {
+    const origSet = chrome.storage.local.set;
+    chrome.storage.local.set = jest.fn((data, cb) => {
+      chrome.runtime.lastError = { message: 'QuotaExceeded' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+
+    await expect(EpubStorage._set({ foo: 'bar' })).rejects.toBeDefined();
+    chrome.storage.local.set = origSet;
+  });
+
+  test('_remove 遭遇 lastError 时 reject 而非 resolve', async () => {
+    const origRemove = chrome.storage.local.remove;
+    chrome.storage.local.remove = jest.fn((keys, cb) => {
+      chrome.runtime.lastError = { message: 'ContextInvalidated' };
+      cb();
+      chrome.runtime.lastError = null;
+    });
+
+    await expect(EpubStorage._remove('someKey')).rejects.toBeDefined();
+    chrome.storage.local.remove = origRemove;
+  });
+
+  test('正常情况下（无 lastError）仍 resolve', async () => {
+    await expect(EpubStorage.getPreferences()).resolves.toBeDefined();
+    await expect(EpubStorage._set({ testKey: 'val' })).resolves.toBeUndefined();
+    await expect(EpubStorage._remove('testKey')).resolves.toBeUndefined();
+  });
+});
+
+// ── F-2：bookMeta 并发写一致性（串行队列）────────────────────────────────────
+
+describe('F-2：bookMeta 并发写串行化（v1.9.2 P2 修复）', () => {
+  beforeEach(() => {
+    chrome.storage.local._reset();
+  });
+
+  test('三路并发写 pos/time/speed 后所有字段均完整保留', async () => {
+    const bookId = 'concurrent_test_book';
+    // 三个写操作同时发起（不 await 中间结果）
+    await Promise.all([
+      EpubStorage.savePosition(bookId, 'epubcfi(/6/10)', 55.0),
+      EpubStorage.saveReadingTime(bookId, 1800),
+      EpubStorage.saveReadingSpeed(bookId, { sampledSeconds: 900, sampledProgress: 0.25 }),
+    ]);
+
+    const meta = await EpubStorage.getBookMeta(bookId);
+    expect(meta).not.toBeNull();
+    // 三个字段都应存在，互不覆盖
+    expect(meta.pos).not.toBeNull();
+    expect(meta.pos.cfi).toBe('epubcfi(/6/10)');
+    expect(meta.time).toBe(1800);
+    expect(meta.speed.sampledSeconds).toBe(900);
+    expect(meta.speed.sampledProgress).toBeCloseTo(0.25);
+  });
+
+  test('串行写入后，最新值胜出（不回退）', async () => {
+    const bookId = 'serial_write_book';
+    await EpubStorage.savePosition(bookId, 'epubcfi(/6/2)', 10);
+    await EpubStorage.saveReadingTime(bookId, 100);
+    // 再次更新时间
+    await EpubStorage.saveReadingTime(bookId, 200);
+    // 再次更新位置
+    await EpubStorage.savePosition(bookId, 'epubcfi(/6/20)', 50);
+
+    const meta = await EpubStorage.getBookMeta(bookId);
+    expect(meta.pos.cfi).toBe('epubcfi(/6/20)');
+    expect(meta.pos.percentage).toBe(50);
+    expect(meta.time).toBe(200);
+  });
+
+  test('_bookMetaQueue 在写完后自动清理（无内存泄漏）', async () => {
+    const bookId = 'queue_cleanup_book';
+    await EpubStorage.savePosition(bookId, 'epubcfi(/6/4)', 20);
+    // 等待队列 flush
+    await new Promise(r => setTimeout(r, 10));
+    // 写完后队列中不再持有该 bookId 的 Promise
+    expect(EpubStorage._bookMetaQueue.has(bookId)).toBe(false);
+  });
+});
+
+// ── F-3：getAllHighlights 全量覆盖（storage key 扫描）────────────────────────
+
+describe('F-3：getAllHighlights 全量 key 扫描（v1.9.2 P2 修复）', () => {
+  beforeEach(() => {
+    chrome.storage.local._reset();
+  });
+
+  test('书架外书籍的高亮也能被发现（不依赖 recentBooks）', async () => {
+    // 直接写入 storage，不通过 addRecentBook（模拟 LRU 驱逐后残留高亮）
+    chrome.storage.local._data['highlights_orphan_book'] = [
+      { cfi: 'c1', text: '孤立高亮', color: '#ffeb3b', note: '', timestamp: 1000 }
+    ];
+    // recentBooks 中不包含 orphan_book
+    await EpubStorage.addRecentBook({ id: 'active_book', title: 'Active', filename: 'a.epub' });
+    await EpubStorage.saveHighlights('active_book', [
+      { cfi: 'c2', text: '活跃书高亮', color: '#ff6b6b', note: '', timestamp: 2000 }
+    ]);
+
+    const all = await EpubStorage.getAllHighlights();
+    // 两本书的高亮都应被返回
+    expect(all['orphan_book']).toBeDefined();
+    expect(all['orphan_book']).toHaveLength(1);
+    expect(all['active_book']).toBeDefined();
+    expect(all['active_book']).toHaveLength(1);
+  });
+
+  test('recentBooks 20 本上限不截断历史高亮', async () => {
+    // 添加 22 本书，但只有前 20 本会在 recentBooks
+    const highlights = [{ cfi: 'c1', text: 't', color: '#ff0', note: '', timestamp: 1 }];
+    for (let i = 1; i <= 22; i++) {
+      // 直接写 storage 模拟历史高亮（不通过 addRecentBook 以规避截断）
+      chrome.storage.local._data[`highlights_book${i}`] = highlights;
+    }
+    // recentBooks 只有最新 20 本
+    for (let i = 3; i <= 22; i++) {
+      await EpubStorage.addRecentBook({ id: `book${i}`, title: `B${i}`, filename: `${i}.epub` });
+    }
+
+    const all = await EpubStorage.getAllHighlights();
+    // 全部 22 本书的高亮都应被找到（通过 key 扫描补全）
+    expect(Object.keys(all)).toHaveLength(22);
+  });
+
+  test('空高亮书籍不出现在结果中', async () => {
+    chrome.storage.local._data['highlights_empty_book'] = [];
+    await EpubStorage.addRecentBook({ id: 'has_highlight', title: 'H', filename: 'h.epub' });
+    await EpubStorage.saveHighlights('has_highlight', [
+      { cfi: 'c1', text: 't', color: '#ff0', note: '', timestamp: 1 }
+    ]);
+
+    const all = await EpubStorage.getAllHighlights();
+    expect(all['empty_book']).toBeUndefined();
+    expect(all['has_highlight']).toBeDefined();
+  });
+});
+
+// ── F-4：style.* 迁移回归（class 切换验证）───────────────────────────────────
+
+describe('F-4：style.* 迁移回归（D-2026-04 修复，v1.9.2）', () => {
+  /**
+   * 这组测试是静态代码分析，确保 reader.js 中没有 style.display/style.opacity 等直写。
+   * 实际 class 切换的 DOM 行为由 E2E 测试（浏览器环境）覆盖；
+   * 这里验证"没有回退到旧写法"。
+   */
+  const fs = require('fs');
+
+  test('reader.js 不含 style.display', () => {
+    const src = fs.readFileSync('src/reader/reader.js', 'utf8');
+    expect(src).not.toContain('style.display');
+  });
+
+  test('reader.js 使用 classList.add/toggle 控制可见性', () => {
+    const src = fs.readFileSync('src/reader/reader.js', 'utf8');
+    expect(src).toContain("classList.add('is-hidden')");
+    expect(src).toContain("classList.add('is-visible')");
+    expect(src).toContain("classList.toggle('is-visible'");
+    expect(src).toContain("classList.toggle('is-hidden'");
+  });
+
+  test('reader.css 包含完整的 is-hidden/is-visible 规则集', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    expect(css).toContain('.welcome-screen.is-hidden');
+    expect(css).toContain('.reader-main.is-visible');
+    expect(css).toContain('.bottom-bar.is-visible');
+    expect(css).toContain('.loading-overlay.is-hidden');
+    expect(css).toContain('.custom-theme-options.is-visible');
+  });
+
+  test('image-viewer.js transform 为动态变换豁免（计算值，非显隐控制）', () => {
+    const src = fs.readFileSync('src/reader/image-viewer.js', 'utf8');
+    expect(src).toContain('style.transform');
+    expect(src).not.toContain('style.display');
+  });
+
+  test('highlights.js top/left 为动态定位豁免，无 style.display', () => {
+    // 悬浮工具栏需要运行时坐标，属于计算值豁免
+    const src = fs.readFileSync('src/reader/highlights.js', 'utf8');
+    expect(src).not.toContain('style.display');
+    expect(src).not.toContain('style.visibility');
   });
 });

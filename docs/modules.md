@@ -356,10 +356,12 @@ Annotations.hookRendition(rendition: Rendition): void
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
 
 
-## v1.9 更新摘要
+## v1.9 / v1.9.2 更新摘要
 - 搜索模块改为 class 驱动样式（`search-result-item` / `search-highlight` / `search-status-empty`）。
 - 目录模块空态改为 `.toc-empty`。
 - Reader 错误态改为 `.reader-error-*` class，翻页过渡使用 `.reader-main-dimmed`。
+- **v1.9.2 新增**：reader.js 全部 `style.display` 迁移为 `classList` 操作；reader.css 新增 `.is-hidden/.is-visible` 辅助类组；image-viewer.js `style.transform` 豁免（计划 v2.2.0 替代）。
+- **v1.9.2 新增**：`EpubStorage._get/_set/_remove` 错误上抛；`_bookMetaQueue` 串行化写入；`getAllHighlights` 全量 key 扫描。
 
 ---
 

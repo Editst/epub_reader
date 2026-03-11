@@ -467,10 +467,10 @@
   }
 
   async function openBook(arrayBuffer) {
-    welcomeScreen.style.display = 'none';
-    readerMain.style.display = 'flex';
+    welcomeScreen.classList.add('is-hidden');
+    readerMain.classList.add('is-visible');
     readerMain.classList.remove('reader-main-error');
-    bottomBar.style.display = 'flex';
+    bottomBar.classList.add('is-visible');
 
     if (book) {
       book.destroy();
@@ -883,7 +883,7 @@
       btn.classList.toggle('active', btn.dataset.theme === theme);
     });
     if (customThemeOptions) {
-      customThemeOptions.style.display = theme === 'custom' ? 'block' : 'none';
+      customThemeOptions.classList.toggle('is-visible', theme === 'custom');
     }
     if (rendition) applyThemeToRendition(theme);
     if (save) EpubStorage.savePreferences({ theme });
@@ -993,7 +993,7 @@
   function applyFontFamily(fam) { currentPrefs.fontFamily = fam;  updateCustomStyles(); }
 
   function showLoading(show) {
-    loadingOverlay.style.display = show ? 'flex' : 'none';
+    loadingOverlay.classList.toggle('is-hidden', !show);
   }
 
 })();

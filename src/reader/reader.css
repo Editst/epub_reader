@@ -641,7 +641,7 @@ html, body {
   left: 0;
   right: 0;
   bottom: 40px;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: var(--reader-bg);
@@ -657,6 +657,18 @@ html, body {
 .reader-main-dimmed {
   opacity: 0;
 }
+
+/* JS-controlled visibility helpers — replaces runtime style.display writes (D-2026-04 / v1.9.2) */
+.welcome-screen.is-hidden  { display: none !important; }
+.reader-main.is-visible    { display: flex !important; }
+.bottom-bar.is-visible     { display: flex !important; }
+.loading-overlay.is-hidden { display: none !important; }
+.custom-theme-options.is-visible { display: block !important; }
+#btn-clear-hl.is-hidden    { display: none !important; }
+.annotation-overlay        { display: none; }
+.annotation-overlay.is-visible { display: block !important; }
+.annotation-popup          { display: none; }
+.annotation-popup.is-visible   { display: flex !important; }
 
 .reader-main-error {
   align-items: stretch;
@@ -743,7 +755,7 @@ html, body {
   left: 0;
   right: 0;
   height: 40px;
-  display: flex;
+  display: none;
   align-items: center;
   padding: 0 20px;
   background: var(--bg-toolbar);

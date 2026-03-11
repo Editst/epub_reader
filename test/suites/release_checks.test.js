@@ -31,3 +31,81 @@ test.describe('v1.8 剩余项收尾', () => {
     assert.ok(!js.includes('dragOverlay.innerHTML'));
   });
 });
+
+test.describe('v1.9.2 收尾完成验证', () => {
+  test.it('F-1: storage.js _get/_set/_remove 均检查 chrome.runtime.lastError', () => {
+    const js = fs.readFileSync('src/utils/storage.js', 'utf8');
+    // 三个内部方法均有 lastError 的 reject 路径
+    const lastErrorCount = (js.match(/chrome\.runtime\.lastError/g) || []).length;
+    assert.ok(lastErrorCount >= 3, `期望至少 3 处 lastError 检查，实际 ${lastErrorCount}`);
+    assert.ok(js.includes('return reject(chrome.runtime.lastError)'));
+  });
+
+  test.it('F-2: storage.js 使用 _bookMetaQueue 串行化 bookMeta 写入', () => {
+    const js = fs.readFileSync('src/utils/storage.js', 'utf8');
+    assert.ok(js.includes('_bookMetaQueue'));
+    assert.ok(js.includes('_enqueueBookMetaWrite'));
+    // 三个写操作均通过队列
+    assert.ok(js.includes("await this._enqueueBookMetaWrite(bookId"));
+  });
+
+  test.it('F-3: getAllHighlights 使用 _getAll 全量扫描补全 highlights_ 前缀', () => {
+    const js = fs.readFileSync('src/utils/storage.js', 'utf8');
+    assert.ok(js.includes("key.startsWith('highlights_')"));
+    assert.ok(js.includes('_getAll'));
+  });
+
+  test.it('F-4a: reader.js 所有 style.display 已迁移为 class 切换', () => {
+    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+    assert.ok(!js.includes('style.display'));
+    assert.ok(js.includes("classList.add('is-hidden')") || js.includes("classList.toggle('is-hidden'"));
+    assert.ok(js.includes("classList.add('is-visible')"));
+  });
+
+  test.it('F-4b: reader.html 关键元素无内联 style="display:none"', () => {
+    const html = fs.readFileSync('src/reader/reader.html', 'utf8');
+    // reader-main 和 bottom-bar 不再有 inline style
+    assert.ok(!html.match(/id="reader-main"[^>]*style=/));
+    assert.ok(!html.match(/id="bottom-bar"[^>]*style=/));
+    // loading-overlay 通过 is-hidden class 控制
+    assert.ok(html.includes('loading-overlay is-hidden') || html.includes('is-hidden" id="loading-overlay'));
+  });
+
+  test.it('F-4c: reader.css 提供完整的 is-hidden/is-visible 辅助类组', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(css.includes('.welcome-screen.is-hidden'));
+    assert.ok(css.includes('.reader-main.is-visible'));
+    assert.ok(css.includes('.bottom-bar.is-visible'));
+    assert.ok(css.includes('.loading-overlay.is-hidden'));
+    assert.ok(css.includes('.custom-theme-options.is-visible'));
+  });
+
+  test.it('manifest version 为 1.9.2', () => {
+    const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
+    assert.strictEqual(manifest.version, '1.9.2');
+  });
+
+  test.it('DbGateway 仅允许动态定位/变换的 style.* 写入（无 style.display/visibility）', () => {
+    // 全项目 style.* 检查：只允许动态坐标计算类写入（top/left/transform），禁止 display/visibility/opacity 等显隐控制写入
+    const prohibitedProps = ['style.display', 'style.visibility', 'style.opacity', 'style.cursor', 'style.cssText'];
+    const files = [
+      'src/reader/reader.js', 'src/home/home.js',
+      'src/popup/popup.js', 'src/reader/search.js',
+      'src/reader/toc.js', 'src/reader/bookmarks.js',
+      'src/reader/highlights.js', 'src/reader/annotations.js',
+    ];
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8');
+      for (const prop of prohibitedProps) {
+        assert.ok(!src.includes(prop), `${f} 仍有禁止的 ${prop} 直写`);
+      }
+    }
+    // image-viewer: transform 是唯一豁免（缩放平移计算值）
+    const ivSrc = fs.readFileSync('src/reader/image-viewer.js', 'utf8');
+    assert.ok(ivSrc.includes('style.transform'));
+    // highlights: top/left 是动态定位豁免（悬浮工具栏坐标）
+    const hlSrc = fs.readFileSync('src/reader/highlights.js', 'utf8');
+    assert.ok(hlSrc.includes('style.top') || hlSrc.includes('style.left'));
+    assert.ok(!hlSrc.includes('style.display'));
+  });
+});

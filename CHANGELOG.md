@@ -4,11 +4,23 @@
 - `EpubStorage._get/_set/_remove` 新增 `chrome.runtime.lastError` 检查，存储失败会向上抛错，不再静默成功。
 - `bookMeta` 写入改为按 `bookId` 串行队列，避免 `savePosition/saveReadingTime/saveReadingSpeed` 并发覆盖。
 - `getAllHighlights()` 新增全量 key 扫描补全逻辑，覆盖 recentBooks 之外的历史书籍高亮。
-- home/popup/image-viewer 收敛部分 `style.*` 显隐写法为 class 切换。
+- **reader.js `style.*` 全量迁移（D-2026-04 最终收口）**：
+  - `openBook` 中 `welcomeScreen/readerMain/bottomBar` 的 `style.display` 改为 `classList.add('is-hidden'/'is-visible')`。
+  - `setTheme` 中 `customThemeOptions.style.display` 改为 `classList.toggle('is-visible', ...)`。
+  - `showLoading` 中 `loadingOverlay.style.display` 改为 `classList.toggle('is-hidden', ...)`。
+  - `reader.html` 移除 `#reader-main`、`#bottom-bar`、`#loading-overlay`、`#custom-theme-options` 的内联 `style="display:none"`。
+  - `reader.css` 新增 `.welcome-screen.is-hidden`、`.reader-main.is-visible`、`.bottom-bar.is-visible`、`.loading-overlay.is-hidden`、`.custom-theme-options.is-visible` 辅助类。
+  - `image-viewer.js` 的 `style.transform` 保留为唯一豁免（动态计算值，无法静态化；在 v2.2.0 中通过 CSS custom property 替代）。
+  - 至此 home/popup/reader 三入口的 `style.*` 运行时直写全部清零，为 v2.2.0 移除 `unsafe-inline` 奠定基线。
 
 ### 📝 文档与版本
 - 全量更新根目录与 `docs/` 文档版本语义到 1.9.2。
 - 审计报告统一重命名为 `docs/comprehensive_repost.md`，删除旧版 `comprehensive_report_v3.0.md` 与 `comprehensive_report_v3.1.md`。
+
+### 🧪 测试
+- `test/tests.js` 新增 v1.9.2 专项回归组（F-1/F-2/F-3/F-4），覆盖故障注入、并发写、数据可见性、style.* 迁移验证。
+- `test/suites/csp_regression.test.js` 新增 C-8~C-11，验证 reader.js 全量 style.display 消除与 CSS 辅助类完整性。
+- `test/suites/release_checks.test.js` 新增 v1.9.2 收尾完成验证组（F-1/F-2/F-3/F-4 静态断言）。
 
 ---
 

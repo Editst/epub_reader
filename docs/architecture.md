@@ -420,25 +420,32 @@ Annotations.hookRendition(rendition): void
 
 ## 8. 已知技术债务
 
-### 8.0 comprehensive_repost 审计新增结论（1.x 收尾重点）
+### 8.0 v1.9.2 审计结论：1.x 正式封版
 
-1. `EpubStorage._get/_set/_remove` 尚未向上抛出 `chrome.runtime.lastError`，导致存储失败可能静默。
-2. `bookMeta` 的位置/时长/速度写入仍是并发 RMW（read-modify-write）模型，存在字段覆盖窗口。
-3. `getAllHighlights()` 仅按 `recentBooks` 遍历，历史书籍（不在前 20）标注可能“不可见但未丢失”。
-4. home/popup/image-viewer 仍保留部分 `style.*` 运行时直写，阻碍 CSP 最终移除 `unsafe-inline`。
+经 v1.9.2 最终收尾，P1/P2 问题全部清零：
 
-> 以上项不建议在 1.x 中做结构性重构，统一放入 v1.9.2 低风险治理批次。
+1. ✅ `EpubStorage._get/_set/_remove` 已检查 `chrome.runtime.lastError`，失败时 reject（D-2026-01）。
+2. ✅ `bookMeta` 写入引入 `_bookMetaQueue` 串行化，消除并发 RMW 覆盖窗口（D-2026-02）。
+3. ✅ `getAllHighlights()` 增加全量 key 扫描，突破 recentBooks 上限约束（D-2026-03）。
+4. ✅ `reader.js` 全部 `style.display` 迁移为 class 控制，home/popup/reader 三入口 `style.*` 全量清零（D-2026-04）。
 
-### P2 (计划 v1.9.0)
-- **ID 2.3**：`home.js` 重新渲染时未及时回收 `ObjectURL`。
-- **ID 3.2**：消除 `unsafe-inline`，迁移所有内联样式到 CSS classes。
-- **ID 3.4**：`reader.js` 重构，将阅读统计、进度控制解耦。
+**style.* 迁移说明（v1.9.2 最终收口）**：
+- `reader.js` 中 `openBook`（3 处）、`setTheme`（1 处）、`showLoading`（1 处）共 5 处 `style.display` 已迁移为 `classList.add/toggle`。
+- `reader.html` 移除 `#reader-main`、`#bottom-bar`、`#loading-overlay`、`#custom-theme-options` 的内联 `style="display:none"`。
+- `reader.css` 新增 5 个辅助类：`.welcome-screen.is-hidden`、`.reader-main.is-visible`、`.bottom-bar.is-visible`、`.loading-overlay.is-hidden`、`.custom-theme-options.is-visible`。
+- **唯一豁免**：`image-viewer.js` `style.transform`（动态平移+缩放计算值，无法静态化）→ v2.2.0 通过 CSS 自定义属性替代。
 
-### P3
-- **ARIA**：补充无障碍属性。
-- **CSS 变量**：统一 `home.css` 与 `themes.css` 命名冲突。
+### P3（计划 v2.x）
+
+- **D-2026-05**（v2.0.0）：`reader.js` 高耦合（~1000 行），计划拆分为四层。
+- **D-2026-06**（v2.0.0）：`DbGateway.getByFilename()` 无调用路径，计划清理。
+- **D-2026-07**（v2.2.0）：`image-viewer.js` `style.transform` 豁免，计划 CSS 自定义属性替代。
+- **D-2026-08**（v2.2.0）：ARIA 语义缺失，计划补全工具栏/面板/书架卡片。
+- **D-2026-09**（v2.1.0）：阅读速度模型等权平均，计划引入会话加权。
+- **D-2026-10**（v2.1.0）：locations 生成阻塞主线程，计划 rIC 分段调度。
 
 ---
+
 
 ## 9. 附录：模块加载顺序
 

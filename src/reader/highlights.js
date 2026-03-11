@@ -83,7 +83,7 @@ window.Highlights = (function () {
           b.classList.toggle('active', b.dataset.color === hl.color);
         });
       }
-      btnClearHl.style.display = 'flex';
+      btnClearHl.classList.remove('is-hidden');
       toolbar.classList.add('show');
     }
   }
@@ -140,7 +140,7 @@ window.Highlights = (function () {
         if (b.dataset.color === hl.color) b.classList.add('active');
         else b.classList.remove('active');
      });
-     btnClearHl.style.display = 'flex';
+     btnClearHl.classList.remove('is-hidden');
 
      // Find the element for coordinates using the CFI
      try {
@@ -180,7 +180,7 @@ window.Highlights = (function () {
     
     // Clear active color state
     colorBtns.forEach(b => b.classList.remove('active'));
-    btnClearHl.style.display = 'none';
+    btnClearHl.classList.add('is-hidden');
 
     // Position toolbar above selection
     const selection = contents.window.getSelection();
@@ -258,7 +258,7 @@ window.Highlights = (function () {
            if (b.dataset.color === hl.color) b.classList.add('active');
            else b.classList.remove('active');
         });
-        btnClearHl.style.display = 'flex';
+        btnClearHl.classList.remove('is-hidden');
         
         // Position below cursor or target
         const target = e.target;
