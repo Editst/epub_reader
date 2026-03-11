@@ -59,9 +59,19 @@
 - [x] C-4：`search.js mark.style.cssText` → `.search-highlight` CSS class
 - [x] C-5：`search.js statusEl.innerHTML` → textContent + CSS class
 - [x] C-6：`toc.js` empty inline style → `.toc-empty` CSS class
-- [x] C-7：manifest `style-src` 移除 `'unsafe-inline'`
+- [ ] C-7：manifest `style-src` 移除 `'unsafe-inline'`
 
 ---
+
+
+### v1.9.1 — CSP 收敛收尾（≈ 2-3 工作日）
+
+**目标**：在不引入 UI 回归前提下完成 C-7。
+
+- [ ] C-7R-1：`reader.html`/`home.html`/`popup.html` 去除静态 `style="..."` 属性
+- [ ] C-7R-2：`home.js`/`popup.js` 迁移运行时 `style.*` 为 class 切换或 CSS 变量
+- [ ] C-7R-3：`annotations.js` 去除 `innerHTML` 中的内联 style 片段
+- [ ] C-7R-4：完成迁移后再移除 manifest 的 `unsafe-inline`
 
 ### v2.0.0 — reader.js 架构拆分（≈ 7-10 工作日）
 

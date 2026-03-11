@@ -433,11 +433,12 @@
   function generateCustomCss() {
     const fallbackFont = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
     const fontFamily = currentPrefs.fontFamily ? `${currentPrefs.fontFamily}, ${fallbackFont}` : fallbackFont;
+    const activeTheme = getActiveThemeColors(currentPrefs.theme || 'light');
     return `
       @namespace xmlns "http://www.w3.org/1999/xhtml";
       html, body {
-        background-color: ${currentPrefs.theme === 'custom' && currentPrefs.customBg ? currentPrefs.customBg : 'transparent'} !important;
-        color: ${currentPrefs.theme === 'custom' && currentPrefs.customText ? currentPrefs.customText : 'inherit'} !important;
+        background-color: ${activeTheme.bg} !important;
+        color: ${activeTheme.color} !important;
         font-size: ${currentPrefs.fontSize}px !important;
         font-family: ${fontFamily} !important;
         line-height: ${currentPrefs.lineHeight} !important;
@@ -890,6 +891,13 @@
 
   function applyThemeToRendition(theme) {
     if (!rendition) return;
+    const t = getActiveThemeColors(theme);
+    rendition.themes.override('color', t.color);
+    rendition.themes.override('background', t.bg);
+    updateCustomStyles();
+  }
+
+  function getActiveThemeColors(theme) {
     const themes = {
       light:  { bg: '#ffffff',  color: '#2d2d2d' },
       dark:   { bg: '#1a1a1a',  color: '#d4d0c8' },
@@ -897,10 +905,43 @@
       green:  { bg: '#c7e6c1',  color: '#2b3a2b' },
       custom: { bg: currentPrefs.customBg || '#ffffff', color: currentPrefs.customText || '#333333' }
     };
-    const t = themes[theme] || themes.light;
-    rendition.themes.override('color', t.color);
-    rendition.themes.override('background', t.bg);
-    updateCustomStyles();
+    return ensureReadableTheme(themes[theme] || themes.light);
+  }
+
+  function ensureReadableTheme(themeObj) {
+    if (!themeObj || !themeObj.bg || !themeObj.color) return themeObj;
+    const bg = normalizeHexColor(themeObj.bg);
+    const fg = normalizeHexColor(themeObj.color);
+    if (!bg || !fg) return themeObj;
+    // 修复：若用户将自定义文字色与背景色设得过于接近，会出现“整页发白/看不见文字”
+    // 自动回退为与背景对比更高的颜色，避免阅读区看似白屏。
+    const contrast = contrastRatio(bg, fg);
+    if (contrast >= 2.5) return themeObj;
+    const fallback = luminance(bg) > 0.5 ? '#1f2937' : '#f3f4f6';
+    return { ...themeObj, color: fallback };
+  }
+
+  function normalizeHexColor(input) {
+    if (typeof input !== 'string') return null;
+    const val = input.trim();
+    if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(val)) return null;
+    if (val.length === 4) {
+      return '#' + val.slice(1).split('').map(ch => ch + ch).join('').toLowerCase();
+    }
+    return val.toLowerCase();
+  }
+
+  function luminance(hexColor) {
+    const [r, g, b] = [1, 3, 5].map((idx) => parseInt(hexColor.slice(idx, idx + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  function contrastRatio(a, b) {
+    const l1 = luminance(a);
+    const l2 = luminance(b);
+    const [bright, dark] = l1 > l2 ? [l1, l2] : [l2, l1];
+    return (bright + 0.05) / (dark + 0.05);
   }
 
   function setLayout(layout) {
