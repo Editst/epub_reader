@@ -165,7 +165,6 @@ DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
 // 游标扫描，只提取指定字段（不加载 binary data）
 // 用于 LRU 按 timestamp 排序，避免将 EPUB 全量加载入内存
 
-DbGateway.getByFilename(filename: string): Promise<FileRecord | null>
 // by_filename 索引查询（备用路径，主路径用 bookId）
 ```
 
@@ -350,7 +349,7 @@ Annotations.hookRendition(rendition: Rendition): void
 <script src="highlights.js?v=8"></script>
 
 <!-- 主控制器（依赖所有上层模块） -->
-<script src="reader.js?v=8"></script>
+<script src="reader.js（v2.1 入口编排）?v=8"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

@@ -51,10 +51,10 @@ test.describe('v2.0 TDD - Utils 速度模型与ETA', () => {
 });
 
 test.describe('v2.0 TDD - 代码契约检查', () => {
-  test.it('reader.js 使用 idle 调度 locations 生成并包含进度文案', () => {
-    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+  test.it('reader-runtime.js 使用 idle 调度 locations 生成并包含进度文案', () => {
+    const js = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
     assert.ok(js.includes('scheduleLocationsGeneration'));
-    assert.ok(js.includes("requestIdleCallback") || js.includes('setTimeout'));
+    assert.ok(js.includes('requestIdleCallback') || js.includes('setTimeout'));
     assert.ok(js.includes('生成阅读定位索引'));
   });
 
@@ -64,8 +64,8 @@ test.describe('v2.0 TDD - 代码契约检查', () => {
     assert.ok(js.includes('streamRenderBookCard'));
   });
 
-  test.it('manifest 版本升级到 2.0.0', () => {
+  test.it('manifest 版本升级到 2.1.0', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.equal(manifest.version, '2.0.0');
+    assert.equal(manifest.version, '2.1.0');
   });
 });
