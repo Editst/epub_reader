@@ -43,8 +43,6 @@ const DbGateway = {
 
         if (!db.objectStoreNames.contains('files')) {
           const s = db.createObjectStore('files', { keyPath: 'bookId' });
-          // Non-unique index for getByFilename() fallback lookup
-          s.createIndex('by_filename', 'filename', { unique: false });
         }
         if (!db.objectStoreNames.contains('covers'))
           db.createObjectStore('covers',    { keyPath: 'bookId' });
@@ -85,23 +83,7 @@ const DbGateway = {
     });
   },
 
-  /**
-   * Lookup a record in 'files' by filename via the by_filename index.
-   * Prefer get('files', bookId) wherever possible; use this only when
-   * the bookId is not yet known (e.g. loadFileByBookId fallback path).
-   */
-  async getByFilename(filename) {
-    const db = await this.connect();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains('files')) return resolve(null);
-      const tx    = db.transaction('files', 'readonly');
-      const req   = tx.objectStore('files').index('by_filename').get(filename);
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror   = () => reject(req.error);
-    });
-  },
-
-  async put(storeName, data) {
+    async put(storeName, data) {
     const db = await this.connect();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(storeName)) {

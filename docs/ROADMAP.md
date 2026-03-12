@@ -53,10 +53,10 @@
 
 **目标**：打破 `reader.js` 单文件高耦合，建立分层模块边界，为后续功能演进奠定架构基础。
 
-- [ ] R-1：拆分 `reader.js` → `reader-runtime.js` + `reader-state.js` + `reader-persistence.js` + `reader-ui.js`（`reader.js` 降至 < 120 行入口编排）。
-- [ ] R-2：子模块建立统一 `mount(context)` / `unmount()` 生命周期接口，替代散乱的 `setBook/hookRendition` 调用序列。
-- [ ] R-3：消除全局变量跨模块写入，改为 `context` 显式传参。
-- [ ] 清理：删除 `DbGateway.getByFilename()` 死代码（D-2026-06）。
+- [x] R-1：拆分 `reader.js` → `reader-runtime.js` + `reader-state.js` + `reader-persistence.js` + `reader-ui.js`（`reader.js` 降至 < 120 行入口编排）。
+- [x] R-2：子模块建立统一 `mount(context)` / `unmount()` 生命周期接口，替代散乱的 `setBook/hookRendition` 调用序列。
+- [x] R-3：消除全局变量跨模块写入，改为 `context` 显式传参。
+- [x] 清理：删除 `DbGateway.getByFilename()` 死代码（D-2026-06）。
 
 **验收标准**：
 - `reader.js` 行数 < 120，各新文件 < 250 行。

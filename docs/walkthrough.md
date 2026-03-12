@@ -165,3 +165,18 @@
 - **基础设施**：集成 Epub.js 核心引擎，支持流式/分页布局切换。
 - **存储方案**：确立 `storage.local` (配置) + `IndexedDB` (大容量文件) 的混合架构。
 - **基础套件**：实现 TOC 提取、全文搜索排队器、主题切换系统。
+
+## [v2.1.0] - Reader 内核解耦版本 (Reader Core Decoupling)
+**核心目标**：完成 roadmap v2.1.0 的 R-1/R-2/R-3，建立 reader 分层边界。
+
+### 交付内容
+- 新增 `src/reader/reader-state.js`：统一 Reader 状态源。
+- 新增 `src/reader/reader-runtime.js`：epub.js 生命周期与 locations idle 调度。
+- 新增 `src/reader/reader-persistence.js`：位置与阅读时长持久化策略。
+- 新增 `src/reader/reader-ui.js`：DOM 与交互绑定。
+- `src/reader/reader.js` 降级为入口 orchestrator。
+- 删除 `DbGateway.getByFilename()` 死代码。
+
+### 测试
+- 新增 `test/suites/v2_1_tdd.test.js`。
+- 运行 `node --test test/suites/*.test.js` 与 `node test/run_tests.js`。

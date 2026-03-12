@@ -56,11 +56,11 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(js.includes('_getAll'));
   });
 
-  test.it('F-4a: reader.js 所有 style.display 已迁移为 class 切换', () => {
+  test.it('F-4a: reader.js 已降级为编排入口，不再承载 UI 显隐细节', () => {
     const js = fs.readFileSync('src/reader/reader.js', 'utf8');
     assert.ok(!js.includes('style.display'));
-    assert.ok(js.includes("classList.add('is-hidden')") || js.includes("classList.toggle('is-hidden'"));
-    assert.ok(js.includes("classList.add('is-visible')"));
+    assert.ok(js.includes('ReaderRuntime.createReaderRuntime'));
+    assert.ok(js.includes('ReaderUi.createReaderUi'));
   });
 
   test.it('F-4b: reader.html 关键元素无内联 style="display:none"', () => {
@@ -81,9 +81,9 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 
-  test.it('manifest version 为 2.0.0', () => {
+  test.it('manifest version 为 2.1.0', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.strictEqual(manifest.version, '2.0.0');
+    assert.strictEqual(manifest.version, '2.1.0');
   });
 
   test.it('全项目 style.* 写入约束（含豁免清单）', () => {

@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.1.0-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -23,6 +23,7 @@
   - v1.8 收尾：Popup 样式外联为 `src/popup/popup.css`，并补全 `custom` 主题变量与 `color-scheme` 页面声明。
   - v1.9.2：完成 storage 错误上抛、bookMeta 并发写串行化、标注聚合覆盖补全，并推进 home/popup/image-viewer 的样式 class 化收敛。
   - v2.0.0：ETA 升级为会话加权模型，locations 生成改为 idle 调度并提供进度提示，书架支持骨架屏+流式渲染。
+  - v2.1.0：Reader 内核完成四层解耦（state/runtime/persistence/ui）并落地统一 mount/unmount 生命周期。
   - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固，再无由于重绘导致的 0% 进度闪断。
 
 - **🔍 智能检索与注释 (Search & Footnotes)**
