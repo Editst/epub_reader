@@ -1,41 +1,42 @@
 /**
- * EPUB Reader v2.1.0 入口编排层
- * 说明：locations 生成策略由 runtime.scheduleLocationsGeneration 实现（requestIdleCallback）。
- * 文案保留：正在生成阅读定位索引...
+ * reader.js — EPUB Reader v2.1 入口编排层
+ *
+ * 职责：仅负责按序初始化四个子模块，串联生命周期，处理 URL 参数启动。
+ * 业务逻辑一律委托给各子层：
+ *   - ReaderState     : 状态字段声明与重置
+ *   - ReaderUi        : DOM 渲染与交互绑定
+ *   - ReaderPersistence: 位置/时间/速度持久化
+ *   - ReaderRuntime   : epub.js 生命周期与阅读行为
+ *
+ * v2.0 P-2：locations 生成由 runtime.scheduleLocationsGeneration 以 requestIdleCallback 调度。
  */
 (function () {
   'use strict';
 
+  /**
+   * 创建子模块统一生命周期代理。
+   * mount/unmount 遍历所有子模块，调用其 mount?.(context) / unmount?.()。
+   *
+   * @returns {{ mount: Function, unmount: Function }}
+   */
   function createModuleLifecycle() {
     const modules = [ImageViewer, Annotations, TOC, Search, Bookmarks, Highlights];
     return {
-      mount(context) { modules.forEach((m) => m.mount?.(context)); },
-      unmount() { modules.forEach((m) => m.unmount?.()); }
+      mount(context) {
+        modules.forEach((m) => {
+          if (typeof m.mount === 'function') m.mount(context);
+        });
+      },
+      unmount() {
+        modules.forEach((m) => {
+          if (typeof m.unmount === 'function') m.unmount();
+        });
+      }
     };
   }
 
-
-  // 保留主题回归契约（实际渲染已迁移到 reader-ui.js）。
-  function normalizeHexColor(v) { return v; }
-  function contrastRatio() { return 3; }
-  function ensureReadableTheme(activeTheme) {
-    const safeTheme = activeTheme || { bg: '#ffffff' };
-    const cssSample = `background-color: ${activeTheme?.bg || safeTheme.bg} !important;`; // background-color: ${activeTheme.bg} !important;
-    return { safeTheme, cssSample, normalizeHexColor, contrastRatio };
-  }
-
-  async function loadPreferencesIntoState(state) {
-    try {
-      const prefs = await EpubStorage.getPreferences();
-      if (prefs && typeof prefs === 'object') {
-        state.prefs = { ...state.prefs, ...prefs };
-      }
-    } catch (error) {
-      console.warn('[Reader] load preferences failed:', error);
-    }
-  }
-
   async function bootstrap() {
+    // ── 子模块 init（各模块注册内部状态） ──────────────────────────────────────
     ImageViewer.init();
     Annotations.init();
     TOC.init();
@@ -43,40 +44,50 @@
     Bookmarks.init();
     Highlights.init();
 
+    // ── 状态实例化 ────────────────────────────────────────────────────────────
     const state = ReaderState.createReaderState();
-    await loadPreferencesIntoState(state);
 
-    const ui = ReaderUi.createReaderUi({ state });
+    // ── 加载偏好到 state.prefs ────────────────────────────────────────────────
+    try {
+      const prefs = await EpubStorage.getPreferences();
+      if (prefs && typeof prefs === 'object') {
+        state.prefs = { ...state.prefs, ...prefs };
+      }
+    } catch (e) {
+      console.warn('[Reader] load preferences failed:', e);
+    }
+
+    // ── 子层实例化（依赖注入，state 作为唯一数据总线） ─────────────────────────
+    const ui          = ReaderUi.createReaderUi({ state });
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
-    const runtime = ReaderRuntime.createReaderRuntime({
+    const runtime     = ReaderRuntime.createReaderRuntime({
       state,
       ui,
       persistence,
       moduleLifecycle: createModuleLifecycle()
     });
 
-    await ui.bindRuntime(runtime);
-    ui.mount({ state });
-    persistence.mount({ state });
-    runtime.mount({ state });
+    // ── 绑定 runtime（注册所有 DOM 事件监听） ─────────────────────────────────
+    await ui.bindRuntime(runtime, persistence);
 
-    const params = new URLSearchParams(window.location.search);
+    // ── 各层 mount ────────────────────────────────────────────────────────────
+    ui.mount();
+    persistence.mount();
+    await runtime.mount();
+
+    // ── URL 参数启动：bookId → 直接从缓存打开 ────────────────────────────────
+    const params      = new URLSearchParams(window.location.search);
     const bookIdParam = params.get('bookId');
-    const targetCfi = params.get('target');
-    if (!bookIdParam) return;
+    const targetCfi   = params.get('target');
 
-    try {
+    if (bookIdParam) {
       await runtime.loadFileByBookId(bookIdParam, { targetCfi });
-    } catch (error) {
-      console.error('[Reader] loadFileByBookId failed:', error);
-      ui.showLoading(false);
-      alert(error?.message || '读取缓存书籍失败，请重新导入。');
     }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    bootstrap().catch((error) => {
-      console.error('[Reader] bootstrap failed:', error);
+    bootstrap().catch((err) => {
+      console.error('[Reader] bootstrap failed:', err);
     });
   });
 })();
