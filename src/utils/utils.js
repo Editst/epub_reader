@@ -71,5 +71,61 @@ const Utils = {
     const h = Math.floor(m / 60);
     const rem = m % 60;
     return rem > 0 ? `${h}小时${rem}分钟` : `${h}小时`;
+  },
+
+  /**
+   * 计算会话样本权重，用于区分连续阅读与跳读样本。
+   *
+   * @param {number} deltaProgress  会话进度增量（0-1）
+   * @param {number} deltaSeconds   会话耗时（秒）
+   * @returns {number} 0.2 / 0.6 / 1
+   */
+  computeSessionWeight(deltaProgress, deltaSeconds) {
+    if (!Number.isFinite(deltaProgress) || !Number.isFinite(deltaSeconds)) return 0.2;
+    if (deltaProgress >= 0.2 || deltaSeconds < 20) return 0.2;
+    if (deltaProgress >= 0.08 || deltaSeconds < 45) return 0.6;
+    return 1;
+  },
+
+  /**
+   * 统一 ETA 估算逻辑。
+   * 返回 { minutes, isEstimating, source }
+   */
+  estimateRemainingMinutes({ remainingProgress, cachedSpeed, session, fallbackMinutes }) {
+    if (!Number.isFinite(remainingProgress) || remainingProgress <= 0) {
+      return { minutes: 0, isEstimating: false, source: 'done' };
+    }
+
+    if (cachedSpeed && cachedSpeed.sampledProgress > 0.01 && cachedSpeed.sampledSeconds > 120) {
+      const secsPerUnit = cachedSpeed.sampledSeconds / cachedSpeed.sampledProgress;
+      return {
+        minutes: Math.max(0, Math.round((secsPerUnit * remainingProgress) / 60)),
+        isEstimating: false,
+        source: 'history'
+      };
+    }
+
+    if (session && Number.isFinite(session.startProgress) && Number.isFinite(session.lastProgress)) {
+      const sessionDeltaProgress = session.lastProgress - session.startProgress;
+      const sessionDeltaSeconds = Number(session.deltaSeconds) || 0;
+      if (sessionDeltaProgress > 0.003 && sessionDeltaSeconds > 30) {
+        const secsPerUnit = sessionDeltaSeconds / sessionDeltaProgress;
+        return {
+          minutes: Math.max(0, Math.round((secsPerUnit * remainingProgress) / 60)),
+          isEstimating: false,
+          source: 'session'
+        };
+      }
+    }
+
+    if (Number.isFinite(fallbackMinutes)) {
+      return {
+        minutes: Math.max(0, Math.round(fallbackMinutes * remainingProgress)),
+        isEstimating: true,
+        source: 'fallback'
+      };
+    }
+
+    return { minutes: null, isEstimating: true, source: 'insufficient' };
   }
 };

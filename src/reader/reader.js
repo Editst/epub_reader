@@ -53,6 +53,7 @@
   // --- DOM Elements ---
   const welcomeScreen   = document.getElementById('welcome-screen');
   const loadingOverlay  = document.getElementById('loading-overlay');
+  const loadingText     = document.querySelector('#loading-overlay .loading-text');
   const readerMain      = document.getElementById('reader-main');
   const bottomBar       = document.getElementById('bottom-bar');
   const toolbar         = document.getElementById('toolbar');
@@ -602,7 +603,10 @@
         onLocationChanged(loc);
       }
     } else {
-      book.locations.generate(1600).then(async () => {
+      showLoading(true, '准备定位索引...');
+      scheduleLocationsGeneration(async () => {
+        showLoading(true, '生成阅读定位索引...');
+        await book.locations.generate(1600);
         const locsJSON = book.locations.save();
         await EpubStorage.saveLocations(currentBookId, locsJSON);
         const loc = rendition.currentLocation();
@@ -611,6 +615,7 @@
           initSpeedTracking(p);
           onLocationChanged(loc);
         }
+        showLoading(false, '定位索引就绪');
       });
     }
   }
@@ -679,9 +684,10 @@
       try {
         // v1.8.0: 直接累加内存缓存，不从 storage 读取
         if (!_cachedSpeed) _cachedSpeed = { sampledSeconds: 0, sampledProgress: 0 };
+        const sessionWeight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
         _cachedSpeed = {
-          sampledSeconds:  _cachedSpeed.sampledSeconds  + deltaSeconds,
-          sampledProgress: _cachedSpeed.sampledProgress + deltaProgress
+          sampledSeconds:  _cachedSpeed.sampledSeconds  + (deltaSeconds * sessionWeight),
+          sampledProgress: _cachedSpeed.sampledProgress + (deltaProgress * sessionWeight)
         };
         await EpubStorage.saveReadingSpeed(currentBookId, _cachedSpeed);
       } catch (e) {
@@ -790,35 +796,25 @@
 
       if (progress >= 0 && progress <= 1) {
         const remainingProgress = 1 - progress;
-        let remainingMinutes = null;
+        const totalLocations  = book.locations.length();
+        const charsTotal      = totalLocations * 150;
+        const estTotalMinutes = charsTotal / 400;
+        const eta = Utils.estimateRemainingMinutes({
+          remainingProgress,
+          cachedSpeed: _cachedSpeed,
+          session: _sessionStart ? {
+            startProgress: _sessionStart.progress,
+            lastProgress: _lastProgress,
+            deltaSeconds: (Date.now() - _sessionStart.timestamp) / 1000
+          } : null,
+          fallbackMinutes: estTotalMinutes
+        });
 
-        // 优先：历史累积速度
-        if (_cachedSpeed &&
-            _cachedSpeed.sampledProgress > 0.01 &&
-            _cachedSpeed.sampledSeconds > 120) {
-          const secsPerUnit = _cachedSpeed.sampledSeconds / _cachedSpeed.sampledProgress;
-          remainingMinutes = Math.round(secsPerUnit * remainingProgress / 60);
+        if (eta.minutes === null || eta.isEstimating) {
+          remainingStr = '估算中';
+        } else {
+          remainingStr = Utils.formatMinutes(Math.max(0, eta.minutes));
         }
-
-        // 次选：当前 session 实时速度（v1.8.0: 阈值降至 30s + 0.3%）
-        if (remainingMinutes === null && _sessionStart) {
-          const sessionDeltaProgress = _lastProgress - _sessionStart.progress;
-          const sessionDeltaSeconds  = (Date.now() - _sessionStart.timestamp) / 1000;
-          if (sessionDeltaProgress > 0.003 && sessionDeltaSeconds > 30) {
-            const secsPerUnit = sessionDeltaSeconds / sessionDeltaProgress;
-            remainingMinutes = Math.round(secsPerUnit * remainingProgress / 60);
-          }
-        }
-
-        // Fallback：静态估算（每 location ≈ 150 字，400 字/分钟）
-        if (remainingMinutes === null) {
-          const totalLocations  = book.locations.length();
-          const charsTotal      = totalLocations * 150;
-          const estTotalMinutes = charsTotal / 400;
-          remainingMinutes = Math.max(0, Math.round(estTotalMinutes * remainingProgress));
-        }
-
-        remainingStr = Utils.formatMinutes(Math.max(0, remainingMinutes));
       }
     }
 
@@ -1001,8 +997,22 @@
   function applyLineHeight(val) { currentPrefs.lineHeight = val;  updateCustomStyles(); }
   function applyFontFamily(fam) { currentPrefs.fontFamily = fam;  updateCustomStyles(); }
 
-  function showLoading(show) {
+  function showLoading(show, message = '') {
     loadingOverlay.classList.toggle('is-hidden', !show);
+    if (show && message && loadingText) loadingText.textContent = message;
+  }
+
+  function scheduleLocationsGeneration(task) {
+    const run = () => Promise.resolve().then(task).catch((e) => {
+      console.warn('[Locations] generate failed:', e);
+      showLoading(false);
+    });
+
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => run(), { timeout: 1500 });
+      return;
+    }
+    setTimeout(() => run(), 0);
   }
 
 })();

@@ -1,5 +1,22 @@
 # 更新日志 (Changelog)
 
+## [2.0.0] - 数据与性能治理
+
+### 🚀 新增与优化
+- **[P-1] ETA 模型升级**：基于会话权重识别连续阅读/跳读样本，低样本场景显示“估算中”。
+- **[P-2] locations 生成调度**：`reader.js` 增加 `scheduleLocationsGeneration`，优先使用 `requestIdleCallback`，并提供阶段性进度提示。
+- **[P-3] 书架流式渲染**：`home.js` 支持骨架屏占位与每书就绪即渲染，降低首屏等待体感。
+
+### 🧪 测试
+- 新增 `test/suites/v2_0_tdd.test.js`，覆盖 Utils 新算法、reader/home 契约与 manifest 版本。
+
+### 📝 文档与版本
+- `manifest.json` 版本升级为 `2.0.0`。
+- 新增 `docs/v2.0.0-development-plan.md`（TDD 开发计划文档）。
+- `README.md`、`docs/ROADMAP.md`、`docs/walkthrough.md`、`docs/architecture.md`、`docs/modules.md` 同步更新到 v2.0.0 语义。
+
+---
+
 ## [1.9.3] - Bug 修复
 
 ### 🐛 关键 Bug 修复
