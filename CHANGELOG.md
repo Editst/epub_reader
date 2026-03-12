@@ -1,3 +1,54 @@
+# 更新日志 (Changelog)
+
+## [1.9.3] - Bug 修复
+
+### 🐛 关键 Bug 修复
+
+- **[BUG-A] 注释弹窗启动时空白显示且无法关闭**
+  - 根本原因：`reader.css` 中 `.annotation-popup` 块级规则（`display: flex`）
+    出现在第 670 行的 `.annotation-popup { display: none }` **之后**，
+    导致后者被层叠覆盖，弹窗在页面加载时即处于可见状态，无法通过关闭按钮隐藏。
+  - 修复：从 `.annotation-popup` 默认规则块中移除 `display` 属性，
+    `display: flex` 仅由 `.annotation-popup.is-visible` 规则负责设置，
+    保持与 `.annotation-overlay` 的一致性。
+
+- **[BUG-B] Popup 页面点击「打开文件」无任何反应（跨版本反复调试终定根因）**
+  - **诊断线索**：打开 Chrome DevTools 后点击恢复正常，关闭后再次失效。
+    这是 Chrome 在扩展 popup 中对非用户手势操作施加额外限制、DevTools 会放宽这些限制的典型表现。
+  - **根本原因（双重）**：
+    1. v1.9.2 将 `popup.html` 内联 `<style>` 改为外部 `popup.css` 并加入
+       `<link rel="preconnect">` 外部字体标签。`preconnect` 受 `connect-src` 约束，
+       manifest CSP 未配置 `connect-src`，请求被阻断，干扰 popup 页面加载流程。
+    2. **更直接的根因**：`#file-input` 的隐藏从内联 `<style>`（随 HTML 同步解析，
+       始终生效）移入外部 CSS 文件（异步加载）。Chrome 扩展 popup 环境下
+       **禁止对 `display:none` 元素调用 `.click()`**，DevTools 打开时该限制被放宽——
+       这正是"开 DevTools 就能用"的直接原因。
+  - **修复**：
+    1. `popup.html` 恢复内联 `<style>` 结构（对齐 v1.8.0 能用版本），
+       消除外部 CSS 加载时序与 CSP preconnect 干扰。
+    2. `#file-input` 从 `display:none` 改为
+       `position:absolute; width:0; height:0; opacity:0; pointer-events:none`，
+       元素真实存在于布局树，`.click()` 不再被 Chrome 拦截，但用户完全不可见。
+    3. `popup.js` `loadRecentBooks()` 加 `try/catch` 顶层保护；
+       `getCover/getBookMeta` 逐项加 `.catch(() => null)` 容错；
+       `emptyState` 控制还原为 `style.display` 直写，不依赖外部 CSS。
+  - **教训**：`display:none` ≠ "不可见的隐藏"。对于需要程序触发 `.click()` 的
+    `<input type="file">`，必须用零尺寸+透明的物理隐藏，而非逻辑隐藏。
+
+- **[BUG-C] `showLoadError()` 错误页面黑屏**
+  - 根本原因：v1.9.2 将 `reader-main` 的显示控制从 `style.display` 迁移为
+    `classList`，但 `showLoadError` 里只调用了 `classList.remove('is-hidden')`，
+    而 `reader-main` 实际由 `is-visible` 控制，`remove('is-hidden')` 对
+    `display:none` 元素无效，导致加载失败时出现黑屏。
+  - 修复：同时追加 `classList.add('is-visible')`。
+
+### 📝 文档与版本
+- `manifest.json` 版本号升级为 `1.9.3`。
+- `CHANGELOG.md`、`docs/architecture.md`、`docs/comprehensive_repost.md`、
+  `test/suites/` 全量更新至 v1.9.3。
+
+---
+
 ## [1.9.2] - 稳定性收尾与文档统一
 
 ### ✅ 核心修复
@@ -23,8 +74,6 @@
 - `test/suites/release_checks.test.js` 新增 v1.9.2 收尾完成验证组（F-1/F-2/F-3/F-4 静态断言）。
 
 ---
-
-# 更新日志 (Changelog)
 
 ## [1.9.0] - 2026-03-11
 

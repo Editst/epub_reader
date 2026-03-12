@@ -44,9 +44,15 @@ test.describe('v1.9 CSP 收敛', () => {
     assert.ok(!js.includes('style.cursor'));
   });
 
-  test.it('C-10: popup.js 无 style.* 运行时直写', () => {
+  test.it('C-10: popup.js 中 emptyState 使用 style.display 直写（不依赖外部CSS）', () => {
+    // popup 环境的特殊性：file-input 必须用物理隐藏而非 display:none，
+    // emptyState 不依赖外部 CSS 的 .is-hidden 规则，直接用 style.display 最可靠
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    assert.ok(!js.includes('style.display'));
+    assert.ok(js.includes("style.display = 'block'") || js.includes('style.display = "block"'));
+    assert.ok(js.includes("style.display = 'none'") || js.includes('style.display = "none"'));
+    // 不应使用 classList.add/remove('is-hidden') 来控制 emptyState（依赖外部CSS）
+    assert.ok(!js.includes("classList.add('is-hidden')"));
+    assert.ok(!js.includes("classList.remove('is-hidden')"));
   });
 
   test.it('C-11: reader.css 提供 is-hidden/is-visible JS 控制 class（替代 style.display）', () => {
@@ -89,4 +95,81 @@ test.describe('reader 主题背景回归', () => {
     assert.ok(js.includes('background-color: ${activeTheme.bg} !important;'));
     assert.ok(!js.includes("currentPrefs.theme === 'custom' && currentPrefs.customBg ? currentPrefs.customBg : 'transparent'"));
   });
+});
+
+test.describe('v1.9.3 popup file-input 物理隐藏回归（BUG-B 专项）', () => {
+  test.it('P-1: popup.html 使用内联 <style>，不依赖外部 CSS 文件', () => {
+    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
+    assert.ok(html.includes('<style>'), 'popup.html 应包含内联 <style> 标签');
+    assert.ok(!html.includes('<link rel="stylesheet" href="popup.css">'),
+      'popup.html 不应引用外部 popup.css（会引入加载时序与CSP问题）');
+  });
+
+  test.it('P-2: #file-input 使用物理隐藏而非 display:none', () => {
+    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
+    // 不允许 display:none 隐藏 file-input（Chrome popup 禁止对 display:none 元素 .click()）
+    assert.ok(!html.match(/#file-input\s*\{[^}]*display\s*:\s*none/),
+      '#file-input 不得使用 display:none（会导致 .click() 被 Chrome 拦截）');
+    // 应使用物理隐藏：opacity:0 或 width:0/height:0
+    assert.ok(html.match(/#file-input\s*\{[^}]*(opacity|width\s*:\s*0|height\s*:\s*0)/),
+      '#file-input 应使用零尺寸/透明物理隐藏');
+  });
+
+  test.it('P-3: popup.html 无外部 preconnect/prefetch 标签（CSP connect-src 未配置）', () => {
+    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
+    assert.ok(!html.includes('rel="preconnect"'),
+      'popup.html 不应有 preconnect（manifest 未配置 connect-src，会被CSP阻断）');
+    assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
+  });
+
+  test.it('P-4: popup.js openBtn click handler 为同步函数（不含 showOpenFilePicker 调用）', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    // 只检查非注释行（注释中可保留说明文字）
+    const codeLines = js.split('\n').filter(l => !l.trim().startsWith('*') && !l.trim().startsWith('//'));
+    const code = codeLines.join('\n');
+    assert.ok(!code.includes('showOpenFilePicker'),
+      'popup.js 代码逻辑中不应调用 showOpenFilePicker');
+    assert.ok(code.includes('fileInput.click()'), 'openBtn 应直接调用 fileInput.click()');
+  });
+
+  test.it('P-5: popup.js loadRecentBooks 有顶层 try/catch 保护', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    // try { 后紧跟 await loadRecentBooks()，中间只有空白（注释中的出现会在注释结束后）
+    assert.ok(
+      js.includes('try {\n    await loadRecentBooks()'),
+      'try 块应直接包裹 await loadRecentBooks()'
+    );
+    assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应有降级处理');
+  });
+
+  test.it('P-6: manifest CSP 已配置 style-src 允许 fonts.googleapis.com', () => {
+    const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
+    const csp = manifest.content_security_policy?.extension_pages || '';
+    assert.ok(csp.includes('fonts.googleapis.com'), 'style-src 应包含 fonts.googleapis.com');
+    // connect-src 未配置时 preconnect 会被阻断，记录这个约束
+    assert.ok(!csp.includes('connect-src'),
+      'manifest 当前未配置 connect-src（因此 popup.html 不得使用 preconnect）');
+  });
+});
+
+test.describe('全入口 file-input 物理隐藏一致性（BUG-B 同类扩展）', () => {
+  const entries = [
+    'src/popup/popup.html',
+    'src/reader/reader.html',
+    'src/home/home.html',
+  ];
+
+  for (const f of entries) {
+    test.it(`${f}: #file-input 不使用 display:none 隐藏`, () => {
+      const html = fs.readFileSync(f, 'utf8');
+      // 确认没有任何形式的 display:none 作用于 file-input
+      // 包括内联style、is-hidden class（该class定义了display:none）
+      const fileInputLine = html.split('\n').find(l => l.includes('file-input'));
+      assert.ok(fileInputLine, `${f} 应包含 file-input 元素`);
+      assert.ok(!fileInputLine.includes('display:none') && !fileInputLine.includes('display: none'),
+        `${f} #file-input 不得使用 display:none（用物理隐藏替代）`);
+      assert.ok(!fileInputLine.includes('class="is-hidden"') && !fileInputLine.includes("class='is-hidden'"),
+        `${f} #file-input 不得使用 is-hidden class（该class实现为display:none）`);
+    });
+  }
 });

@@ -1,6 +1,6 @@
 # EPUB Reader — 系统架构文档
 
-版本：v1.9.2（对齐 comprehensive_repost）  
+版本：v1.9.3  
 更新：2026-03-11
 
 ---
@@ -381,9 +381,19 @@ Annotations.hookRendition(rendition): void
 
 ---
 
-### 4.12 popup/popup.js — 快捷入口弹窗
+### 4.12 popup/popup.html + popup/popup.js — 快捷入口弹窗
 
-**特性**：显示最近 5 本书，v1.8.0 引入 `showOpenFilePicker` 提升文件打开稳定性，封面加载同样采用并行化处理。
+**特性**：显示最近 5 本书，封面加载采用并行化处理（v1.8.0）。
+
+**v1.9.3 关键约束（BUG-B 教训）**：
+
+| 约束 | 原因 |
+|------|------|
+| `popup.html` 必须使用内联 `<style>`，不引用外部 CSS | 外部 CSS 异步加载，时序不可控；`display:none` 未及时生效会导致 `.click()` 被 Chrome 拦截 |
+| `#file-input` 必须用物理隐藏（`width:0; height:0; opacity:0`），不用 `display:none` | Chrome 扩展 popup 禁止对 `display:none` 元素调用 `.click()`，DevTools 打开时限制放宽（此为 BUG-B 决定性诊断线索） |
+| `popup.html` 不得包含 `<link rel="preconnect">` | manifest CSP 未配置 `connect-src`，preconnect 请求会被阻断并干扰页面加载 |
+| 不使用 `showOpenFilePicker` | 需要 transient user activation，在 `async DOMContentLoaded` 回调中调用不可靠 |
+| `emptyState` 显隐用 `style.display` 直写 | 不依赖任何外部 CSS 规则，在 popup 受限环境中最可靠 |
 
 ---
 
@@ -420,7 +430,29 @@ Annotations.hookRendition(rendition): void
 
 ## 8. 已知技术债务
 
-### 8.0 v1.9.2 审计结论：1.x 正式封版
+### 8.0 v1.9.3 核心教训：Chrome Extension popup 的 `display:none` 限制
+
+**BUG-B 完整调试路径与根因**：
+
+这个 bug 经历了 5 轮修复尝试，每次都找到了"看似合理"的原因，但问题始终存在，
+直到注意到"DevTools 打开时能用"这个决定性线索。
+
+**调试时序**：
+
+1. **v1.9.2 初始改动**：将 popup 样式从内联 `<style>` 分离为外部 `popup.css` + `@import` 字体
+2. **第一轮猜测**：`@import` 阻塞 CSS 加载 → 将字体改为 `<link>` 外部引入（错误：不是根因）
+3. **第二轮猜测**：`loadRecentBooks()` 缺少 `try/catch` 导致回调中断 → 加了保护（部分有效，非根因）
+4. **第三轮猜测**：`emptyState` 用 `classList` 而非 `style.display` 控制 → 还原直写（正确但不够）
+5. **第四轮猜测**：`<link rel="preconnect">` 被 CSP 阻断 → 恢复内联 `<style>`（正确但不够）
+6. **决定性线索**：用户发现"开 DevTools 就能用" → 指向 Chrome 安全限制
+7. **根因确认**：`display:none` 元素无法被程序 `.click()`，DevTools 放宽了这个限制
+
+**核心规则**：在 Chrome Extension popup 中，任何需要通过 JS 的 `.click()` 触发的
+`<input type="file">`，必须使用物理隐藏（零尺寸+透明），而非逻辑隐藏（`display:none`）。
+
+---
+
+### 8.1 v1.9.2 审计结论：1.x 正式封版（原 8.0）
 
 经 v1.9.2 最终收尾，P1/P2 问题全部清零：
 

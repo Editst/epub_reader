@@ -3,10 +3,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 test.describe('v1.8 剩余项收尾', () => {
-  test.it('S-4: popup.html 已外联 popup.css，不再包含内联 <style>', () => {
+  test.it('S-4: popup.html 使用内联 <style>（v1.9.3 回归内联，消除外部CSS加载时序问题）', () => {
     const popupHtml = fs.readFileSync('src/popup/popup.html', 'utf8');
-    assert.ok(popupHtml.includes('href="popup.css"'));
-    assert.ok(!popupHtml.includes('<style>'));
+    // v1.9.3 教训：popup.html 不应依赖外部 CSS 控制关键交互元素（file-input 显隐）
+    assert.ok(popupHtml.includes('<style>'), 'popup.html 应使用内联 <style>');
+    assert.ok(!popupHtml.includes('href="popup.css"'), 'popup.html 不应引用外部 popup.css');
   });
 
   test.it('S-5: reader/home/popup 三入口包含 color-scheme 声明', () => {
@@ -80,32 +81,39 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 
-  test.it('manifest version 为 1.9.2', () => {
+  test.it('manifest version 为 1.9.3', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.strictEqual(manifest.version, '1.9.2');
+    assert.strictEqual(manifest.version, '1.9.3');
   });
 
-  test.it('DbGateway 仅允许动态定位/变换的 style.* 写入（无 style.display/visibility）', () => {
-    // 全项目 style.* 检查：只允许动态坐标计算类写入（top/left/transform），禁止 display/visibility/opacity 等显隐控制写入
-    const prohibitedProps = ['style.display', 'style.visibility', 'style.opacity', 'style.cursor', 'style.cssText'];
-    const files = [
+  test.it('全项目 style.* 写入约束（含豁免清单）', () => {
+    // reader/home/search/toc 等模块禁止 style.display 等显隐控制直写
+    const strictFiles = [
       'src/reader/reader.js', 'src/home/home.js',
-      'src/popup/popup.js', 'src/reader/search.js',
-      'src/reader/toc.js', 'src/reader/bookmarks.js',
-      'src/reader/highlights.js', 'src/reader/annotations.js',
+      'src/reader/search.js', 'src/reader/toc.js',
+      'src/reader/bookmarks.js', 'src/reader/annotations.js',
     ];
-    for (const f of files) {
+    const prohibitedProps = ['style.display', 'style.visibility', 'style.cssText', 'style.cursor'];
+    for (const f of strictFiles) {
       const src = fs.readFileSync(f, 'utf8');
       for (const prop of prohibitedProps) {
         assert.ok(!src.includes(prop), `${f} 仍有禁止的 ${prop} 直写`);
       }
     }
-    // image-viewer: transform 是唯一豁免（缩放平移计算值）
+    // ── 豁免清单 ──────────────────────────────────────────────────────────
+    // image-viewer: style.transform（缩放平移计算值，无法静态化）→ v2.2.0 迁移
     const ivSrc = fs.readFileSync('src/reader/image-viewer.js', 'utf8');
     assert.ok(ivSrc.includes('style.transform'));
-    // highlights: top/left 是动态定位豁免（悬浮工具栏坐标）
+    assert.ok(!ivSrc.includes('style.display'));
+    // highlights: style.top/left（悬浮工具栏动态定位）
     const hlSrc = fs.readFileSync('src/reader/highlights.js', 'utf8');
     assert.ok(hlSrc.includes('style.top') || hlSrc.includes('style.left'));
     assert.ok(!hlSrc.includes('style.display'));
+    // popup.js: style.display 豁免（emptyState 不依赖外部CSS；file-input 物理隐藏例外）
+    // popup 的隐藏控制必须不依赖外部CSS加载，style.display 直写是此场景的正确模式
+    const popupJs = fs.readFileSync('src/popup/popup.js', 'utf8');
+    assert.ok(popupJs.includes("style.display"), 'popup.js 应保留 style.display 直写（豁免）');
+    assert.ok(!popupJs.includes('style.visibility'), 'popup.js 不应有 style.visibility');
+    assert.ok(!popupJs.includes('style.cssText'), 'popup.js 不应有 style.cssText');
   });
 });

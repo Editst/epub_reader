@@ -15,6 +15,14 @@
  *   [BUG-03-A] resize 改用 loc.start.cfi 作为锚点（原 end.cfi 会在字号变大时导致后退）
  *   [BUG-03-B] 字号/行高/字间距变化引入 _withCfiLock，等待重排完成后恢复位置
  *   [TD-2.5]   消除 window._cachedSpeed 全局变量，改为 IIFE 内模块级 _cachedSpeed
+ *
+ * v1.9.3 变更：
+ *   [BUG-A]    reader.css 中 .annotation-popup 块级规则的 display:flex 层叠覆盖了
+ *              前面的 display:none，导致注释弹窗始终可见。修复：从块中移除 display。
+ *   [BUG-B]    popup.css @import 外部字体阻塞样式表加载，修复见 popup.html/popup.css。
+ *   [BUG-C]    showLoadError() 用 classList.remove('is-hidden') 显示 reader-main，
+ *              但 reader-main 是靠 is-visible 控制的，导致错误页面黑屏。
+ *              修复：同时 add('is-visible')。
  */
 (function () {
   'use strict';
@@ -402,6 +410,7 @@
     wrapper.append(icon, title, detail, btn);
     rm.appendChild(wrapper);
     rm.classList.remove('is-hidden');
+    rm.classList.add('is-visible');
     rm.classList.add('reader-main-error');
   }
 
