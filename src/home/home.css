@@ -632,3 +632,41 @@ body {
 .is-hidden {
   display: none !important;
 }
+
+/* v2.1.0 skeleton streaming */
+.skeleton-card {
+  pointer-events: none;
+}
+
+.skeleton-block,
+.skeleton-line {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, var(--border-color) 25%, var(--hover-bg) 50%, var(--border-color) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-card .book-info {
+  padding: 14px;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  margin-bottom: 10px;
+}
+
+.skeleton-line.skeleton-title {
+  height: 16px;
+  width: 80%;
+}
+
+.skeleton-line.short {
+  width: 45%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

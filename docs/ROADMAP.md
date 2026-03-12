@@ -15,7 +15,7 @@
   - [x] F-5：补充 F-1/F-2/F-3/F-4 专项回归测试（故障注入 + 并发写 + 数据覆盖 + style.* 静态回归）。
   - [x] BUG-B：修复 `display:none` 元素无法被 `.click()` 触发的 Chrome Extension popup 限制，同步修复 `reader.html` 和 `home.html` 的 `#file-input` 元素。
 - **1.x 封版基线**：`style.*` 全量清零（transform 豁免），P1/P2 债务清零，仅 P3 债务纳入 2.x。
-- **下一步**：启动 v2.0.0 内核解耦。
+- **下一步**：启动 v2.1.0 内核解耦。
 
 ---
 
@@ -34,7 +34,22 @@
 
 ---
 
-### v2.0.0 — Reader 内核解耦（计划 7～10 工作日）
+### v2.0.0 — 数据与性能治理 ✅ 完成
+
+**目标**：阅读速度模型精度提升，消除主线程长任务，改善首屏体验。
+
+- [x] P-1：阅读速度/ETA 模型升级（会话加权 + 跳读识别 + 低样本"估算中"提示）。
+- [x] P-2：`locations.generate()` 改为 `requestIdleCallback` 调度包装 + 进度反馈。
+- [x] P-3：书架流式渲染（骨架屏占位 + 每书就绪立即插入），目标首屏骨架 < 100ms。
+
+**验收标准**：
+- ETA 估算在"从中途开书"场景误差 < 20%。
+- 1000 章节书籍 locations 生成期间主线程帧率 > 30fps。
+- 书架首屏时间 < 500ms（20 本书含封面）。
+
+---
+
+### v2.1.0 — Reader 内核解耦（计划 7～10 工作日）
 
 **目标**：打破 `reader.js` 单文件高耦合，建立分层模块边界，为后续功能演进奠定架构基础。
 
@@ -47,21 +62,6 @@
 - `reader.js` 行数 < 120，各新文件 < 250 行。
 - 所有既有测试通过（无回归）。
 - 新增模块加载顺序文档与架构图更新。
-
----
-
-### v2.1.0 — 数据与性能治理（计划 3～4 工作日）
-
-**目标**：阅读速度模型精度提升，消除主线程长任务，改善首屏体验。
-
-- [ ] P-1：阅读速度/ETA 模型升级（会话加权 + 跳读识别 + 低样本"估算中"提示）。
-- [ ] P-2：`locations.generate()` 改为 `requestIdleCallback` 分批调度 + 进度反馈；TOC > 100 项引入虚拟滚动。
-- [ ] P-3：书架流式渲染（骨架屏占位 + 每书就绪立即插入），目标首屏骨架 < 100ms。
-
-**验收标准**：
-- ETA 估算在"从中途开书"场景误差 < 20%。
-- 1000 章节书籍 locations 生成期间主线程帧率 > 30fps。
-- 书架首屏时间 < 500ms（20 本书含封面）。
 
 ---
 
@@ -201,7 +201,7 @@ document.addEventListener('keydown', (e) => {
 
 监听挂在全局 `document` 上，且该监听器永不移除（无对应 `removeEventListener`）。若未来 `Annotations` 需要支持 `unmount()` 清理，将产生监听器泄漏。
 
-**方案**（分两步）：v2.3.0 将箭头函数改为具名方法 `this._onKeyDown`，以便将来可精确移除；v2.0.0 R-2 生命周期接口落地后，在 `unmount()` 中统一 `removeEventListener`。
+**方案**（分两步）：v2.3.0 将箭头函数改为具名方法 `this._onKeyDown`，以便将来可精确移除；v2.1.0 R-2 生命周期接口落地后，在 `unmount()` 中统一 `removeEventListener`。
 
 #### AN-C7：`_loadFromBook` 中 Method 4 暴力扫描无 spine 长度上限保护（D-2026-23）
 
@@ -259,12 +259,12 @@ for (let i = 0; i < this.book.spine.length; i++) {
 | 🟡 P2 | D-2026-03 | `getAllHighlights()` 仅覆盖 recentBooks（上限 20） | v1.9.3 | ✅ 已修复 |
 | 🟡 P2 | D-2026-04 | 运行时 `style.*` 写入分散（home/popup/image-viewer/reader） | v1.9.3 | ✅ 已修复（transform 豁免至 v2.2.0） |
 | 🟡 P2 | BUG-B | `display:none` 元素 `.click()` 失效（Chrome Extension popup 限制） | v1.9.3 | ✅ 已修复 |
-| 🔵 P3 | D-2026-05 | `reader.js` 仍为高耦合核心文件（~1000 行） | v2.0.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-06 | `DbGateway.getByFilename()` 无调用路径 | v2.0.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-05 | `reader.js` 仍为高耦合核心文件（~1000 行） | v2.1.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-06 | `DbGateway.getByFilename()` 无调用路径 | v2.1.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-07 | `image-viewer.js` `style.transform` 残余（动态计算值豁免） | v2.2.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-08 | ARIA 语义缺失（工具栏/面板/书架卡片） | v2.2.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-09 | 阅读速度模型为等权平均，未区分跳读/连续阅读 | v2.1.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-10 | locations 生成阻塞主线程（大型书籍 > 500ms） | v2.1.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-09 | 阅读速度模型为等权平均，未区分跳读/连续阅读 | v2.0.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-10 | locations 生成阻塞主线程（大型书籍 > 500ms） | v2.0.0 | ✅ 已修复 |
 | 🔵 P3 | D-2026-11 | CSS `vertical-align` 替代 `<sup>` 的注释链接漏判（缺 computedStyle 检测） | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-12 | 孤立性链接（父块唯一内容）缺乏专项排他检查，TOC 变体误判风险 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-13 | `_extractContent` 无文本长度安全阀，空锚点可返回超长内容 | v2.3.0 | 📋 已规划 |
@@ -276,6 +276,6 @@ for (let i = 0; i < this.book.spine.length; i++) {
 | 🔵 P3 | D-2026-19 | `showFootnote` last-resort 降级路径含 inline style 字符串，违反 style.* 约束 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 中 100ms 等待为 magic number，无具名常量 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-21 | `showFootnote`/`_loadFromBook`/`_compensatePaginationOffset` href 解析碎片化，edge case 处理不一致 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与 v2.0.0 生命周期接口存在兼容风险 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与 v2.1.0 生命周期接口存在兼容风险 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()`，无 targetId 时仍进入无效迭代 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释，后续维护成本高 | v2.3.0 | 📋 已规划 |

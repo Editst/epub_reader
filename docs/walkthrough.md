@@ -4,6 +4,16 @@
 
 ---
 
+## [v2.0.0] - 数据与性能治理版本 (Data & Performance)
+**核心目标**：完成 roadmap v2.0.0 的 P-1/P-2/P-3，提升 ETA 可信度与首屏交互体验。
+
+- `utils.js`：新增 `computeSessionWeight`、`estimateRemainingMinutes`，引入会话加权与低样本“估算中”策略。
+- `reader.js`：`locations.generate()` 改为 idle 调度包装 `scheduleLocationsGeneration`，并补充“准备/生成/就绪”进度文案。
+- `home.js` + `home.css`：新增书架骨架屏与逐本流式渲染，避免等待全部数据后一次性插入。
+- 测试：新增 `test/suites/v2_0_tdd.test.js` 并对版本升级做静态断言。
+
+---
+
 ## [v1.9.2] - 1.x 收尾稳定性版本 (Stability Wrap-up)
 **核心目标**：完成 storage 错误语义、bookMeta 并发写一致性、高亮聚合覆盖与文档基线统一。
 

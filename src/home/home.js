@@ -106,18 +106,39 @@ document.addEventListener('DOMContentLoaded', async () => {
     shelfEmpty.classList.remove('show');
     btnClearAll.classList.remove('is-hidden');
     booksContainer.innerHTML = '';
+    renderBookshelfSkeleton(Math.min(6, books.length));
 
-    // v1.7.0: 书架并行加载
-    // 每本书的 getCover（IDB）和 getBookMeta（storage）并行，全部书并行
-    const cardDataList = await Promise.all(books.map(async (book) => {
-      const [coverBlob, meta] = await Promise.all([
-        EpubStorage.getCover(book.id),
-        EpubStorage.getBookMeta(book.id)
-      ]);
-      return { book, coverBlob, meta };
-    }));
+    const tasks = books.map((book) => streamRenderBookCard(book));
+    await Promise.all(tasks);
+  }
 
-    for (const { book, coverBlob, meta } of cardDataList) {
+  function renderBookshelfSkeleton(count) {
+    booksContainer.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const skeleton = document.createElement('div');
+      skeleton.className = 'book-card skeleton-card';
+      skeleton.innerHTML = `
+        <div class="book-cover skeleton-block"></div>
+        <div class="book-info">
+          <div class="skeleton-line skeleton-title"></div>
+          <div class="skeleton-line"></div>
+          <div class="skeleton-line short"></div>
+        </div>
+      `;
+      booksContainer.appendChild(skeleton);
+    }
+  }
+
+  async function streamRenderBookCard(book) {
+    const [coverBlob, meta] = await Promise.all([
+      EpubStorage.getCover(book.id),
+      EpubStorage.getBookMeta(book.id)
+    ]);
+
+    const firstSkeleton = booksContainer.querySelector('.skeleton-card');
+    if (firstSkeleton) firstSkeleton.remove();
+
+    {
       const card = document.createElement('div');
       card.className = 'book-card';
 
