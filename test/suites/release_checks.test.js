@@ -81,9 +81,9 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 
-  test.it('manifest version 为 2.1.0', () => {
+  test.it('manifest version 为 2.1.1', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.strictEqual(manifest.version, '2.1.0');
+    assert.strictEqual(manifest.version, '2.1.1');
   });
 
   test.it('全项目 style.* 写入约束（含豁免清单）', () => {

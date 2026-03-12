@@ -60,8 +60,8 @@ test.describe('v2.1 TDD - Reader 内核解耦', () => {
     assert.ok(!src.includes('getByFilename'));
   });
 
-  test.it('manifest 版本升级到 2.1.0', () => {
+  test.it('manifest 版本升级到 2.1.1', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.equal(manifest.version, '2.1.0');
+    assert.equal(manifest.version, '2.1.1');
   });
 });

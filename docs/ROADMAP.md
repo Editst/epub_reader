@@ -1,6 +1,6 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-03-12（v1.9.3 封版，2.x 规划详细化；补充 Annotations 算法深度优化专项 + 代码质量专项）
+> 最后更新：2026-03-12（v2.1.1：2.1 收尾审计与文档对齐）
 
 ---
 
@@ -15,7 +15,7 @@
   - [x] F-5：补充 F-1/F-2/F-3/F-4 专项回归测试（故障注入 + 并发写 + 数据覆盖 + style.* 静态回归）。
   - [x] BUG-B：修复 `display:none` 元素无法被 `.click()` 触发的 Chrome Extension popup 限制，同步修复 `reader.html` 和 `home.html` 的 `#file-input` 元素。
 - **1.x 封版基线**：`style.*` 全量清零（transform 豁免），P1/P2 债务清零，仅 P3 债务纳入 2.x。
-- **下一步**：启动 v2.1.0 内核解耦。
+- **下一步**：启动 v2.2.0 安全与可访问性收口。
 
 ---
 
@@ -250,6 +250,23 @@ for (let i = 0; i < this.book.spine.length; i++) {
 
 ---
 
+
+### v2.1.1 — 2.1 收尾审计与文档对齐 ✅ 完成
+
+**目标**：对照 v2.0/v2.1 规划做源码复核，补齐遗漏并清理文档漂移。
+
+- [x] R-2 收尾：Reader 子模块统一暴露 `mount(context)` / `unmount()`，入口改为直接调用模块生命周期接口（不再使用匿名适配层）。
+- [x] AN-C6 前置治理：`Annotations.init()` Escape 监听改为具名 `_onKeyDown`，并在 `unmount()` 执行 `removeEventListener`，消除后续重复挂载泄漏风险。
+- [x] 文档对齐：`architecture.md` / `modules.md` 升级到 v2.1.1，补充 Reader 分层与模块生命周期现状。
+- [x] 审计登记：确认 v2.0“Speed.sessions 持久化结构”尚未落地，登记为 D-2026-25，纳入 v2.2.0。
+
+**验收标准**：
+- Reader 六个子模块均可被统一生命周期编排。
+- `manifest.version = 2.1.1`。
+- 文档中的模块契约与源码一致。
+
+---
+
 ## 技术债务索引（滚动）
 
 | 优先级 | ID | 描述 | 目标版本 | 状态 |
@@ -258,6 +275,7 @@ for (let i = 0; i < this.book.spine.length; i++) {
 | 🟡 P2 | D-2026-02 | `bookMeta` 并发 RMW 存在丢字段覆盖风险 | v1.9.3 | ✅ 已修复 |
 | 🟡 P2 | D-2026-03 | `getAllHighlights()` 仅覆盖 recentBooks（上限 20） | v1.9.3 | ✅ 已修复 |
 | 🟡 P2 | D-2026-04 | 运行时 `style.*` 写入分散（home/popup/image-viewer/reader） | v1.9.3 | ✅ 已修复（transform 豁免至 v2.2.0） |
+| 🔵 P3 | D-2026-25 | v2.0 规划中的 `speed.sessions/sessionCount` 存储结构未在 `storage.js` 持久化落地（当前仅 Utils 侧存在估算策略） | v2.2.0 | 🆕 新增 |
 | 🟡 P2 | BUG-B | `display:none` 元素 `.click()` 失效（Chrome Extension popup 限制） | v1.9.3 | ✅ 已修复 |
 | 🔵 P3 | D-2026-05 | `reader.js` 仍为高耦合核心文件（~1000 行） | v2.1.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-06 | `DbGateway.getByFilename()` 无调用路径 | v2.1.0 | 📋 已规划 |
@@ -276,6 +294,6 @@ for (let i = 0; i < this.book.spine.length; i++) {
 | 🔵 P3 | D-2026-19 | `showFootnote` last-resort 降级路径含 inline style 字符串，违反 style.* 约束 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 中 100ms 等待为 magic number，无具名常量 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-21 | `showFootnote`/`_loadFromBook`/`_compensatePaginationOffset` href 解析碎片化，edge case 处理不一致 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与 v2.1.0 生命周期接口存在兼容风险 | v2.3.0 | 📋 已规划 |
+| ✅ P4 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与生命周期接口存在兼容风险 | v2.1.1 | ✅ 已修复（具名监听 + unmount 移除） |
 | 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()`，无 targetId 时仍进入无效迭代 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释，后续维护成本高 | v2.3.0 | 📋 已规划 |

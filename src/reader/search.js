@@ -248,5 +248,14 @@ const Search = (function() {
       }
   }
 
-  return { init, setBook, togglePanel, closePanel, reset, panel: () => panel };
+  function mount(context) {
+    if (!context) return;
+    setBook(context.book, context.rendition);
+  }
+
+  function unmount() {
+    reset();
+  }
+
+  return { init, setBook, togglePanel, closePanel, reset, mount, unmount, panel: () => panel };
 })();

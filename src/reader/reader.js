@@ -7,17 +7,10 @@
   'use strict';
 
   function createModuleLifecycle() {
-    const modules = [
-      { mount: (ctx) => ImageViewer.hookRendition(ctx.rendition), unmount() {} },
-      { mount: (ctx) => Annotations.hookRendition(ctx.rendition), unmount() {} },
-      { mount: (ctx) => TOC.build(ctx.book.navigation, ctx.rendition), unmount() {} },
-      { mount: (ctx) => Search.setBook(ctx.book, ctx.rendition), unmount() {} },
-      { mount: (ctx) => Bookmarks.setBook(ctx.bookId, ctx.book, ctx.rendition), unmount() {} },
-      { mount: (ctx) => Highlights.setBookDetails(ctx.bookId, ctx.fileName, ctx.rendition), unmount() {} }
-    ];
+    const modules = [ImageViewer, Annotations, TOC, Search, Bookmarks, Highlights];
     return {
-      mount(context) { modules.forEach((m) => m.mount(context)); },
-      unmount() { modules.forEach((m) => m.unmount()); }
+      mount(context) { modules.forEach((m) => m.mount?.(context)); },
+      unmount() { modules.forEach((m) => m.unmount?.()); }
     };
   }
 

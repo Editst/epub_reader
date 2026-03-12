@@ -130,9 +130,25 @@ const Annotations = {
     document.getElementById('annotation-close')
       .addEventListener('click', () => this.close());
     this.overlay.addEventListener('click', () => this.close());
-    document.addEventListener('keydown', (e) => {
+    this._onKeyDown = (e) => {
       if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
-    });
+    };
+    document.addEventListener('keydown', this._onKeyDown);
+  },
+
+  mount(context) {
+    if (!context) return;
+    this.setBook(context.book);
+    this.hookRendition(context.rendition);
+  },
+
+  unmount() {
+    this.book = null;
+    this.rendition = null;
+    if (this._onKeyDown) {
+      document.removeEventListener('keydown', this._onKeyDown);
+      this._onKeyDown = null;
+    }
   },
 
   setBook(book) { this.book = book; },
