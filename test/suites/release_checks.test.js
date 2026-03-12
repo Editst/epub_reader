@@ -117,3 +117,51 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(!popupJs.includes('style.cssText'), 'popup.js 不应有 style.cssText');
   });
 });
+
+
+test.describe('v2.1.1 紧急回归：阅读器本地打开链路', () => {
+  test.it('reader-ui 使用 EpubStorage.generateBookId + 正确 storeFile 参数顺序', () => {
+    const js = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    assert.ok(js.includes('EpubStorage.generateBookId(file.name, arrayBuffer)'));
+    assert.ok(js.includes('EpubStorage.storeFile(file.name, file, bookId)'));
+    assert.ok(!js.includes('Utils.generateBookId(file)'));
+  });
+});
+
+
+test.describe('v2.1.1 紧急回归：bookId 启动加载链路', () => {
+  test.it('reader.js 在 bootstrap 中处理 URL bookId 并调用 runtime.loadFileByBookId', () => {
+    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+    assert.ok(js.includes("new URLSearchParams(window.location.search)"));
+    assert.ok(js.includes("params.get('bookId')"));
+    assert.ok(js.includes('runtime.loadFileByBookId(bookIdParam'));
+  });
+
+  test.it('reader-runtime.js 提供 loadFileByBookId 并从 EpubStorage.getFile 读取缓存', () => {
+    const js = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
+    assert.ok(js.includes('async function loadFileByBookId(bookId'));
+    assert.ok(js.includes('EpubStorage.getFile(bookId)'));
+    assert.ok(js.includes('await openBook(record.data, bookId, record.filename ||'));
+  });
+});
+
+
+test.describe('v2.1.1 对照 2.0 功能覆盖回归', () => {
+  test.it('reader-ui 恢复关键交互绑定：翻页、进度条、拖拽、全局面板关闭', () => {
+    const js = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    assert.ok(js.includes("bindNavigation(runtime)"));
+    assert.ok(js.includes("bindProgress(runtime)"));
+    assert.ok(js.includes("bindDragAndDrop(runtime)"));
+    assert.ok(js.includes('window.closeAllPanels = function closeAllPanels()'));
+  });
+
+  test.it('reader-runtime 提供 2.0 核心行为：prev/next、百分比跳转、布局切换、locations 缓存', () => {
+    const js = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
+    assert.ok(js.includes('function next()'));
+    assert.ok(js.includes('async function prev()'));
+    assert.ok(js.includes('function displayPercentage(percent)'));
+    assert.ok(js.includes('async function setLayout(layout)'));
+    assert.ok(js.includes('EpubStorage.getLocations(state.currentBookId)'));
+    assert.ok(js.includes('EpubStorage.saveLocations(state.currentBookId'));
+  });
+});

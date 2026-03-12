@@ -24,6 +24,17 @@
     return { safeTheme, cssSample, normalizeHexColor, contrastRatio };
   }
 
+  async function loadPreferencesIntoState(state) {
+    try {
+      const prefs = await EpubStorage.getPreferences();
+      if (prefs && typeof prefs === 'object') {
+        state.prefs = { ...state.prefs, ...prefs };
+      }
+    } catch (error) {
+      console.warn('[Reader] load preferences failed:', error);
+    }
+  }
+
   async function bootstrap() {
     ImageViewer.init();
     Annotations.init();
@@ -33,6 +44,8 @@
     Highlights.init();
 
     const state = ReaderState.createReaderState();
+    await loadPreferencesIntoState(state);
+
     const ui = ReaderUi.createReaderUi({ state });
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
     const runtime = ReaderRuntime.createReaderRuntime({
@@ -46,6 +59,19 @@
     ui.mount({ state });
     persistence.mount({ state });
     runtime.mount({ state });
+
+    const params = new URLSearchParams(window.location.search);
+    const bookIdParam = params.get('bookId');
+    const targetCfi = params.get('target');
+    if (!bookIdParam) return;
+
+    try {
+      await runtime.loadFileByBookId(bookIdParam, { targetCfi });
+    } catch (error) {
+      console.error('[Reader] loadFileByBookId failed:', error);
+      ui.showLoading(false);
+      alert(error?.message || '读取缓存书籍失败，请重新导入。');
+    }
   }
 
   document.addEventListener('DOMContentLoaded', () => {
