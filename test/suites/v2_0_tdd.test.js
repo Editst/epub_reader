@@ -64,8 +64,8 @@ test.describe('v2.0 TDD - 代码契约检查', () => {
     assert.ok(js.includes('streamRenderBookCard'));
   });
 
-  test.it('manifest 版本升级到 2.1.0', () => {
+  test.it('manifest 版本升级到 2.1.1', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.equal(manifest.version, '2.1.0');
+    assert.equal(manifest.version, '2.1.1');
   });
 });

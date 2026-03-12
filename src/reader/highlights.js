@@ -471,9 +471,20 @@ window.Highlights = (function () {
      _currentCfiRange = null;
   }
 
+  function mount(context) {
+    if (!context) return;
+    setBookDetails(context.bookId, context.fileName, context.rendition);
+  }
+
+  function unmount() {
+    closePanels();
+  }
+
   return {
     init: init,
     setBookDetails: setBookDetails,
-    closePanels: closePanels
+    closePanels: closePanels,
+    mount: mount,
+    unmount: unmount
   };
 })();

@@ -46,6 +46,15 @@ const TOC = {
    * @param {object} navigation - epub.js book.navigation
    * @param {object} rendition - epub.js rendition
    */
+  mount(context) {
+    if (!context?.book || !context?.rendition) return;
+    this.build(context.book.navigation, context.rendition);
+  },
+
+  unmount() {
+    this.reset();
+  },
+
   build(navigation, rendition) {
     this.rendition = rendition;
     this.container.innerHTML = '';

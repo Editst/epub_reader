@@ -1,6 +1,6 @@
 # 更新日志 (Changelog)
 
-## [2.1.0] - Reader 内核解耦
+## [2.1.1] - Reader 内核解耦
 
 ### Added
 - 新增 `reader-state.js`、`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js` 四层模块。
@@ -9,7 +9,7 @@
 ### Changed
 - `reader.js` 重构为入口编排层并统一模块挂载流程。
 - `reader.html` 注入 v2.1 reader 子模块脚本。
-- 版本升级到 `2.1.0`，文档与测试基线同步升级。
+- 版本升级到 `2.1.1`，文档与测试基线同步升级。
 
 ### Removed
 - 删除 `DbGateway.getByFilename()` 死代码（D-2026-06）。

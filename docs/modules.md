@@ -1,7 +1,7 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.0.0  
-更新：2026-03-11
+版本：v2.1.1  
+更新：2026-03-12
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -172,7 +172,7 @@ DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
 
 ## Utils（utils/utils.js）
 
-纯函数，无 DOM 依赖。
+以纯函数为主，`escapeHtml` 依赖浏览器 DOM API (`document.createElement`) 完成安全转义。
 
 ```typescript
 Utils.escapeHtml(text: any): string
@@ -211,6 +211,10 @@ Highlights.setBookDetails(
 
 Highlights.closePanels(): void
 // 关闭工具栏和笔记弹窗，清除所有 CFI 状态
+
+Highlights.mount(context): void
+Highlights.unmount(): void
+// v2.1.1：接入 Reader 统一生命周期
 ```
 
 **内部数据结构**：
@@ -251,6 +255,10 @@ Bookmarks.togglePanel(): void
 
 Bookmarks.reset(): void
 // 切换书籍时调用，清空列表和状态
+
+Bookmarks.mount(context): void
+Bookmarks.unmount(): void
+// v2.1.1：接入 Reader 统一生命周期
 ```
 
 ---
@@ -258,6 +266,8 @@ Bookmarks.reset(): void
 ## TOC（reader/toc.js）
 
 对象单例 `const TOC`。
+
+> v2.1.1：新增 `mount(context)` / `unmount()`，由 reader 入口统一挂载。
 
 ```typescript
 TOC.init(): void
@@ -292,6 +302,10 @@ Search.togglePanel(): void
 Search.closePanel(): void
 Search.reset(): void
 // 切换书籍时调用，取消进行中的搜索
+
+Search.mount(context): void
+Search.unmount(): void
+// v2.1.1：接入 Reader 统一生命周期
 ```
 
 ---
@@ -306,6 +320,10 @@ ImageViewer.init(): void
 
 ImageViewer.hookRendition(rendition: Rendition): void
 // 在 rendition.hooks.content 中注册图片 click 拦截
+
+ImageViewer.mount(context): void
+ImageViewer.unmount(): void
+// v2.1.1：接入 Reader 统一生命周期
 
 ImageViewer.open(src: string): void
 // 打开查看器，显示指定 src 的图片

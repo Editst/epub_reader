@@ -100,6 +100,14 @@ const ImageViewer = {
       `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
   },
 
+
+  mount(context) {
+    if (!context?.rendition) return;
+    this.hookRendition(context.rendition);
+  },
+
+  unmount() {},
+
   /**
    * Hook into epub.js rendition to intercept image clicks inside EPUB iframes
    * @param {object} rendition - epub.js rendition object

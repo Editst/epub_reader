@@ -18,6 +18,15 @@ const Bookmarks = {
     document.getElementById('btn-bookmarks-close').addEventListener('click', () => this.closePanel());
   },
 
+  mount(context) {
+    if (!context) return;
+    this.setBook(context.bookId, context.book, context.rendition);
+  },
+
+  unmount() {
+    this.reset();
+  },
+
   setBook(bookId, book, rendition) {
     this.bookId = bookId;
     this.book = book;

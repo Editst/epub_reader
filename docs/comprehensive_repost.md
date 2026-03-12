@@ -1,7 +1,7 @@
 # EPUB Reader 综合审计报告（comprehensive_repost）
 
-> 文档版本：v2.0.0 数据与性能治理后审计基线（1.x 封版 + 2.0 已交付）
-> 最后更新：2026-03-12（v2.0.0）
+> 文档版本：v2.1.1 收尾审计基线（1.x 封版 + 2.0/2.1 已交付）
+> 最后更新：2026-03-12（v2.1.1）
 > 覆盖范围：`src/**` 全目录（reader/home/popup/utils/background/manifest）
 
 ---
@@ -15,6 +15,8 @@
 - **新增：Annotations 算法短板专项审计**（本轮补充）：基于 Calibre/KOReader 注释识别算法逆向分析，发现 `annotations.js` 存在 5 类系统性短板，已全部登记为 D-2026-11～16，纳入 v2.3.0/v2.4.0 规划。
 - **新增：Annotations 代码质量审计**（本轮补充）：对 `annotations.js` 进行纯代码维度审计，独立于 Calibre 算法对比，发现 8 项代码质量问题（逻辑重复、常量管理、约束违反、magic number、碎片化解析、监听器泄漏风险、冗余 bind、文档治理），登记为 D-2026-17～24，与 Calibre 对齐项合并纳入 v2.3.0 同批处理。
 - **结论**：1.x 系列可正式封版。建议以当前 v1.9.3 为基线启动 2.x 架构演进。
+- **v2.1 对照审计结论（本轮）**：R-1 与 R-3 已完成；R-2 存在“入口匿名适配层替代模块标准生命周期”的实现偏差，已在 v2.1.1 收尾修复为模块原生 `mount/unmount`。
+- **新增审计发现（本轮）**：v2.0 规划中 `speed.sessions/sessionCount` 的持久化结构尚未在 `storage.js` 落地，当前仅 Utils 侧有估算策略；登记为 D-2026-25，纳入 v2.2.0。
 
 ---
 
@@ -118,6 +120,12 @@
 属于低风险死代码/预留接口。在 v2.1.0 清理或补充真实使用场景说明。
 
 ---
+
+## 3.7 ✅ v2.1.1 收尾修复（本轮）
+
+- Reader 生命周期编排由“入口匿名对象适配”改为“子模块原生 `mount/unmount` 接口”。
+- `Annotations` 新增具名 `_onKeyDown` 并在 `unmount` 中移除监听，避免重复挂载时的全局监听累积。
+- 版本升级至 `2.1.1`，并完成架构/模块文档对齐。
 
 ## 4. 架构一致性回顾（1.x 结束时）
 
@@ -377,7 +385,7 @@ applyTransform() {
 | 🔵 P3 | D-2026-19 | `showFootnote` last-resort 降级路径含 inline style 字符串，违反 style.* 约束 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 中 100ms 等待为 magic number，无具名常量 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-21 | `showFootnote`/`_loadFromBook`/`_compensatePaginationOffset` href 解析碎片化，edge case 处理不一致 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与 v2.1.0 生命周期接口存在兼容风险 | v2.3.0 | 📋 已规划 |
+| ✅ P4 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与生命周期接口存在兼容风险 | v2.1.1 | ✅ 已修复（具名监听 + unmount 移除） |
 | 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()`，无 targetId 时仍进入无效迭代 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释，后续维护成本高 | v2.3.0 | 📋 已规划 |
 
