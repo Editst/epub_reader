@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-- **v2.2.0 已完成**：CSP 最终收敛（unsafe-inline 移除）、ARIA 语义全量补全、annotations 安全测试、speed.sessions 持久化落地、全页面 UI 视觉重设计。
+- **v2.2.0 已完成**：speed.sessions 持久化落地
 - **D-2026-07/08/25 已闭环**，全部 P1/P2/P3 债务进度更新见技术债务索引。
 - **下一步**：启动 v2.3.0 Annotations 算法深度对齐 + 代码质量专项。
 

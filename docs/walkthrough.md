@@ -7,10 +7,10 @@
 ## [v2.0.0] - 数据与性能治理版本 (Data & Performance)
 **核心目标**：完成 roadmap v2.0.0 的 P-1/P-2/P-3，提升 ETA 可信度与首屏交互体验。
 
-- `utils.js`：新增 `computeSessionWeight`、`estimateRemainingMinutes`，引入会话加权与低样本“估算中”策略。
-- `reader.js`：`locations.generate()` 改为 idle 调度包装 `scheduleLocationsGeneration`，并补充“准备/生成/就绪”进度文案。
-- `home.js` + `home.css`：新增书架骨架屏与逐本流式渲染，避免等待全部数据后一次性插入。
-- 测试：新增 `test/suites/v2_0_tdd.test.js` 并对版本升级做静态断言。
+- `utils.js`：新增 `computeSessionWeight`、`estimateRemainingMinutes`，引入会话加权（连续 1.0 / 轻度跳读 0.6 / 明显跳读 0.2）与低样本（sessionCount < 3）“估算中”策略。
+- `reader.js`：`locations.generate()` 改为 idle 调度包装 `scheduleLocationsGeneration`（优先 `requestIdleCallback`），并按阶段反馈：“准备定位索引...”、“生成阅读定位索引...”、“定位索引就绪”。
+- `home.js` + `home.css`：新增书架骨架屏（默认渲染 6 张卡片）与逐本流式渲染，每本书封面与元数据拉取就绪即插入 DOM。
+- 测试：新增 `test/suites/v2_0_tdd.test.js`，包含 Utils 行为测试与版本升级静态断言。
 
 ---
 
@@ -170,12 +170,14 @@
 **核心目标**：完成 roadmap v2.1.0 的 R-1/R-2/R-3，建立 reader 分层边界。
 
 ### 交付内容
-- 新增 `src/reader/reader-state.js`：统一 Reader 状态源。
-- 新增 `src/reader/reader-runtime.js`：epub.js 生命周期与 locations idle 调度。
-- 新增 `src/reader/reader-persistence.js`：位置与阅读时长持久化策略。
-- 新增 `src/reader/reader-ui.js`：DOM 与交互绑定。
-- `src/reader/reader.js` 降级为入口 orchestrator。
-- 删除 `DbGateway.getByFilename()` 死代码。
+- 新增 `src/reader/reader-state.js`：单一状态源（可序列化），集中管理 `currentBookId` 等变量。
+- 新增 `src/reader/reader-runtime.js`：epub.js 生命周期钩子与 locations idle 调度中心。
+- 新增 `src/reader/reader-persistence.js`：位置（防抖）与阅读时长（visibility 监测）持久化策略。
+- 新增 `src/reader/reader-ui.js`：DOM 监听器绑定与主题/排版 UI 状态控制。
+- `src/reader/reader.js`：降级为入口 orchestrator（< 120 行），通过 `mount(context)` 编排各层。
+- 子模块生命周期：移除匿名适配层，建立统一原生 `mount/unmount` 接口契约。
+- 移除隐式共享：消除全局变量跨模块写入，改为显式 `state/context` 传递。
+- 清理：删除 `DbGateway.getByFilename()` 死代码。
 
 ### 测试
 - 新增 `test/suites/v2_1_tdd.test.js`。

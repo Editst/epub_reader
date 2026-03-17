@@ -1,7 +1,7 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.1.1  
-更新：2026-03-12
+版本：v2.2.0  
+更新：2026-03-17
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -41,7 +41,12 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 // BookMeta: {
 //   pos:   { cfi: string, percentage: number, timestamp: number } | null,
 //   time:  number,   // 累计阅读秒数
-//   speed: { sampledSeconds: number, sampledProgress: number }
+//   speed: { 
+//     sampledSeconds: number, 
+//     sampledProgress: number,
+//     sessions: Array<{seconds, progress, timestamp, isJump}>, // v2.2.0
+//     sessionCount: number                                   // v2.2.0
+//   }
 // }
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
 
@@ -214,7 +219,7 @@ Highlights.closePanels(): void
 
 Highlights.mount(context): void
 Highlights.unmount(): void
-// v2.1.1：接入 Reader 统一生命周期
+// v2.2.0：接入子层统一调度
 ```
 
 **内部数据结构**：
@@ -258,7 +263,7 @@ Bookmarks.reset(): void
 
 Bookmarks.mount(context): void
 Bookmarks.unmount(): void
-// v2.1.1：接入 Reader 统一生命周期
+// v2.2.0：接入子层统一调度
 ```
 
 ---
@@ -366,8 +371,12 @@ Annotations.hookRendition(rendition: Rendition): void
 <script src="bookmarks.js?v=8"></script>
 <script src="highlights.js?v=8"></script>
 
-<!-- 主控制器（依赖所有上层模块） -->
-<script src="reader.js（v2.1 入口编排）?v=8"></script>
+<!-- 主控制器（Orchestrator） -->
+<script src="reader-state.js?v=8"></script>
+<script src="reader-runtime.js?v=8"></script>
+<script src="reader-persistence.js?v=8"></script>
+<script src="reader-ui.js?v=8"></script>
+<script src="reader.js?v=8"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
