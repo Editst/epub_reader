@@ -263,42 +263,7 @@
 
 ### v2.2.0 — 安全与可访问性（预计 3 工作日）
 
-**核心目标**：完成 CSP 最终收敛，补齐 ARIA 语义。
-
-#### A-1：完成 CSP 最终收敛（移除 `unsafe-inline`）
-
-唯一阻塞点：`image-viewer.js` 的 `style.transform`（动态计算值）。
-
-迁移方案：
-```css
-/* reader.css */
-#image-viewer-img {
-  transform: translate(var(--iv-tx, 0px), var(--iv-ty, 0px)) scale(var(--iv-scale, 1));
-  transition: transform 0.08s ease;
-}
-```
-```js
-// image-viewer.js - applyTransform()
-applyTransform() {
-  this.img.style.setProperty('--iv-tx', `${this.translateX}px`);
-  this.img.style.setProperty('--iv-ty', `${this.translateY}px`);
-  this.img.style.setProperty('--iv-scale', this.scale);
-}
-```
-
-> `style.setProperty` 设置 CSS 自定义属性不触发 `unsafe-inline` 限制。
-
-完成后从 `manifest.json` `style-src` 移除 `'unsafe-inline'`，同步从 `test/suites/csp_regression.test.js` 更新 C-7 断言为"不包含 unsafe-inline"。
-
-#### A-2：ARIA 语义与键盘可达性
-
-覆盖范围（按重要性排序）：
-
-1. **reader 工具栏**：所有 `<button>` 补 `aria-label`（当前 `btn-bookmark` 等仅有 `title`，屏幕阅读器无法读取）。
-2. **进度滑块**：`<input type="range">` 补 `aria-valuemin/valuemax/valuenow/aria-label`。
-3. **面板开关**：TOC/搜索/书签面板补 `aria-expanded` 状态，面板本身补 `role="dialog"` + `aria-label`。
-4. **高亮工具栏**：颜色选择按钮补 `aria-label="高亮为 XXX 色"`。
-5. **书架卡片**：`<div class="book-card">` 改为 `<article>` 或补 `role="listitem"`，封面图 `alt` 属性填写书名。
+**核心目标**：注释弹窗安全加固专项测试
 
 #### A-3：注释弹窗安全加固专项测试
 
@@ -307,9 +272,7 @@ applyTransform() {
 
 #### 验收标准
 
-- `manifest.json` 的 `style-src` 不含 `'unsafe-inline'`。
 - Lighthouse Accessibility 评分 ≥ 90。
-- 所有交互控件可通过 Tab/Enter/Space/Escape 键盘操作完成。
 
 ---
 
