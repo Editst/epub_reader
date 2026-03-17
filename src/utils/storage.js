@@ -149,26 +149,45 @@ const EpubStorage = {
 
   // ── Reading Speed（per-session 采样，v1.7.0 新增） ────────────────────────
   //
-  // speed.sampledSeconds / sampledProgress 在每个有效 session 结束时累加。
-  // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
-  //            remaining = secsPerUnit * (1 - currentProgress) / 60  (分钟)
+  // speed 结构（v2.2.0，D-2026-25 落地）：
+  //   sampledSeconds  / sampledProgress：加权累计采样，ETA 主路径
+  //   sessions: [{ seconds, progress, timestamp, isJump }]  — v2.0 新增，历史 session 列表
+  //   sessionCount: number  — 有效 session 累计数，< 3 时 ETA 显示"估算中"
   //
-  // 有效 session 条件（在 reader.js 中判断）：
-  //   - deltaProgress > 0.001（读了超过 0.1%）
-  //   - deltaProgress < 0.30 （无大幅跳跃）
-  //   - deltaSeconds  > 30   （超过 30 秒）
+  // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
+  //            remaining = secsPerUnit * (1 - currentProgress) / 60 (分钟)
+  //
+  // 有效 session 条件（reader-persistence.js flushSpeedSession）：
+  //   deltaProgress ∈ (0.001, 0.30)  读了 0.1%–30%
+  //   deltaSeconds  > 30              持续 30s 以上
+  //   isJump: deltaProgress > 0.05 → weight 0.3，否则 weight 1.0
 
   async saveReadingSpeed(bookId, speed) {
     if (!bookId || !speed) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
-      current.speed = speed;
+      // speed 结构 v2.2.0：向后兼容旧 { sampledSeconds, sampledProgress }
+      current.speed = {
+        sampledSeconds:  speed.sampledSeconds  || 0,
+        sampledProgress: speed.sampledProgress || 0,
+        sessions:        speed.sessions        || current.speed?.sessions        || [],
+        sessionCount:    speed.sessionCount    || current.speed?.sessionCount    || 0
+      };
       return current;
     });
   },
 
   async getReadingSpeed(bookId) {
     const meta = await this.getBookMeta(bookId);
-    return (meta && meta.speed) ? meta.speed : { sampledSeconds: 0, sampledProgress: 0 };
+    if (!meta || !meta.speed) {
+      return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
+    }
+    // 向后兼容：旧 speed 无 sessions/sessionCount 时补默认值
+    return {
+      sampledSeconds:  meta.speed.sampledSeconds  || 0,
+      sampledProgress: meta.speed.sampledProgress || 0,
+      sessions:        meta.speed.sessions        || [],
+      sessionCount:    meta.speed.sessionCount    || 0
+    };
   },
 
   async removeBookMeta(bookId) {
@@ -387,7 +406,7 @@ const EpubStorage = {
         const current = (await this._get('bookMeta_' + bookId)) || {
           pos: null,
           time: 0,
-          speed: { sampledSeconds: 0, sampledProgress: 0 }
+          speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
         };
         const updated = mutator(current) || current;
         await this._set({ ['bookMeta_' + bookId]: updated });

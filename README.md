@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.1.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -20,11 +20,10 @@
 
 - **⏱️ 进度毫秒级同步 (Progress Sync)**
   - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
-  - v1.8 收尾：Popup 样式外联为 `src/popup/popup.css`，并补全 `custom` 主题变量与 `color-scheme` 页面声明。
-  - v1.9.2：完成 storage 错误上抛、bookMeta 并发写串行化、标注聚合覆盖补全，并推进 home/popup/image-viewer 的样式 class 化收敛。
-  - v2.0.0：ETA 升级为会话加权模型，locations 生成改为 idle 调度并提供进度提示，书架支持骨架屏+流式渲染。
-  - v2.1.1：Reader 内核完成四层解耦（state/runtime/persistence/ui）并落地统一 mount/unmount 生命周期。
-  - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固，再无由于重绘导致的 0% 进度闪断。
+  - v2.0.0：ETA 升级为会话加权模型（指数衰减 β=0.8），智能识别跳读；locations 生成引入 Idle 调度与进度文案；书架支持骨架屏（Skeleton Screen）+ 逐本流式渲染。
+  - v2.1.1：Reader 内核完成四层解耦（`reader-state.js` / `reader-runtime.js` / `reader-persistence.js` / `reader-ui.js`），由 Orchestrator 统一调度并落地 `mount/unmount` 生命周期契约。
+  - v2.2.0：完成 CSP 最终收敛，彻底移除 `'unsafe-inline'` 支持；全页面补全 ARIA 语义与可访问性标签；`speed.sessions` 深度持久化落地。
+  - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固。
 
 - **🔍 智能检索与注释 (Search & Footnotes)**
   - 支持侧边栏全书级别的关键词匹配，即用即走，全屏标记自动清洗消除污染。
