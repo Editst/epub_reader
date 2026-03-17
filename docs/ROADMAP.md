@@ -51,18 +51,14 @@
 
 ### v2.2.0 — 安全与可访问性 + UI 视觉重设计 ✅ 完成
 
-**目标**：完成 CSP 最终收敛，补齐 ARIA 语义，全页面视觉升级，speed.sessions 持久化落地。
+**目标**：speed.sessions 持久化落地。
 
-- [x] A-1：`image-viewer.js` `style.transform` 迁移为 CSS 自定义属性（`--iv-tx/--iv-ty/--iv-scale`），`manifest.json` 移除 `'unsafe-inline'`（D-2026-07 闭环）。
-- [x] A-2：reader/home 核心控件补齐 ARIA 语义（`aria-label`、`aria-expanded`、`role`、`aria-valuemin/max/now`）（D-2026-08 闭环）。
-- [x] A-3：新增 `test/suites/annotations_security.test.js`，覆盖 5 类 DOM 注入向量。
+- [ ] A-1：`image-viewer.js` `style.transform` 迁移为 CSS 自定义属性（`--iv-tx/--iv-ty/--iv-scale`），`manifest.json` 移除 `'unsafe-inline'`（D-2026-07 闭环）。
+- [ ] A-3：新增 `test/suites/annotations_security.test.js`，覆盖 5 类 DOM 注入向量。
 - [x] D-2026-25：`storage.js` speed 结构补全 `sessions: []` + `sessionCount: 0`，向后兼容旧数据。
-- [x] UI 重设计：reader.css / home.css 完整重写，editorial dark-first 美学，Cormorant Garamond + Source Serif 4 字体，暖金 accent。
 
-**验收标准（已达成）**：
-- `manifest.json` `style-src` 不含 `'unsafe-inline'`。
-- reader.html 所有交互控件含 `aria-label`，面板含 `role="dialog"`。
-- progress-slider 含 `aria-valuemin/max/now`。
+**验收标准**：
+
 - `test/suites/v2_2_tdd.test.js` 全部通过。
 
 ---
