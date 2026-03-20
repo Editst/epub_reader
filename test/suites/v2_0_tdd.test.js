@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 function loadGlobalConst(filePath, constName) {
+  if (global[constName]) return global[constName];
   const code = fs.readFileSync(filePath, 'utf8');
   global.document = global.document || {
     createElement() {
@@ -64,8 +65,8 @@ test.describe('v2.0 TDD - 代码契约检查', () => {
     assert.ok(js.includes('streamRenderBookCard'));
   });
 
-  test.it('manifest 版本升级到 2.1.1', () => {
+  test.it('manifest 版本升级到 2.2.0', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.equal(manifest.version, '2.1.1');
+    assert.equal(manifest.version, '2.2.0');
   });
 });

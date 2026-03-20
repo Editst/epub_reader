@@ -411,9 +411,10 @@ const EpubStorage = {
         const updated = mutator(current) || current;
         await this._set({ ['bookMeta_' + bookId]: updated });
       });
-    this._bookMetaQueue.set(bookId, next.finally(() => {
-      if (this._bookMetaQueue.get(bookId) === next) this._bookMetaQueue.delete(bookId);
-    }));
+    const queued = next.finally(() => {
+      if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);
+    });
+    this._bookMetaQueue.set(bookId, queued);
     return next;
   }
 };

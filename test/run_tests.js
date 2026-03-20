@@ -1,6 +1,7 @@
 /**
- * run_tests.js — 使用 Node.js 22 内置 node:test runner
- * 将 docs/tests.js 的所有测试逐组真实执行，记录失败
+ * run_tests.js — 仓库唯一测试入口
+ * 使用 Node.js 22 内置 node:test runner。
+ * 负责执行本文件中的核心测试，并自动发现 test/suites/*.test.js。
  */
 const test  = require('node:test');
 const assert = require('node:assert/strict');
@@ -392,6 +393,16 @@ test.describe('EpubStorage.highlights', () => {
     assert.ok(all['real_book']);
     assert.equal(all['stale_book'], undefined);
   });
+  test.it('getAllHighlights 覆盖多本有高亮书籍', async () => {
+    for (let i = 1; i <= 5; i++) {
+      await EpubStorage.addRecentBook({id:`b${i}`, title:`Book${i}`, filename:`b${i}.epub`});
+      await EpubStorage.saveHighlights(`b${i}`, [
+        {cfi:`c${i}`, text:`text${i}`, color:'#ff0', note:'', timestamp:i * 1000}
+      ]);
+    }
+    const all = await EpubStorage.getAllHighlights();
+    assert.equal(Object.keys(all).length, 5);
+  });
 });
 
 test.describe('EpubStorage.bookmarks', () => {
@@ -443,6 +454,7 @@ test.describe('EpubStorage.enforceFileLRU', () => {
       {bookId:'b3', timestamp:1000}
     ];
     await EpubStorage.enforceFileLRU(2);
+    assert.equal(await _mockDb.get('files', 'b3'), null);
     const books = await EpubStorage.getRecentBooks();
     assert.ok(!books.find(b=>b.id==='b3'), 'b3 should be evicted from recentBooks');
     assert.ok(books.find(b=>b.id==='b1'));
@@ -979,6 +991,14 @@ test.describe('v1.9.2 稳定性收尾', () => {
     assert.equal(meta.time, 120);
     assert.equal(meta.speed.sampledSeconds, 240);
   });
+  test.it('_bookMetaQueue 在写完后自动清理', async () => {
+    const bookId = 'queue_cleanup_book';
+    await EpubStorage.savePosition(bookId, 'epubcfi(/6/4)', 20);
+    for (let i = 0; i < 10 && EpubStorage._bookMetaQueue.has(bookId); i++) {
+      await new Promise(r => setTimeout(r, 10));
+    }
+    assert.equal(EpubStorage._bookMetaQueue.has(bookId), false);
+  });
 
   test.it('getAllHighlights 覆盖 recentBooks 外的历史书籍', async () => {
     await EpubStorage.addRecentBook({ id: 'b_recent', title: 'Recent', filename: 'r.epub' });
@@ -991,8 +1011,10 @@ test.describe('v1.9.2 稳定性收尾', () => {
   });
 });
 
-// ─── 拆分后的发布验证测试 ──────────────────────────────────────────────
-require('./suites/release_checks.test.js');
-require('./suites/csp_regression.test.js');
-require('./suites/module_contracts.test.js');
-
+// ─── 拆分后的 suites 自动发现 ───────────────────────────────────────────
+fs.readdirSync('test/suites')
+  .filter((name) => name.endsWith('.test.js'))
+  .sort()
+  .forEach((name) => {
+    require(`./suites/${name}`);
+  });

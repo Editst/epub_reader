@@ -80,8 +80,8 @@ test.describe('v1.9 CSP 收敛', () => {
 });
 
 test.describe('reader 主题回归', () => {
-  test.it('reader.js 包含低对比度自定义主题保护逻辑', () => {
-    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+  test.it('reader-ui.js 包含低对比度自定义主题保护逻辑', () => {
+    const js = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
     assert.ok(js.includes('ensureReadableTheme'));
     assert.ok(js.includes('contrastRatio'));
     assert.ok(js.includes('normalizeHexColor'));
@@ -90,8 +90,8 @@ test.describe('reader 主题回归', () => {
 
 
 test.describe('reader 主题背景回归', () => {
-  test.it('generateCustomCss 不再将非 custom 主题背景强制为 transparent', () => {
-    const js = fs.readFileSync('src/reader/reader.js', 'utf8');
+  test.it('reader-ui.js generateCustomCss 不再将非 custom 主题背景强制为 transparent', () => {
+    const js = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
     assert.ok(js.includes('background-color: ${activeTheme.bg} !important;'));
     assert.ok(!js.includes("currentPrefs.theme === 'custom' && currentPrefs.customBg ? currentPrefs.customBg : 'transparent'"));
   });

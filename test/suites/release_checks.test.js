@@ -81,9 +81,9 @@ test.describe('v1.9.2 收尾完成验证', () => {
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 
-  test.it('manifest version 为 2.1.1', () => {
+  test.it('manifest version 为 2.2.0', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
-    assert.strictEqual(manifest.version, '2.1.1');
+    assert.strictEqual(manifest.version, '2.2.0');
   });
 
   test.it('全项目 style.* 写入约束（含豁免清单）', () => {
@@ -118,12 +118,21 @@ test.describe('v1.9.2 收尾完成验证', () => {
   });
 });
 
+test.describe('测试入口统一', () => {
+  test.it('run_tests.js 自动发现并加载 suites 目录，不再手写逐个 require', () => {
+    const js = fs.readFileSync('test/run_tests.js', 'utf8');
+    assert.ok(js.includes("readdirSync('test/suites'") || js.includes('readdirSync("test/suites"'));
+    assert.ok(!js.includes("require('./suites/release_checks.test.js')"));
+    assert.ok(!js.includes("require('./suites/csp_regression.test.js')"));
+  });
+});
+
 
 test.describe('v2.1.1 紧急回归：阅读器本地打开链路', () => {
   test.it('reader-ui 使用 EpubStorage.generateBookId + 正确 storeFile 参数顺序', () => {
     const js = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
     assert.ok(js.includes('EpubStorage.generateBookId(file.name, arrayBuffer)'));
-    assert.ok(js.includes('EpubStorage.storeFile(file.name, file, bookId)'));
+    assert.ok(js.includes('EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId)'));
     assert.ok(!js.includes('Utils.generateBookId(file)'));
   });
 });
@@ -141,7 +150,7 @@ test.describe('v2.1.1 紧急回归：bookId 启动加载链路', () => {
     const js = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
     assert.ok(js.includes('async function loadFileByBookId(bookId'));
     assert.ok(js.includes('EpubStorage.getFile(bookId)'));
-    assert.ok(js.includes('await openBook(record.data, bookId, record.filename ||'));
+    assert.ok(js.includes('await openBook(record.data.buffer || record.data, bookId, state.currentFileName, targetCfi)'));
   });
 });
 
@@ -152,7 +161,8 @@ test.describe('v2.1.1 对照 2.0 功能覆盖回归', () => {
     assert.ok(js.includes("bindNavigation(runtime)"));
     assert.ok(js.includes("bindProgress(runtime)"));
     assert.ok(js.includes("bindDragAndDrop(runtime)"));
-    assert.ok(js.includes('window.closeAllPanels = function closeAllPanels()'));
+    assert.ok(js.includes('function closeAllPanels()'));
+    assert.ok(js.includes('window.closeAllPanels = closeAllPanels;'));
   });
 
   test.it('reader-runtime 提供 2.0 核心行为：prev/next、百分比跳转、布局切换、locations 缓存', () => {
@@ -161,7 +171,7 @@ test.describe('v2.1.1 对照 2.0 功能覆盖回归', () => {
     assert.ok(js.includes('async function prev()'));
     assert.ok(js.includes('function displayPercentage(percent)'));
     assert.ok(js.includes('async function setLayout(layout)'));
-    assert.ok(js.includes('EpubStorage.getLocations(state.currentBookId)'));
-    assert.ok(js.includes('EpubStorage.saveLocations(state.currentBookId'));
+    assert.ok(js.includes('const cachedLocsJSON = await EpubStorage.getLocations(bookId)'));
+    assert.ok(js.includes('await EpubStorage.saveLocations(state.currentBookId, locsJSON)'));
   });
 });
