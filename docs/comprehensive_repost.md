@@ -1,7 +1,7 @@
 # EPUB Reader 综合审计报告（comprehensive_repost）
 
-> 文档版本：v2.1.1 收尾审计基线（1.x 封版 + 2.0/2.1 已交付）
-> 最后更新：2026-03-12（v2.1.1）
+> 文档版本：v2.2 审计基线（含 2026-03-18 src 全量复审整合）
+> 最后更新：2026-03-18（v2.2）
 > 覆盖范围：`src/**` 全目录（reader/home/popup/utils/background/manifest）
 
 ---
@@ -17,6 +17,7 @@
 - **结论**：1.x 系列可正式封版。建议以当前 v1.9.3 为基线启动 2.x 架构演进。
 - **v2.1 对照审计结论（本轮）**：R-1 与 R-3 已完成；R-2 存在“入口匿名适配层替代模块标准生命周期”的实现偏差，已在 v2.1.1 收尾修复为模块原生 `mount/unmount`。
 - **新增审计发现（本轮）**：v2.0 规划中 `speed.sessions/sessionCount` 的持久化结构尚未在 `storage.js` 落地，当前仅 Utils 侧有估算策略；登记为 D-2026-25，纳入 v2.2.0。
+- **2026-03-18 `src/**` 全量复审结论已整合入各章节**：新增 D-2026-26、D-2026-28、D-2026-30～D-2026-35，覆盖注释清洗安全、资源暴露边界、全量扫描性能、生命周期幂等与释放、以及文档-实现一致性风险。
 
 ---
 
@@ -33,7 +34,7 @@
 
 ### 2.2 架构设计审计
 
-关注"实现是否持续遵守既定约束"：
+关注"实现是否持续遵守既定约束"（2026-03-18 复审采用 manifest/入口 → runtime/ui/persistence → storage → 子模块 → 文档一致性的自顶向下路径）：
 - 是否保持"存储统一入口"原则。
 - 是否控制跨模块状态耦合。
 - 是否为 2.x 模块化拆分保留明确边界。
@@ -261,18 +262,38 @@
 
 ---
 
-### v2.2.0 — 安全与可访问性（预计 3 工作日）
+### v2.2.0 — 安全与可访问性（预计 3～5 工作日）
 
-**核心目标**：注释弹窗安全加固专项测试
+**核心目标**：注释弹窗安全加固、速度模型落地一致性
+
+#### A-1：注释 HTML 清洗策略升级（D-2026-26）
+
+`annotations.js` 目前以正则剥离 `on*` 与 `javascript:`，属于字符串替换式 sanitization。
+- 升级为“解析到 DOM → 白名单净化 → 序列化”方案（推荐 DOMPurify 或等价白名单实现）。
+- 补充 20+ payload 回归（大小写混淆、实体编码、协议混淆、SVG/MathML、嵌套标签）。
+
+#### A-2：阅读速度会话字段持久化落地（D-2026-35）
+
+`storage.js` 已声明 `sessions/sessionCount`，但 `reader-persistence.flushSpeedSession()` 尚未写入完整会话。
+- 在持久化层补齐 `sessions`（建议保留最近 20 条）与 `sessionCount`。
+- 在 UI 判定层启用 `sessionCount < 3 => 估算中`。
+- 增加旧数据兼容迁移：缺字段时补默认值。
 
 #### A-3：注释弹窗安全加固专项测试
 
 `annotations.js` 的 EPUB 脚注渲染路径已过滤 `on*` 属性，但缺乏针对性测试。
 - 新增 `test/suites/annotations_security.test.js`，覆盖向量：`onload`、`href=javascript:`、`data: URL`、`srcdoc`、`<base>` 重定向。
 
+#### A-4：`web_accessible_resources` 最小暴露面收敛（D-2026-28）
+
+- 盘点 `lib/*` 的真实消费路径。
+- 若仅扩展内部页面使用，收敛 `resources` 与 `matches` 到最小必要范围。
+
 #### 验收标准
 
 - Lighthouse Accessibility 评分 ≥ 90。
+- 注释恶意 payload 清洗回归全通过。
+- `sessions/sessionCount` 全链路（写入/读取/UI）回归全通过。
 
 ---
 
@@ -293,6 +314,11 @@
 - [ ] AN-C6：`init()` 监听器提取为 `_onKeyDown` 具名绑定（D-2026-22）。
 - [ ] AN-C7：`bind` 提取至循环外，Method 4 增加 targetId 早退条件（D-2026-23）。
 - [ ] AN-C8：`_isTocList` 阈值与 `_RE` 正则词汇补充来源注释（D-2026-24）。
+- [ ] R-Ext-1：移除 runtime 对模块旧接口的直调，固化 `mount/unmount` 单入口，消除重复挂钩（D-2026-31）。
+- [ ] R-Ext-2：`ReaderUi` 建立 disposer 机制，`unmount()` 执行监听器对称释放（D-2026-32）。
+- [ ] R-Ext-3：`home.js` 禁止原地对象补丁并拆分 DOM 构建器函数（D-2026-33）。
+- [ ] R-Ext-4：`highlights.js` 去重分支 + `unmount` 显式状态清理（D-2026-34）。
+- [ ] P-Ext-1：`getAllHighlights` 增量索引化（`highlightsIndex`）替代全量 `_getAll` 扫描（D-2026-30）。
 
 **验收标准（v2.3.0 整体）**：
 - `getComputedStyle` 检测：使用 CSS `vertical-align: super` 替代 `<sup>` 的测试 EPUB 上，注释识别率 ≥ 95%（原为 0%）。
@@ -351,6 +377,14 @@
 | ✅ P4 | D-2026-22 | `init()` Escape 键监听使用匿名函数永不释放，与生命周期接口存在兼容风险 | v2.1.1 | ✅ 已修复（具名监听 + unmount 移除） |
 | 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()`，无 targetId 时仍进入无效迭代 | v2.3.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释，后续维护成本高 | v2.3.0 | 📋 已规划 |
+| 🟠 P1 | D-2026-26 | `annotations.js` 正则式 HTML 清洗存在绕过面，需升级白名单净化 | v2.2.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-28 | `web_accessible_resources` 暴露范围可进一步收敛至最小必要集 | v2.2.0 | 📋 已规划 |
+| 🟡 P2 | D-2026-30 | `getAllHighlights()` 依赖全量 `_getAll()` 扫描，键增长时有性能退化 | v2.3.0 | 📋 已规划 |
+| 🟠 P1 | D-2026-31 | runtime 层存在重复挂钩路径（生命周期+旧接口直调并存） | v2.3.0 | 📋 已规划 |
+| 🟡 P2 | D-2026-32 | `ReaderUi.unmount()` 未做监听器对称释放 | v2.3.0 | 📋 已规划 |
+| 🟡 P2 | D-2026-33 | `home.js` 原地对象补丁与大段 `innerHTML` 增加维护风险 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-34 | `highlights.js` 重复分支与 `unmount` 状态清理不完整 | v2.3.0 | 📋 已规划 |
+| 🟠 P1 | D-2026-35 | `speed.sessions/sessionCount` 文档已声明但持久化未落地 | v2.2.0 | 📋 已规划 |
 
 ---
 
@@ -834,3 +868,5 @@ noteFragPos : /^(fn|ft|note|endnote|footnote|annotation|en|n|ref)\d+/i,
 | D-2026-24 | 文档治理 | 可维护性 | 极低（加注释） | 低 |
 
 **建议执行顺序**：D-17、18、19 与 AN-1/2/3/4/5 在 v2.3.0 同批实施（改动集中在 `annotations.js` 单文件，测试套件统一补充）。D-20、21、22、23、24 作为同批顺带处理，无需独立迭代。
+
+---
