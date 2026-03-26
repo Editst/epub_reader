@@ -36,14 +36,19 @@ const EpubStorage = {
   },
 
   async getPreferences() {
-    return (await this._get('preferences')) || {
+    return {
       theme:           'light',
       fontSize:        18,
       fontFamily:      '',
       lineHeight:      1.8,
       letterSpacing:   0,
       paragraphIndent: true,
-      spread:          'auto'
+      spread:          'auto',
+      layout:          'paginated',
+      customBg:        '#ffffff',
+      customText:      '#333333',
+      homeView:        'grid',
+      ...((await this._get('preferences')) || {})
     };
   },
 
@@ -89,7 +94,7 @@ const EpubStorage = {
       const migrated = {
         pos:   pos  || null,
         time:  (typeof time === 'number') ? time : 0,
-        speed: { sampledSeconds: 0, sampledProgress: 0 }
+        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
       };
       await this._set({ ['bookMeta_' + bookId]: migrated });
       this._remove(['pos_' + bookId, 'time_' + bookId]).catch(() => {});
@@ -144,6 +149,11 @@ const EpubStorage = {
   },
 
   async removeReadingTime(bookId) {
+    const current = await this._get('bookMeta_' + bookId);
+    if (current) {
+      current.time = 0;
+      await this._set({ ['bookMeta_' + bookId]: current });
+    }
     await this._remove('time_' + bookId);
   },
 

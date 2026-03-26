@@ -43,6 +43,7 @@ const DbGateway = {
 
         if (!db.objectStoreNames.contains('files')) {
           const s = db.createObjectStore('files', { keyPath: 'bookId' });
+          s.createIndex('by_filename', 'filename', { unique: false });
         }
         if (!db.objectStoreNames.contains('covers'))
           db.createObjectStore('covers',    { keyPath: 'bookId' });
