@@ -117,6 +117,10 @@
 
     function setLocationIndexStatus(status, detail = '') {
       if (!dom.progressLocation) return;
+      if (status === 'ready') {
+        dom.progressLocation.textContent = '';
+        return;
+      }
       if (detail) {
         dom.progressLocation.textContent = detail;
         return;
