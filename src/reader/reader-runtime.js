@@ -24,13 +24,27 @@
     function scheduleLocationsGeneration(task) {
       const run = () => Promise.resolve().then(task).catch((e) => {
         console.warn('[Runtime] locations generate failed:', e);
-        ui.showLoading(false);
       });
       if (typeof requestIdleCallback === 'function') {
         requestIdleCallback(() => run(), { timeout: 1500 });
         return;
       }
       setTimeout(() => run(), 0);
+    }
+
+    function estimateBookSizeBytes(data) {
+      if (!data) return 0;
+      if (typeof Blob !== 'undefined' && data instanceof Blob) return data.size || 0;
+      if (data instanceof ArrayBuffer) return data.byteLength || 0;
+      if (ArrayBuffer.isView(data)) return data.byteLength || 0;
+      return 0;
+    }
+
+    function chooseLocationsBreak(data) {
+      const size = estimateBookSizeBytes(data);
+      if (size > 3 * 1024 * 1024) return 4800;
+      if (size > 1024 * 1024) return 3200;
+      return 1600;
     }
 
     // ── Data Normalization ────────────────────────────────────────────────────
@@ -56,6 +70,8 @@
      * @param {string|null} [targetCfi]  指定跳转位置（覆盖 storage savedPos）
      */
     async function openBook(fileData, bookId, fileName, targetCfi = null) {
+      const openStartedAt = Date.now();
+
       // ── 清理旧书 ────────────────────────────────────────────────────────────
       if (state.book) {
         state.book.destroy();
@@ -177,6 +193,7 @@
       const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
       if (displayCfi) await state.rendition.display(displayCfi);
       else await state.rendition.display();
+      console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
       // ── recentBooks ─────────────────────────────────────────────────────────
       await EpubStorage.addRecentBook({
@@ -221,7 +238,15 @@
 
       const cachedLocsJSON = await EpubStorage.getLocations(bookId);
       if (cachedLocsJSON) {
+        console.info('[Runtime] locations_cache_hit:', true);
         state.book.locations.load(cachedLocsJSON);
+        state.hasLocations = true;
+        state.locationsStatus = 'ready';
+        state.locationsBreak = null;
+        state.locationsError = null;
+        if (typeof ui.setLocationIndexStatus === 'function') {
+          ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
+        }
         // locations 已就绪，立即更新进度 / 速度追踪起点
         const loc = state.rendition.currentLocation();
         if (loc && loc.start) {
@@ -230,19 +255,60 @@
           persistence.onRelocated(loc);
         }
       } else {
-        ui.showLoading(true, '准备定位索引...');
+        const activeBook = state.book;
+        const locationsBreak = chooseLocationsBreak(fileData);
+        state.hasLocations = false;
+        state.locationsStatus = 'pending';
+        state.locationsBreak = locationsBreak;
+        state.locationsError = null;
+        if (typeof ui.setLocationIndexStatus === 'function') {
+          ui.setLocationIndexStatus('pending', '准备生成阅读定位索引...');
+        }
         scheduleLocationsGeneration(async () => {
-          ui.showLoading(true, '生成阅读定位索引...');
-          await state.book.locations.generate(1600);
-          const locsJSON = state.book.locations.save();
-          await EpubStorage.saveLocations(state.currentBookId, locsJSON);
-          const loc = state.rendition.currentLocation();
-          if (loc && loc.start) {
-            const p = state.book.locations.percentageFromCfi(loc.start.cfi);
-            initSpeedTracking(p);
-            persistence.onRelocated(loc);
+          if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+          state.locationsStatus = 'generating';
+          if (typeof ui.setLocationIndexStatus === 'function') {
+            ui.setLocationIndexStatus('generating', '后台生成阅读定位索引...');
           }
-          ui.showLoading(false, '定位索引就绪');
+
+          const generationStartedAt = Date.now();
+
+          try {
+            await state.book.locations.generate(locationsBreak);
+            if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+            const locsJSON = state.book.locations.save();
+            await EpubStorage.saveLocations(state.currentBookId, locsJSON);
+            state.hasLocations = true;
+            state.locationsStatus = 'ready';
+            state.locationsError = null;
+            console.info('[Runtime] locations_generate_duration(ms):', Date.now() - generationStartedAt);
+
+            const loc = state.rendition.currentLocation();
+            if (loc && loc.start) {
+              const p = state.book.locations.percentageFromCfi(loc.start.cfi);
+              initSpeedTracking(p);
+              persistence.onRelocated(loc);
+            }
+
+            if (typeof ui.setLocationIndexStatus === 'function') {
+              ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
+            }
+          } catch (e) {
+            if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+            state.hasLocations = false;
+            state.locationsStatus = 'failed';
+            state.locationsError = e && e.message ? e.message : String(e);
+            console.warn('[Runtime] locations generate failed:', e);
+            if (typeof ui.setLocationIndexStatus === 'function') {
+              ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
+            }
+            if (persistence && typeof persistence.updateReadingStats === 'function') {
+              persistence.updateReadingStats();
+            }
+          }
         });
       }
     }

@@ -23,6 +23,10 @@
       currentBookId:    '',
       currentFileName:  '',
       isBookLoaded:     false,
+      hasLocations:     false,
+      locationsStatus:  'idle',
+      locationsBreak:   null,
+      locationsError:   null,
 
       // ── CFI / 导航保护 ────────────────────────────────────────────────────
       currentStableCfi: null,
@@ -67,6 +71,10 @@
     state.lastProgress         = 0;
     state.lastPercent          = null;
     state.currentStableCfi     = null;
+    state.hasLocations         = false;
+    state.locationsStatus      = 'idle';
+    state.locationsBreak       = null;
+    state.locationsError       = null;
     if (state.readingTimer) {
       clearInterval(state.readingTimer);
       state.readingTimer = null;

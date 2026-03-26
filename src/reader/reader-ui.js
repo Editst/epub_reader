@@ -115,6 +115,22 @@
       if (dom.progressCurrent) dom.progressCurrent.textContent = percent.toFixed(1) + '%';
     }
 
+    function setLocationIndexStatus(status, detail = '') {
+      if (!dom.progressLocation) return;
+      if (detail) {
+        dom.progressLocation.textContent = detail;
+        return;
+      }
+      const fallbackText = {
+        idle: '',
+        pending: '准备生成阅读定位索引...',
+        generating: '后台生成阅读定位索引...',
+        ready: '阅读定位索引已就绪',
+        failed: '阅读定位索引不可用'
+      };
+      dom.progressLocation.textContent = fallbackText[status] || '';
+    }
+
     // ── Theme ─────────────────────────────────────────────────────────────────
 
     // 以下主题与对比度工具函数直接从 reader-full.js 搬运，保证颜色逻辑一致性
@@ -635,6 +651,7 @@
       showLoading,
       showLoadError,
       updateProgress,
+      setLocationIndexStatus,
       applyTheme,
       applyThemeToRendition,
       ensureFocus,

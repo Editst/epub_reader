@@ -165,7 +165,8 @@
       const readStr = Utils.formatDuration(state.activeReadingSeconds);
 
       let remainingStr = '--';
-      if (state.book.locations && state.book.locations.length()) {
+      const hasLocations = !!(state.book.locations && state.book.locations.length());
+      if (hasLocations) {
         const currentLoc = state.rendition.currentLocation();
         let progress = 0;
         if (currentLoc && currentLoc.start) {
@@ -197,6 +198,14 @@
       }
 
       progressTimeEl.textContent = `阅读时长: ${readStr} | 预计剩余: ${remainingStr}`;
+
+      if (typeof ui.setLocationIndexStatus === 'function' && !hasLocations) {
+        if (state.locationsStatus === 'pending' || state.locationsStatus === 'generating') {
+          ui.setLocationIndexStatus(state.locationsStatus, '阅读定位索引生成中');
+        } else if (state.locationsStatus === 'failed') {
+          ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
+        }
+      }
     }
 
     // ── Reading Timer ─────────────────────────────────────────────────────────

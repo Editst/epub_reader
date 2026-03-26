@@ -137,6 +137,76 @@ test.describe('ReaderPersistence', () => {
     assert.equal(document.getElementById('btn-bookmark').title, '移除书签 (B)');
   });
 
+  test.it('updateReadingStats 在索引未就绪时显示 ETA 降级文案', () => {
+    const { document } = createMockDocument(['progress-time', 'progress-location']);
+    global.document = document;
+
+    const locationStatusCalls = [];
+    const state = {
+      activeReadingSeconds: 45,
+      locationsStatus: 'pending',
+      book: {
+        locations: {
+          length: () => 0
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        setLocationIndexStatus(status, detail) {
+          locationStatusCalls.push([status, detail]);
+        }
+      }
+    });
+
+    persistence.updateReadingStats();
+
+    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 45秒 \| 预计剩余: --/);
+    assert.deepEqual(locationStatusCalls, [['pending', '阅读定位索引生成中']]);
+  });
+
+  test.it('updateReadingStats 在索引失败时保留阅读并显示失败状态', () => {
+    const { document } = createMockDocument(['progress-time', 'progress-location']);
+    global.document = document;
+
+    const locationStatusCalls = [];
+    const state = {
+      activeReadingSeconds: 90,
+      locationsStatus: 'failed',
+      book: {
+        locations: {
+          length: () => 0
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/3)' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        setLocationIndexStatus(status, detail) {
+          locationStatusCalls.push([status, detail]);
+        }
+      }
+    });
+
+    persistence.updateReadingStats();
+
+    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 1分钟 \| 预计剩余: --/);
+    assert.deepEqual(locationStatusCalls, [['failed', '阅读定位索引不可用']]);
+  });
+
   test.it('visibilitychange 在隐藏时 flush 位置、时长和速度会话，在重新可见时重置起点', async () => {
     const { document } = createMockDocument();
     global.document = document;

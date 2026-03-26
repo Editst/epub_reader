@@ -1,7 +1,7 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.2.0  
-更新：2026-03-17
+版本：v2.2.1  
+更新：2026-03-27
 
 ---
 
@@ -286,18 +286,21 @@ Utils.formatMinutes(minutes: number): string
 1.  **Runtime (`reader-runtime.js`)**：
     - 绑定 `epub.js` 的 `book` 和 `rendition` 生命周期。
     - 转发 `relocated`、`rendered` 等核心事件至全局总线。
-    - 管理 `locations.generate()` 的 `Idle` 调度逻辑（v2.0.0 P-2）。
+    - 管理 `locations.generate()` 的后台调度、自适应 break 与缓存复用；首开正文不再等待全量 locations 构建（v2.2.1）。
 
 2.  **State (`reader-state.js`)**：
     - 提供单一事实来源（Single Source of Truth）。
     - 缓存 `currentBookId`、`isBookLoaded`、`rendition` 实例等运行时状态。
+    - 维护 `hasLocations`、`locationsStatus`、`locationsBreak`、`locationsError`，为后台索引和 UI 降级提供状态来源。
 
 3.  **Persistence (`reader-persistence.js`)**：
     - 实现阅读位置（CFI）的 300ms 防抖持久化（ADR-003）。
     - 处理阅读速率采样（v2.0.0 P-1）与累计时长落盘。
+    - 在 locations 未就绪或失败时，将 ETA 降级为 `--`，并同步底部定位状态文案，保证阅读不中断。
 
 4.  **UI (`reader-ui.js`)**：
     - 处理顶部/底部工具栏、侧边栏面板（TOC/Search/Bookmarks/Highlights）的显示/隐藏（通过 class 控制）。
+    - 通过底部 `progress-location` 承载非阻塞的定位索引状态提示。
     - 挂载 `mount(context)` / 卸载 `unmount()` 各功能模块。
 
 **协作模式**：
@@ -422,8 +425,9 @@ Annotations.hookRendition(rendition): void
 ### 5.2 完整数据生命周期
 1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`。
 2. **阅读**：`onLocationChanged` → `schedulePositionSave` (300ms 防抖) → `bookMeta_<id>`。
-3. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
-4. **清理**：`removeBook` 并行删除 7 项关联数据，确保无孤立 Key。
+3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
+4. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
+5. **清理**：`removeBook` 并行删除 7 项关联数据，确保无孤立 Key。
 
 ---
 

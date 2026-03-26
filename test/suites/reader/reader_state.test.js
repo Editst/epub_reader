@@ -15,6 +15,10 @@ test.describe('ReaderState', () => {
     assert.equal(state.rendition, null);
     assert.equal(state.currentBookId, '');
     assert.equal(state.isBookLoaded, false);
+    assert.equal(state.hasLocations, false);
+    assert.equal(state.locationsStatus, 'idle');
+    assert.equal(state.locationsBreak, null);
+    assert.equal(state.locationsError, null);
     assert.equal(state.prefs.theme, 'light');
     assert.equal(state.prefs.layout, 'paginated');
   });
@@ -34,6 +38,10 @@ test.describe('ReaderState', () => {
     state.lastProgress = 0.4;
     state.lastPercent = 40;
     state.currentStableCfi = 'epubcfi(/6/2)';
+    state.hasLocations = true;
+    state.locationsStatus = 'ready';
+    state.locationsBreak = 3200;
+    state.locationsError = 'boom';
     state.readingTimer = 11;
     state.posTimer = 22;
 
@@ -48,6 +56,10 @@ test.describe('ReaderState', () => {
     assert.equal(state.lastProgress, 0);
     assert.equal(state.lastPercent, null);
     assert.equal(state.currentStableCfi, null);
+    assert.equal(state.hasLocations, false);
+    assert.equal(state.locationsStatus, 'idle');
+    assert.equal(state.locationsBreak, null);
+    assert.equal(state.locationsError, null);
     assert.equal(state.readingTimer, null);
     assert.equal(state.posTimer, null);
     assert.deepEqual(cleared, [['interval', 11], ['timeout', 22]]);

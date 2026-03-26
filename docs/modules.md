@@ -1,7 +1,7 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.2.0  
-更新：2026-03-17
+版本：v2.2.1  
+更新：2026-03-27
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -116,6 +116,10 @@ getLocations(bookId: string): Promise<string | null>
 removeLocations(bookId: string): Promise<void>
 ```
 
+**v2.2.1 运行约束**：
+- Reader 首开无 locations 缓存时，正文渲染不可再等待 `saveLocations/getLocations` 完成。
+- `locations` 只影响精确进度、ETA 与百分比跳转，不得阻塞基础阅读流程。
+
 ### 文件（IndexedDB）
 
 ```typescript
@@ -194,6 +198,71 @@ Utils.formatMinutes(minutes: number): string
 // 0分钟 / N分钟 / N小时N分钟
 // 用于 ETA 显示
 ```
+
+---
+
+## ReaderState（reader/reader-state.js）
+
+```typescript
+state.hasLocations: boolean
+state.locationsStatus: 'idle' | 'pending' | 'generating' | 'ready' | 'failed'
+state.locationsBreak: number | null
+state.locationsError: string | null
+```
+
+**v2.2.1 新增约束**：
+- `hasLocations` 表示当前书籍是否已有可用定位索引。
+- `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
+- 切书或 `resetReadingSession()` 时，上述字段必须恢复到初始值。
+
+---
+
+## ReaderRuntime（reader/reader-runtime.js）
+
+```typescript
+openBook(
+  fileData: ArrayBuffer | Uint8Array | Blob,
+  bookId: string,
+  fileName: string,
+  targetCfi?: string | null
+): Promise<void>
+
+scheduleLocationsGeneration(task: Function): void
+```
+
+**v2.2.1 行为约束**：
+- 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
+- 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
+- break 参数采用自适应策略：默认 `1600`，大于 1MB 使用 `3200`，大于 3MB 使用 `4800`。
+- 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
+
+---
+
+## ReaderPersistence（reader/reader-persistence.js）
+
+```typescript
+onRelocated(location: object): void
+updateReadingStats(): void
+```
+
+**v2.2.1 行为约束**：
+- `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
+- `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步“生成中/不可用”状态，而不是显示误导性的精确进度。
+
+---
+
+## ReaderUi（reader/reader-ui.js）
+
+```typescript
+setLocationIndexStatus(
+  status: 'idle' | 'pending' | 'generating' | 'ready' | 'failed',
+  detail?: string
+): void
+```
+
+**v2.2.1 行为约束**：
+- `progress-location` 用于承载非阻塞定位索引状态。
+- 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到“先等索引再阅读”的旧行为。
 
 ---
 
