@@ -15,6 +15,8 @@ window.Highlights = (function () {
   let _fileName = '';
   let _currentCfiRange = null;
   let _activeHighlightCfi = null;
+  let _renderedHighlightCfis = new Set();
+  const _hookedRenditions = new WeakSet();
 
   const toolbar = document.getElementById('selection-toolbar');
   const btnAddNote = document.getElementById('btn-add-note');
@@ -95,6 +97,7 @@ window.Highlights = (function () {
     // onto the same rendition, causing duplicate highlights and toolbar flicker.
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
+      clearRenderedHighlights();
     }
 
     _bookId = bookId;
@@ -109,25 +112,28 @@ window.Highlights = (function () {
     _rendition.on('selected', handleSelection);
     
     // CRITICAL: Fallback for selection and click stability inside epub.js iframes.
-    // hooks.content.register IS called for each new section/layout — that is
-    // intentional because each new iframe document needs its own listener.
-    // The window-level listener (above) covers the host page; this covers iframes.
-    _rendition.hooks.content.register((contents) => {
-      const doc = contents.document;
-      // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
-      doc.addEventListener('mousedown', (e) => {
-        setTimeout(() => {
-          const selection = contents.window.getSelection();
-          if (selection && !selection.isCollapsed) {
-            // A selection is active; the 'selected' event will handle toolbar display.
-          } else {
-            if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
-            if (_internalAction) return;
-            closePanels();
-          }
-        }, 10);
+    // Register once per rendition; epub.js will invoke this callback for each new
+    // contents document, so re-registering it on every setBookDetails duplicates
+    // iframe mousedown handlers.
+    if (!_hookedRenditions.has(_rendition)) {
+      _hookedRenditions.add(_rendition);
+      _rendition.hooks.content.register((contents) => {
+        const doc = contents.document;
+        // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
+        doc.addEventListener('mousedown', (e) => {
+          setTimeout(() => {
+            const selection = contents.window.getSelection();
+            if (selection && !selection.isCollapsed) {
+              // A selection is active; the 'selected' event will handle toolbar display.
+            } else {
+              if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
+              if (_internalAction) return;
+              closePanels();
+            }
+          }, 10);
+        });
       });
-    });
+    }
   }
 
   // Deprecated in v1.2.0 in favor of direct rect inheritance for Modify Button,
@@ -318,8 +324,11 @@ window.Highlights = (function () {
       if (_activeHighlightCfi) {
           _rendition.annotations.remove(_activeHighlightCfi, "highlight");
           _rendition.annotations.remove(_activeHighlightCfi, "underline");
+          _renderedHighlightCfis.delete(_activeHighlightCfi);
           highlights = highlights.filter(h => h.cfi !== _activeHighlightCfi);
           await EpubStorage.saveHighlights(_bookId, highlights);
+          _activeHighlightCfi = null;
+          _pendingCfi = null;
       }
       closeToolbar();
   });
@@ -390,6 +399,7 @@ window.Highlights = (function () {
   }
 
   function renderHighlight(hl) {
+    let rendered = false;
     try {
         // 1. Always render the base highlight if it has a color
         if (hl.color !== 'transparent') {
@@ -402,6 +412,7 @@ window.Highlights = (function () {
                 "epubjs-hl-base",
                 { "fill": safeColor, "fill-opacity": "0.4" }
             );
+            rendered = true;
         }
 
         // 2. If it has a note, render a dashed underline
@@ -414,16 +425,36 @@ window.Highlights = (function () {
                 className,
                 {} // Styles handled by CSS class
             );
+            rendered = true;
+        }
+        if (rendered) {
+            _renderedHighlightCfis.add(hl.cfi);
         }
     } catch (e) {
         console.warn("Could not render highlight, possibly CFI invalid in current view", e);
     }
   }
 
+  function clearRenderedHighlights() {
+    if (!_rendition || !_rendition.annotations) {
+      _renderedHighlightCfis.clear();
+      return;
+    }
+
+    _renderedHighlightCfis.forEach(cfi => {
+      try {
+        _rendition.annotations.remove(cfi, "highlight");
+        _rendition.annotations.remove(cfi, "underline");
+      } catch (_) {}
+    });
+    _renderedHighlightCfis.clear();
+  }
+
   function reRenderHighlight(cfi) {
     try {
       _rendition.annotations.remove(cfi, "highlight");
       _rendition.annotations.remove(cfi, "underline");
+      _renderedHighlightCfis.delete(cfi);
       const hl = highlights.find(h => h.cfi === cfi);
       if (hl) renderHighlight(hl);
     } catch (e) {}
@@ -477,6 +508,7 @@ window.Highlights = (function () {
   }
 
   function unmount() {
+    clearRenderedHighlights();
     closePanels();
   }
 
