@@ -19,7 +19,7 @@ test.describe('ReaderPersistence', () => {
     global.document = originalDocument;
   });
 
-  test.it('schedulePositionSave 仅保存最后一次 debounce 结果', async () => {
+  test.it('schedulePositionSave 立即保存首个位置并 debounce 最后位置', async () => {
     const state = {
       posTimer: null
     };
@@ -54,7 +54,44 @@ test.describe('ReaderPersistence', () => {
     global.clearTimeout = originalClearTimeout;
     EpubStorage.savePosition = originalSavePosition;
 
-    assert.deepEqual(saves, [['book-1', 'cfi-2', 20]]);
+    assert.deepEqual(saves, [
+      ['book-1', 'cfi-1', 10],
+      ['book-1', 'cfi-2', 20]
+    ]);
+  });
+
+  test.it('schedulePositionSave 会立即启动最新位置持久化', async () => {
+    const state = {
+      posTimer: null
+    };
+    const scheduled = new Map();
+    let nextTimerId = 1;
+    const saves = [];
+    const originalSetTimeout = global.setTimeout;
+    const originalClearTimeout = global.clearTimeout;
+    const originalSavePosition = EpubStorage.savePosition;
+
+    global.setTimeout = (fn) => {
+      const id = nextTimerId++;
+      scheduled.set(id, fn);
+      return id;
+    };
+    global.clearTimeout = (id) => {
+      scheduled.delete(id);
+    };
+    EpubStorage.savePosition = async (...args) => {
+      saves.push(args);
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    persistence.schedulePositionSave('book-live', 'epubcfi(/6/10)', 42.1);
+    await Promise.resolve();
+
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.deepEqual(saves, [['book-live', 'epubcfi(/6/10)', 42.1]]);
   });
 
   test.it('flushPositionSave 立即落盘 currentStableCfi 与 lastPercent', async () => {
@@ -77,8 +114,7 @@ test.describe('ReaderPersistence', () => {
     };
 
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
-    persistence.flushPositionSave();
-    await Promise.resolve();
+    await persistence.flushPositionSave();
 
     global.clearTimeout = originalClearTimeout;
     EpubStorage.savePosition = originalSavePosition;

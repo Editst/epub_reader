@@ -1,7 +1,7 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.2.1  
-更新：2026-03-27
+版本：v2.2.2  
+更新：2026-06-22
 
 ---
 
@@ -294,8 +294,9 @@ Utils.formatMinutes(minutes: number): string
     - 维护 `hasLocations`、`locationsStatus`、`locationsBreak`、`locationsError`，为后台索引和 UI 降级提供状态来源。
 
 3.  **Persistence (`reader-persistence.js`)**：
-    - 实现阅读位置（CFI）的 300ms 防抖持久化（ADR-003）。
+    - 实现阅读位置（CFI）的“首次立即写入 + 300ms 防抖收敛最终位置”策略。
     - 处理阅读速率采样（v2.0.0 P-1）与累计时长落盘。
+    - `flushPositionSave()` 返回最新位置写入 Promise，关闭/隐藏路径可等待最新保存。
     - 在 locations 未就绪或失败时，将 ETA 降级为 `--`，并同步底部定位状态文案，保证阅读不中断。
 
 4.  **UI (`reader-ui.js`)**：
@@ -424,7 +425,7 @@ Annotations.hookRendition(rendition): void
 
 ### 5.2 完整数据生命周期
 1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`。
-2. **阅读**：`onLocationChanged` → `schedulePositionSave` (300ms 防抖) → `bookMeta_<id>`。
+2. **阅读**：`onLocationChanged` → `schedulePositionSave`（首次立即写入，连续变化 300ms 后补写最终位置）→ `bookMeta_<id>`。
 3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
 4. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
 5. **清理**：`removeBook` 并行删除 7 项关联数据，确保无孤立 Key。
@@ -438,6 +439,7 @@ Annotations.hookRendition(rendition): void
 - **ADR-003：Key 分离原则**：按写频率分组（pos 分离），规避合并对象引起的写放大问题。
 - **ADR-004：锚点对齐 start.cfi (v1.8.0)**：解决字号变大时由于单屏字数变少导致的重排偏移。
 - **ADR-005：废弃 highlightKeys 索引 (v1.7.0)**：消除索引同步 Bug，改为遍历 `recentBooks` 并行读取。
+- **ADR-006：阅读位置保存实时化 (v2.2.2)**：首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛，降低快速关闭页面时丢失最新进度的概率。
 
 ---
 

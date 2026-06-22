@@ -133,11 +133,12 @@ const Annotations = {
     this._onKeyDown = (e) => {
       if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
     };
-    document.addEventListener('keydown', this._onKeyDown);
+    this._bindGlobalEvents();
   },
 
   mount(context) {
     if (!context) return;
+    this._bindGlobalEvents();
     this.setBook(context.book);
     this.hookRendition(context.rendition);
   },
@@ -147,11 +148,17 @@ const Annotations = {
     this.rendition = null;
     if (this._onKeyDown) {
       document.removeEventListener('keydown', this._onKeyDown);
-      this._onKeyDown = null;
+      this._isKeyDownBound = false;
     }
   },
 
   setBook(book) { this.book = book; },
+
+  _bindGlobalEvents() {
+    if (!this._onKeyDown || this._isKeyDownBound) return;
+    document.addEventListener('keydown', this._onKeyDown);
+    this._isKeyDownBound = true;
+  },
 
   // ── Phase 0: Document context (one scan per section) ───────────────────────
 

@@ -109,6 +109,7 @@ const Search = (function() {
     // Cancel any active searches if panel is closed
     isSearching = false;
     currentSearchId++;
+    if (searchBtn) searchBtn.disabled = false;
     clearSearchHighlight(); // v1.2.0: Clean up search highlights on exit
   }
 
@@ -119,6 +120,7 @@ const Search = (function() {
     if (searchInput) searchInput.value = '';
     isSearching = false;
     currentSearchId++;
+    if (searchBtn) searchBtn.disabled = false;
     clearSearchHighlight();
     book = null;
     rendition = null;

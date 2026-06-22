@@ -1,7 +1,7 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.2.1  
-更新：2026-03-27
+版本：v2.2.2  
+更新：2026-06-22
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -208,11 +208,13 @@ state.hasLocations: boolean
 state.locationsStatus: 'idle' | 'pending' | 'generating' | 'ready' | 'failed'
 state.locationsBreak: number | null
 state.locationsError: string | null
+state.lastPositionSave: Promise<void> | null
 ```
 
-**v2.2.1 新增约束**：
+**v2.2.2 运行约束**：
 - `hasLocations` 表示当前书籍是否已有可用定位索引。
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
+- `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
 - 切书或 `resetReadingSession()` 时，上述字段必须恢复到初始值。
 
 ---
@@ -242,10 +244,15 @@ scheduleLocationsGeneration(task: Function): void
 
 ```typescript
 onRelocated(location: object): void
+schedulePositionSave(bookId: string, cfi: string, percent?: number | null): void
+flushPositionSave(): Promise<void>
 updateReadingStats(): void
 ```
 
-**v2.2.1 行为约束**：
+**v2.2.2 行为约束**：
+- `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
+- 连续位置变化仍保留 300ms 防抖，用最终 CFI 覆盖首个位置。
+- `flushPositionSave()` 必须清理防抖 timer，并返回最新保存 Promise。
 - `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步“生成中/不可用”状态，而不是显示误导性的精确进度。
 
@@ -376,6 +383,7 @@ Search.togglePanel(): void
 Search.closePanel(): void
 Search.reset(): void
 // 切换书籍时调用，取消进行中的搜索
+// v2.2.2：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
 
 Search.mount(context): void
 Search.unmount(): void
@@ -415,8 +423,13 @@ ImageViewer.close(): void
 Annotations.init(): void
 Annotations.setBook(book: Book): void
 Annotations.hookRendition(rendition: Rendition): void
+Annotations.mount(context): void
+Annotations.unmount(): void
 // 注册 EPUB 内联注释链接的点击处理
 ```
+
+**v2.2.2 行为约束**：
+- `mount(context)` 必须确保 Escape 键监听已绑定；`unmount()` 解除后，下一次 mount 要能恢复。
 
 ---
 
@@ -428,24 +441,24 @@ Annotations.hookRendition(rendition: Rendition): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=8"></script>
-<script src="../utils/utils.js?v=8"></script>
-<script src="../utils/storage.js?v=8"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=9"></script>
+<script src="../utils/utils.js?v=9"></script>
+<script src="../utils/storage.js?v=9"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=8"></script>
-<script src="annotations.js?v=8"></script>
-<script src="toc.js?v=8"></script>
-<script src="search.js?v=8"></script>
-<script src="bookmarks.js?v=8"></script>
-<script src="highlights.js?v=8"></script>
+<script src="image-viewer.js?v=11"></script>
+<script src="annotations.js?v=11"></script>
+<script src="toc.js?v=11"></script>
+<script src="search.js?v=11"></script>
+<script src="bookmarks.js?v=11"></script>
+<script src="highlights.js?v=11"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=8"></script>
-<script src="reader-runtime.js?v=8"></script>
-<script src="reader-persistence.js?v=8"></script>
-<script src="reader-ui.js?v=8"></script>
-<script src="reader.js?v=8"></script>
+<script src="reader-state.js?v=11"></script>
+<script src="reader-ui.js?v=11"></script>
+<script src="reader-persistence.js?v=11"></script>
+<script src="reader-runtime.js?v=11"></script>
+<script src="reader.js?v=11"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

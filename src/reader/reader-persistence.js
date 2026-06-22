@@ -20,17 +20,30 @@
     // ── Position ─────────────────────────────────────────────────────────────
 
     function schedulePositionSave(bookId, cfi, percent) {
+      const shouldSaveImmediately = !state.posTimer;
+      if (shouldSaveImmediately) {
+        state.lastPositionSave = EpubStorage.savePosition(bookId, cfi, percent);
+      }
+
       clearTimeout(state.posTimer);
       state.posTimer = setTimeout(() => {
-        EpubStorage.savePosition(bookId, cfi, percent);
+        state.posTimer = null;
+        state.lastPositionSave = EpubStorage.savePosition(bookId, cfi, percent);
       }, 300);
     }
 
     function flushPositionSave() {
       clearTimeout(state.posTimer);
+      state.posTimer = null;
       if (state.currentBookId && state.currentStableCfi) {
-        EpubStorage.savePosition(state.currentBookId, state.currentStableCfi, state.lastPercent);
+        state.lastPositionSave = EpubStorage.savePosition(
+          state.currentBookId,
+          state.currentStableCfi,
+          state.lastPercent
+        );
+        return state.lastPositionSave;
       }
+      return state.lastPositionSave || Promise.resolve();
     }
 
     // ── Speed Session ─────────────────────────────────────────────────────────

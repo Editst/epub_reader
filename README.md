@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.2.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.2.2-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -22,7 +22,8 @@
   - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
   - v2.0.0：ETA 升级为会话加权模型（指数衰减 β=0.8），智能识别跳读；locations 生成引入 Idle 调度与进度文案；书架支持骨架屏（Skeleton Screen）+ 逐本流式渲染。
   - v2.1.1：Reader 内核完成四层解耦（`reader-state.js` / `reader-runtime.js` / `reader-persistence.js` / `reader-ui.js`），由 Orchestrator 统一调度并落地 `mount/unmount` 生命周期契约。
-  - v2.2.0：完成 CSP 最终收敛，彻底移除 `'unsafe-inline'` 支持；全页面补全 ARIA 语义与可访问性标签；`speed.sessions` 深度持久化落地。
+  - v2.2.0：`speed.sessions` 深度持久化落地；CSP 继续暂保留 `'unsafe-inline'` 以兼容当前图片查看器与内联样式路径。
+  - v2.2.2：阅读位置改为“首次立即落盘 + 300ms 最终位置收敛”，并修复搜索取消与注释弹窗切书后的交互恢复问题。
   - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固。
 
 - **🔍 智能检索与注释 (Search & Footnotes)**
@@ -65,6 +66,7 @@
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
 - **数据库版本一致性**：所有 IndexedDB 读写路径统一通过 DbGateway（DB v4）管理，消除新用户首次访问时读到空数据库的边缘场景。
 - **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
+- **阅读位置实时保存**：翻页/滚动后的首个稳定 CFI 会立即启动持久化，连续变化时再用 300ms 防抖保存最终位置，减少关闭页面时回到旧位置的风险。
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
 - **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。
 - **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。

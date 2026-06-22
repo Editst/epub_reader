@@ -42,6 +42,7 @@
       sessionStart: null,  // { progress: number, timestamp: number }
       lastProgress: 0,     // 上次 relocated 进度（0-1）
       posTimer:     null,  // schedulePositionSave 防抖 timer
+      lastPositionSave: null, // 最近一次位置写入 Promise（flush/unmount 可等待）
       lastPercent:  null,  // 上次百分比（visibilitychange flush 用）
 
       // ── 用户偏好（从 storage 加载后覆盖） ──────────────────────────────────
@@ -71,6 +72,7 @@
     state.lastProgress         = 0;
     state.lastPercent          = null;
     state.currentStableCfi     = null;
+    state.lastPositionSave     = null;
     state.hasLocations         = false;
     state.locationsStatus      = 'idle';
     state.locationsBreak       = null;
