@@ -162,13 +162,15 @@
 
       // ── 封面提取（fire-and-forget） ─────────────────────────────────────────
       (async () => {
+        let coverUrl = null;
         try {
-          const coverUrl = await state.book.coverUrl();
+          coverUrl = await state.book.coverUrl();
           if (coverUrl) {
             const blob = await (await fetch(coverUrl)).blob();
             await EpubStorage.saveCover(bookId, blob);
           }
         } catch (e) { console.warn('[Runtime] cover extraction failed:', e); }
+        finally { if (coverUrl) URL.revokeObjectURL(coverUrl); }
       })();
 
       // ── metadata / title ────────────────────────────────────────────────────
@@ -438,7 +440,8 @@
           'text-indent': prefs.paragraphIndent !== false ? '2em' : '0',
           'text-align': 'justify'
         },
-        'img':   { 'max-width': '100% !important', 'height': 'auto !important' }
+        'img':   { 'max-width': '100% !important', 'height': 'auto !important' },
+        'image': { 'max-width': '100% !important', 'height': 'auto !important' }
       });
       ui.applyThemeToRendition(prefs.theme || 'light');
 

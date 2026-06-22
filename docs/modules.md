@@ -1,6 +1,6 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.2.2  
+版本：v2.2.3  
 更新：2026-06-22
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -211,7 +211,7 @@ state.locationsError: string | null
 state.lastPositionSave: Promise<void> | null
 ```
 
-**v2.2.2 运行约束**：
+**v2.2.3 运行约束**：
 - `hasLocations` 表示当前书籍是否已有可用定位索引。
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
 - `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
@@ -249,7 +249,7 @@ flushPositionSave(): Promise<void>
 updateReadingStats(): void
 ```
 
-**v2.2.2 行为约束**：
+**v2.2.3 行为约束**：
 - `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
 - 连续位置变化仍保留 300ms 防抖，用最终 CFI 覆盖首个位置。
 - `flushPositionSave()` 必须清理防抖 timer，并返回最新保存 Promise。
@@ -383,7 +383,7 @@ Search.togglePanel(): void
 Search.closePanel(): void
 Search.reset(): void
 // 切换书籍时调用，取消进行中的搜索
-// v2.2.2：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
+// v2.2.3：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
 
 Search.mount(context): void
 Search.unmount(): void
@@ -428,7 +428,7 @@ Annotations.unmount(): void
 // 注册 EPUB 内联注释链接的点击处理
 ```
 
-**v2.2.2 行为约束**：
+**v2.2.3 行为约束**：
 - `mount(context)` 必须确保 Escape 键监听已绑定；`unmount()` 解除后，下一次 mount 要能恢复。
 
 ---

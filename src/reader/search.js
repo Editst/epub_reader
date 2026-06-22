@@ -169,7 +169,7 @@ const Search = (function() {
         
         if (itemResults && itemResults.length > 0) {
           results = results.concat(itemResults);
-          renderPartialResults(results, query);
+          renderPartialResults(itemResults, query);
         }
       }
 
@@ -196,10 +196,8 @@ const Search = (function() {
     }
   }
 
-  function renderPartialResults(results, query) {
-    resultsList.innerHTML = '';
-
-    results.forEach(res => {
+  function renderPartialResults(newResults, query) {
+    newResults.forEach(res => {
       const itemEl = document.createElement('div');
       itemEl.className = 'bookmark-item search-result-item';
 

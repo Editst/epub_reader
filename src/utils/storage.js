@@ -177,10 +177,10 @@ const EpubStorage = {
     await this._enqueueBookMetaWrite(bookId, (current) => {
       // speed 结构 v2.2.0：向后兼容旧 { sampledSeconds, sampledProgress }
       current.speed = {
-        sampledSeconds:  speed.sampledSeconds  || 0,
-        sampledProgress: speed.sampledProgress || 0,
-        sessions:        speed.sessions        || current.speed?.sessions        || [],
-        sessionCount:    speed.sessionCount    || current.speed?.sessionCount    || 0
+        sampledSeconds:  speed.sampledSeconds  ?? 0,
+        sampledProgress: speed.sampledProgress ?? 0,
+        sessions:        speed.sessions        ?? current.speed?.sessions        ?? [],
+        sessionCount:    speed.sessionCount    ?? current.speed?.sessionCount    ?? 0
       };
       return current;
     });
@@ -238,10 +238,10 @@ const EpubStorage = {
       }
     }
 
-    await Promise.all(Array.from(bookIds).map(async (bookId) => {
-      const hls = await this._get('highlights_' + bookId);
+    for (const bookId of bookIds) {
+      const hls = allItems['highlights_' + bookId];
       if (hls && hls.length > 0) result[bookId] = hls;
-    }));
+    }
 
     this._remove('highlightKeys').catch(() => {});
     return result;

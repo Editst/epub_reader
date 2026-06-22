@@ -85,6 +85,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    e.target.value = '';
     const arrayBuffer = await file.arrayBuffer();
     const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
     await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
@@ -314,8 +315,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const hls = allHighlights[book.id];
         if (hls && hls.length > 0) {
           hasData = true;
-          md += `## 《${Utils.escapeHtml(book.title || book.filename)}》\n\n`;
-          md += `*作者：${Utils.escapeHtml(book.author || '未知')}*\n\n`;
+          md += `## 《${book.title || book.filename}》\n\n`;
+          md += `*作者：${book.author || '未知'}*\n\n`;
           hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
             md += `> ${hl.text.trim().replace(/\n/g, '\n> ')}\n\n`;
             if (hl.note) md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;

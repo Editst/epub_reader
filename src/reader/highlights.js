@@ -457,7 +457,7 @@ window.Highlights = (function () {
       _renderedHighlightCfis.delete(cfi);
       const hl = highlights.find(h => h.cfi === cfi);
       if (hl) renderHighlight(hl);
-    } catch (e) {}
+    } catch (e) { console.warn('[Highlights] reRenderHighlight failed for cfi:', cfi, e); }
   }
 
   function updateHighlightData(cfi, data) {

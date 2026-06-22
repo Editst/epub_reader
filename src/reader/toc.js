@@ -110,7 +110,9 @@ const TOC = {
       item.classList.remove('active');
       // Match by href (may contain #fragment)
       const itemHref = item.dataset.href;
-      if (itemHref === href || href.includes(itemHref) || itemHref.includes(href.split('#')[0])) {
+      const hrefBase = href.split('#')[0];
+      const itemBase = itemHref.split('#')[0];
+      if (itemHref === href || hrefBase === itemBase || hrefBase.endsWith('/' + itemBase) || itemBase.endsWith('/' + hrefBase)) {
         item.classList.add('active');
       }
     });
@@ -125,6 +127,10 @@ const TOC = {
   },
 
   open() {
+    const bookmarksPanel = document.getElementById('bookmarks-panel');
+    const searchPanel = document.getElementById('search-panel');
+    if (bookmarksPanel) bookmarksPanel.classList.remove('open');
+    if (searchPanel) searchPanel.classList.remove('open');
     this.sidebar.classList.add('open');
     this.overlay.classList.add('visible');
   },

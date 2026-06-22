@@ -259,7 +259,6 @@
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     function mount() {
-      startReadingTimer();
       document.addEventListener('visibilitychange', _onVisibilityChange);
     }
 
