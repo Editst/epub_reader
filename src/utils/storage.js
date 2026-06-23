@@ -111,10 +111,11 @@ const EpubStorage = {
   /**
    * Patch 位置字段。经 300ms 防抖后由 schedulePositionSave 调用。
    */
-  async savePosition(bookId, cfi, percentage = null) {
+  async savePosition(bookId, cfi, percentage = null, locator = undefined) {
     if (!bookId) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
       current.pos = { cfi, percentage, timestamp: Date.now() };
+      if (locator !== undefined) current.pos.locator = locator;
       return current;
     });
   },

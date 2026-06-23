@@ -173,7 +173,7 @@ test.describe('ReaderPersistence', () => {
     assert.equal(document.getElementById('btn-bookmark').title, '移除书签 (B)');
   });
 
-  test.it('onRelocated 分页模式保存 end.cfi 作为恢复锚点，避免 display(start.cfi) 回到上一页', async () => {
+  test.it('onRelocated 分页模式保存 start.cfi 与 displayed-page locator，不再保存 end.cfi', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;
     global.Bookmarks = { async isBookmarked() { return false; } };
@@ -197,9 +197,7 @@ test.describe('ReaderPersistence', () => {
       book: {
         locations: {
           length: () => 100,
-          percentageFromCfi(cfi) {
-            return cfi === 'epubcfi(/6/8!/4/20)' ? 0.31 : 0.30;
-          }
+          percentageFromCfi() { return 0.30; }
         },
         navigation: { toc: [] }
       },
@@ -219,44 +217,68 @@ test.describe('ReaderPersistence', () => {
     });
 
     persistence.onRelocated({
-      start: { cfi: 'epubcfi(/6/8!/4/2)', href: 'chapter.xhtml' },
-      end: { cfi: 'epubcfi(/6/8!/4/20)', href: 'chapter.xhtml' }
+      start: {
+        index: 3,
+        cfi: 'epubcfi(/6/8!/4/2)',
+        href: 'chapter.xhtml',
+        displayed: { page: 5, total: 12 }
+      },
+      end: {
+        index: 3,
+        cfi: 'epubcfi(/6/8!/4/20)',
+        href: 'chapter.xhtml',
+        displayed: { page: 5, total: 12 }
+      }
     });
     await Promise.resolve();
 
     EpubStorage.savePosition = originalSavePosition;
 
-    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/20)');
-    assert.equal(state.lastPercent, 31);
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
+    assert.equal(state.lastPercent, 30);
+    assert.equal(state.currentStableLocator.strategy, 'epubjs-displayed-page-v1');
+    assert.equal(state.currentStableLocator.index, 3);
+    assert.equal(state.currentStableLocator.href, 'chapter.xhtml');
+    assert.equal(state.currentStableLocator.page, 5);
     assert.deepEqual(positionCalls, [[
       'book-paginated-anchor',
-      'epubcfi(/6/8!/4/20)',
-      31
+      'epubcfi(/6/8!/4/2)',
+      30,
+      state.currentStableLocator
     ]]);
   });
 
-  test.it('flushPositionSave 关闭/刷新前从 currentLocation 重新采样分页 end.cfi', async () => {
+  test.it('flushPositionSave 关闭/刷新前从 currentLocation 重建 start.cfi 与 locator', async () => {
     const state = {
       posTimer: 9,
       currentBookId: 'book-flush-sample',
       currentStableCfi: 'epubcfi(/6/6!/4/2)',
       lastPercent: 20,
+      currentStableLocator: null,
       isRestoringPosition: false,
       isResizing: false,
       prefs: { layout: 'paginated' },
       book: {
         locations: {
           length: () => 100,
-          percentageFromCfi(cfi) {
-            return cfi === 'epubcfi(/6/8!/4/20)' ? 0.31 : 0.20;
-          }
+          percentageFromCfi() { return 0.30; }
         }
       },
       rendition: {
         currentLocation() {
           return {
-            start: { cfi: 'epubcfi(/6/8!/4/2)' },
-            end: { cfi: 'epubcfi(/6/8!/4/20)' }
+            start: {
+              index: 3,
+              cfi: 'epubcfi(/6/8!/4/2)',
+              href: 'chapter.xhtml',
+              displayed: { page: 5, total: 12 }
+            },
+            end: {
+              index: 3,
+              cfi: 'epubcfi(/6/8!/4/20)',
+              href: 'chapter.xhtml',
+              displayed: { page: 5, total: 12 }
+            }
           };
         }
       }
@@ -276,12 +298,64 @@ test.describe('ReaderPersistence', () => {
     global.clearTimeout = originalClearTimeout;
     EpubStorage.savePosition = originalSavePosition;
 
-    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/20)');
-    assert.equal(state.lastPercent, 31);
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
+    assert.equal(state.lastPercent, 30);
+    assert.equal(state.currentStableLocator.page, 5);
     assert.deepEqual(saves, [[
       'book-flush-sample',
-      'epubcfi(/6/8!/4/20)',
-      31
+      'epubcfi(/6/8!/4/2)',
+      30,
+      state.currentStableLocator
+    ]]);
+  });
+
+  test.it('onRelocated 在 scrolled 模式保存 start.cfi locator 且不依赖 displayed page 校正', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    const positionCalls = [];
+    const originalSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => { positionCalls.push(args); };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-scrolled-anchor',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0.1,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'scrolled' },
+      book: {
+        locations: { length: () => 100, percentageFromCfi: () => 0.45 },
+        navigation: { toc: [] }
+      },
+      rendition: { currentLocation() { return null; } }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    persistence.onRelocated({
+      start: { index: 4, cfi: 'epubcfi(/6/12!/4/2)', href: 'chapter.xhtml' },
+      end: { index: 4, cfi: 'epubcfi(/6/12!/4/80)', href: 'chapter.xhtml' }
+    });
+    await Promise.resolve();
+
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/12!/4/2)');
+    assert.equal(state.currentStableLocator.layout, 'scrolled');
+    assert.equal(state.currentStableLocator.page, null);
+    assert.deepEqual(positionCalls, [[
+      'book-scrolled-anchor',
+      'epubcfi(/6/12!/4/2)',
+      45,
+      state.currentStableLocator
     ]]);
   });
 

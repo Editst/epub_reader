@@ -1,6 +1,6 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.2.6  
+版本：v2.3.0  
 更新：2026-06-23
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -39,7 +39,7 @@ removeRecentBook(bookId: string): Promise<void>
 ```typescript
 getBookMeta(bookId: string): Promise<BookMeta | null>
 // BookMeta: {
-//   pos:   { cfi: string, percentage: number, timestamp: number } | null,
+//   pos:   { cfi: string, percentage: number, timestamp: number, locator?: PositionLocator } | null,
 //   time:  number,   // 累计阅读秒数
 //   speed: { 
 //     sampledSeconds: number, 
@@ -53,11 +53,11 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 saveBookMeta(bookId: string, meta: BookMeta): Promise<void>
 // 整体覆写，批量更新时使用
 
-savePosition(bookId: string, cfi: string, percentage?: number): Promise<void>
+savePosition(bookId: string, cfi: string, percentage?: number, locator?: PositionLocator): Promise<void>
 // Patch pos 字段，保留其他字段不变
 
 getPosition(bookId: string): Promise<Position | null>
-// Position: { cfi, percentage, timestamp }
+// Position: { cfi, percentage, timestamp, locator? }
 
 removePosition(bookId: string): Promise<void>
 
@@ -210,14 +210,16 @@ state.locationsBreak: number | null
 state.locationsError: string | null
 state.lastPositionSave: Promise<void> | null
 state.currentStableCfi: string | null
+state.currentStableLocator: object | null
 state.isRestoringPosition: boolean
 ```
 
-**v2.2.6 运行约束**：
+**v2.3.0 运行约束**：
 - `hasLocations` 表示当前书籍是否已有可用定位索引。
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
 - `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
-- `currentStableCfi` 只保存允许写入 storage 的 CFI；分页模式使用 `location.end.cfi`，滚动模式使用 `location.start.cfi`。
+- `currentStableCfi` 保存 `location.start.cfi` 作为粗定位入口；分页模式的视觉页身份由 `currentStableLocator` 表达。
+- `currentStableLocator` 保存 `displayed-page` 信息（layout/href/index/page/total/prefsSignature），供恢复期有界校正。
 - 恢复期 `relocated.start.cfi` 不得覆盖 `currentStableCfi`。
 - `isRestoringPosition` 用于区分 `openBook()` 恢复显示与用户正常翻页。
 - 切书或 `resetReadingSession()` 时，上述字段必须恢复到初始值。
@@ -241,6 +243,7 @@ scheduleLocationsGeneration(task: Function): void
 - 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
+- 普通重开书籍时，若 saved position 含 displayed-page locator，应在 CFI 粗定位后等待渲染/字体稳定，并在同章节内最多执行一次 `next()`/`prev()` 页校正。
 - break 参数采用自适应策略：默认 `1600`，大于 1MB 使用 `3200`，大于 3MB 使用 `4800`。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
 
@@ -255,11 +258,11 @@ flushPositionSave(): Promise<void>
 updateReadingStats(): void
 ```
 
-**v2.2.6 行为约束**：
+**v2.3.0 行为约束**：
 - `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
-- 连续位置变化仍保留 300ms 防抖，用最终锚点 CFI 覆盖首个位置。
-- `onRelocated()` 分页模式必须保存 `location.end.cfi` 作为恢复锚点，滚动模式保存 `location.start.cfi`。
-- `flushPositionSave()` 必须清理防抖 timer，刷新/关闭前重新采样 `currentLocation()`，并返回最新保存 Promise。
+- 连续位置变化仍保留 300ms 防抖，用最终 `start.cfi + locator` 覆盖首个位置。
+- `onRelocated()` 必须保存 `location.start.cfi` 与 displayed-page locator；不得用 `location.end.cfi` 作为主恢复锚点。
+- `flushPositionSave()` 必须清理防抖 timer，刷新/关闭前重新采样 `currentLocation()` 并重建完整 position，然后返回最新保存 Promise。
 - `onRelocated()` 在 `isRestoringPosition=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
 - `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步“生成中/不可用”状态，而不是显示误导性的精确进度。

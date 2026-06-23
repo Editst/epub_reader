@@ -67,6 +67,28 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(meta.time, 600);
   });
 
+  test.it('savePosition 持久化 displayed-page locator 并兼容旧调用', async () => {
+    const locator = {
+      strategy: 'epubjs-displayed-page-v1',
+      layout: 'paginated',
+      href: 'chapter.xhtml',
+      index: 3,
+      page: 5,
+      total: 12
+    };
+
+    await EpubStorage.savePosition('book-locator', 'epubcfi(/6/8!/4/2)', 30, locator);
+    const withLocator = await EpubStorage.getPosition('book-locator');
+    await EpubStorage.savePosition('book-legacy-position', 'epubcfi(/6/2)', 10);
+    const legacy = await EpubStorage.getPosition('book-legacy-position');
+
+    assert.equal(withLocator.cfi, 'epubcfi(/6/8!/4/2)');
+    assert.equal(withLocator.percentage, 30);
+    assert.deepEqual(withLocator.locator, locator);
+    assert.equal(legacy.cfi, 'epubcfi(/6/2)');
+    assert.equal(legacy.locator, undefined);
+  });
+
   test.it('getAllHighlights 同时覆盖 recentBooks 外的遗留 highlights key', async () => {
     await EpubStorage.addRecentBook({ id: 'book-a', title: 'A' });
     await EpubStorage.saveHighlights('book-a', [{ cfi: 'a' }]);

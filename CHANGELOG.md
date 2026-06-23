@@ -4,11 +4,24 @@
 
 ---
 
+## [2.3.0] - 2026-06-23
+
+### fix
+- **阅读位置恢复**：替代 v2.2.6 的 `end.cfi` 锚点策略，改为 `start.cfi + displayed-page locator + 有界页校正`。保存时记录 epub.js 报告的 `start.displayed.page/index/href` 与布局签名；恢复时先用 CFI 粗定位，等待渲染与字体稳定后，若同一章节内仅偏移一页，则自动 `next()` 或 `prev()` 校正。
+- `flushPositionSave()` 在刷新/关闭前重建完整 position（CFI、percentage、locator），避免持久化过期内存位置。滚动模式保留 `start.cfi` 恢复，不做页号校正。
+- `savePosition()` 向后兼容地支持 `locator` 字段，旧 `{ cfi, percentage, timestamp }` 数据无需迁移。
+
+### test
+- 新增 2.3 位置恢复 TDD 用例，覆盖 start 前跳自动 next、边界后跳自动 prev、页号一致不校正、href/index 不一致不校正、布局签名不一致不校正、scrolled 不校正、flush 重建 locator、storage 兼容旧调用。全量 100 个用例通过。
+
+---
+
 ## [2.2.6] - 2026-06-23
 
 ### fix
 - **阅读位置恢复**：彻底修复关闭阅读页后重开回到前一页、刷新阅读器页面后每次继续向前跳一页的问题。真实根因是分页模式下持久化了 `location.start.cfi`，而该 CFI 是当前显示区的起点边界；epub.js 对边界 CFI 执行 `display(start.cfi)` 时可能按前一页归属恢复，导致每次刷新保存新的上一页起点并持续倒退。
 - 分页模式改为保存 `location.end.cfi` 作为恢复锚点，滚动模式仍保存 `location.start.cfi`；页面隐藏/关闭 flush 前会从 `rendition.currentLocation()` 重新采样当前锚点，避免快速刷新时使用过期内存 CFI。
+- 后续 v2.3.0 已替换该策略：`end.cfi` 在部分书籍中会向后跳页，最终采用 displayed-page locator 校正。
 
 ### test
 - 新增分页锚点回归测试，覆盖正常 `relocated` 保存 `end.cfi` 以及刷新/关闭前 flush 重新采样当前 `end.cfi` 两条链路。全量 95 个用例通过。

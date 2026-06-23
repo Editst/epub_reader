@@ -1,6 +1,6 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.2.6  
+版本：v2.3.0  
 更新：2026-06-23
 
 ---
@@ -191,7 +191,7 @@ chrome.storage.local
 ├── preferences              全局偏好设置
 ├── recentBooks              书架列表（最多 20 本）
 ├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
-│     ├── pos: { cfi, percentage, timestamp }
+│     ├── pos: { cfi, percentage, timestamp, locator? }
 │     ├── time: number               累计阅读秒数
 │     └── speed: { sampledSeconds, sampledProgress }
 ├── highlights_<bookId>      高亮与笔记数组（中频写）
@@ -226,7 +226,7 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 // BookMeta: { pos, time, speed }
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
 
-savePosition(bookId: string, cfi: string, percentage?: number): Promise<void>
+savePosition(bookId: string, cfi: string, percentage?: number, locator?: PositionLocator): Promise<void>
 // Patch pos 字段，内置防抖处理
 saveReadingTime(bookId: string, seconds: number): Promise<void>
 saveReadingSpeed(bookId: string, speed: Speed): Promise<void>
@@ -287,20 +287,20 @@ Utils.formatMinutes(minutes: number): string
     - 绑定 `epub.js` 的 `book` 和 `rendition` 生命周期。
     - 转发 `relocated`、`rendered` 等核心事件至全局总线。
     - 恢复阅读位置前，将目标/已保存 CFI 初始化为 `currentStableCfi`，供页面隐藏或卸载时安全 flush（v2.2.5）。
-    - 分页模式下持久化 `location.end.cfi` 作为恢复锚点，避免 `display(location.start.cfi)` 被 epub.js 归入上一页（v2.2.6）。
+    - 普通恢复时使用 `start.cfi` 粗定位，等待渲染/字体稳定后按 displayed-page locator 做一次有界页校正（v2.3.0）。
     - 管理 `locations.generate()` 的后台调度、自适应 break 与缓存复用；首开正文不再等待全量 locations 构建（v2.2.1）。
 
 2.  **State (`reader-state.js`)**：
     - 提供单一事实来源（Single Source of Truth）。
     - 缓存 `currentBookId`、`isBookLoaded`、`rendition` 实例等运行时状态。
-    - `currentStableCfi` 只保存允许落盘的稳定 CFI；`isRestoringPosition` 为 true 时不得被 epub.js 恢复期 page-start CFI 覆盖。
+    - `currentStableCfi` 保存粗定位 CFI；`currentStableLocator` 保存 displayed-page 视觉页身份；`isRestoringPosition` 为 true 时不得被 epub.js 恢复期 page-start CFI 覆盖。
     - 维护 `hasLocations`、`locationsStatus`、`locationsBreak`、`locationsError`，为后台索引和 UI 降级提供状态来源。
 
 3.  **Persistence (`reader-persistence.js`)**：
     - 实现阅读位置（CFI）的“首次立即写入 + 300ms 防抖收敛最终位置”策略。
     - 处理阅读速率采样（v2.0.0 P-1）与累计时长落盘。
     - `flushPositionSave()` 返回最新位置写入 Promise，关闭/隐藏路径可等待最新保存。
-    - `flushPositionSave()` 在非恢复/非 resize 状态下会重新读取 `rendition.currentLocation()`，确保刷新/关闭保存的是当前页面锚点而非过期内存值。
+    - `flushPositionSave()` 在非恢复/非 resize 状态下会重新读取 `rendition.currentLocation()`，重建 `start.cfi + locator`，确保刷新/关闭保存的是当前页面身份而非过期内存值。
     - `isRestoringPosition=true` 时，`onRelocated()` 只更新进度/章节 UI，不替换 `currentStableCfi`，避免关闭 flush 保存上一页边界 CFI（v2.2.5）。
     - 在 locations 未就绪或失败时，将 ETA 降级为 `--`，并同步底部定位状态文案，保证阅读不中断。
 
@@ -446,7 +446,7 @@ Annotations.hookRendition(rendition): void
 - **ADR-005：废弃 highlightKeys 索引 (v1.7.0)**：消除索引同步 Bug，改为遍历 `recentBooks` 并行读取。
 - **ADR-006：阅读位置保存实时化 (v2.2.2)**：首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛，降低快速关闭页面时丢失最新进度的概率。
 - **ADR-007：恢复期 CFI 不落盘 (v2.2.5)**：`display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
-- **ADR-008：分页恢复锚点使用 end.cfi (v2.2.6)**：分页模式下 `start.cfi` 是显示区左边界，恢复时可能落入上一页；持久化与关闭 flush 使用 `end.cfi`，滚动模式继续使用 `start.cfi`。
+- **ADR-008：分页边界 CFI 不作为唯一真相 (v2.3.0)**：`start.cfi` 可前跳、`end.cfi` 可后跳；持久化 `start.cfi + displayed-page locator`，恢复时只在同章节内做一次页校正。
 
 ---
 

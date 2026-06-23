@@ -47,6 +47,94 @@
       return 1600;
     }
 
+    function _nextFrame() {
+      return new Promise((resolve) => {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+        else setTimeout(resolve, 0);
+      });
+    }
+
+    function _delay(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function _buildPrefsSignature() {
+      const prefs = state.prefs || {};
+      return {
+        layout: prefs.layout || 'paginated',
+        fontSize: prefs.fontSize || 18,
+        lineHeight: prefs.lineHeight || 1.8,
+        fontFamily: prefs.fontFamily || '',
+        paragraphIndent: prefs.paragraphIndent !== false,
+        spread: prefs.spread || 'auto'
+      };
+    }
+
+    function _isSignatureCompatible(savedSignature) {
+      if (!savedSignature || typeof savedSignature !== 'object') return false;
+      const current = _buildPrefsSignature();
+      return current.layout === savedSignature.layout &&
+        current.fontSize === savedSignature.fontSize &&
+        current.lineHeight === savedSignature.lineHeight &&
+        current.fontFamily === savedSignature.fontFamily &&
+        current.paragraphIndent === savedSignature.paragraphIndent &&
+        current.spread === (savedSignature.spread || 'auto');
+    }
+
+    async function _waitForRenditionStable() {
+      await _nextFrame();
+      await _nextFrame();
+
+      const contents = state.rendition && typeof state.rendition.getContents === 'function'
+        ? state.rendition.getContents()
+        : [];
+      const fontPromises = contents
+        .map((contentsItem) => contentsItem && contentsItem.document && contentsItem.document.fonts && contentsItem.document.fonts.ready)
+        .filter(Boolean);
+      if (fontPromises.length) {
+        await Promise.race([
+          Promise.all(fontPromises).catch(() => {}),
+          _delay(300)
+        ]);
+      }
+
+      if (state.rendition && typeof state.rendition.reportLocation === 'function') {
+        state.rendition.reportLocation();
+      }
+      await _nextFrame();
+    }
+
+    function _getDisplayedPage(location) {
+      if (!location || !location.start || !location.start.displayed) return null;
+      if (typeof location.start.displayed.page !== 'number') return null;
+      return {
+        index: location.start.index != null ? location.start.index : null,
+        href: location.start.href || '',
+        page: location.start.displayed.page
+      };
+    }
+
+    async function _correctRestoredPage(savedPos) {
+      const locator = savedPos && savedPos.locator;
+      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return;
+      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return;
+      if (!_isSignatureCompatible(locator.prefsSignature)) return;
+
+      await _waitForRenditionStable();
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
+
+      const currentPage = _getDisplayedPage(state.rendition.currentLocation());
+      if (!currentPage) return;
+      if (currentPage.index !== locator.index || currentPage.href !== locator.href) return;
+
+      const diff = currentPage.page - locator.page;
+      if (diff === -1 && typeof state.rendition.next === 'function') {
+        await state.rendition.next();
+      } else if (diff === 1 && typeof state.rendition.prev === 'function') {
+        await state.rendition.prev();
+      }
+    }
+
     // ── Data Normalization ────────────────────────────────────────────────────
 
     function normalizeBookData(data) {
@@ -96,6 +184,7 @@
       state.prefs.lineHeight      = prefs.lineHeight       || 1.8;
       state.prefs.fontFamily      = prefs.fontFamily       || '';
       state.prefs.layout          = prefs.layout           || 'paginated';
+      state.prefs.spread          = prefs.spread           || 'auto';
       state.prefs.paragraphIndent = prefs.paragraphIndent !== false;
       ui.syncPrefsToControls();
 
@@ -197,8 +286,10 @@
       state.isRestoringPosition = true;
       const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
       state.currentStableCfi = displayCfi;
+      state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
       if (displayCfi) await state.rendition.display(displayCfi);
       else await state.rendition.display();
+      if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
       // ── recentBooks ─────────────────────────────────────────────────────────

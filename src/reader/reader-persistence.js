@@ -19,43 +19,75 @@
 
     // ── Position ─────────────────────────────────────────────────────────────
 
-    function schedulePositionSave(bookId, cfi, percent) {
+    function _savePosition(bookId, cfi, percent, locator) {
+      if (locator !== undefined) return EpubStorage.savePosition(bookId, cfi, percent, locator);
+      return EpubStorage.savePosition(bookId, cfi, percent);
+    }
+
+    function schedulePositionSave(bookId, cfi, percent, locator) {
       const shouldSaveImmediately = !state.posTimer;
       if (shouldSaveImmediately) {
-        state.lastPositionSave = EpubStorage.savePosition(bookId, cfi, percent);
+        state.lastPositionSave = _savePosition(bookId, cfi, percent, locator);
       }
 
       clearTimeout(state.posTimer);
       state.posTimer = setTimeout(() => {
         state.posTimer = null;
-        state.lastPositionSave = EpubStorage.savePosition(bookId, cfi, percent);
+        state.lastPositionSave = _savePosition(bookId, cfi, percent, locator);
       }, 300);
     }
 
-    function _getLocationAnchor(location) {
-      if (!location || !location.start) return { cfi: null, percent: null };
-      // 分页模式下 start.cfi 是页边界，display(start.cfi) 可能恢复到上一页；
-      // end.cfi 更适合作为下次打开时的稳定恢复锚点。滚动模式保留 start.cfi。
-      const isScrolled = state.prefs && state.prefs.layout === 'scrolled';
-      const anchor = (!isScrolled && location.end && location.end.cfi)
-        ? location.end
-        : location.start;
-      const cfi = anchor && anchor.cfi ? anchor.cfi : null;
+    function _buildPrefsSignature() {
+      const prefs = state.prefs || {};
+      return {
+        layout: prefs.layout || 'paginated',
+        fontSize: prefs.fontSize || 18,
+        lineHeight: prefs.lineHeight || 1.8,
+        fontFamily: prefs.fontFamily || '',
+        paragraphIndent: prefs.paragraphIndent !== false,
+        spread: prefs.spread || 'auto'
+      };
+    }
+
+    function _buildDisplayedPageLocator(location) {
+      if (!location || !location.start) return null;
+      const layout = (state.prefs && state.prefs.layout) || 'paginated';
+      const displayed = location.start.displayed || {};
+      return {
+        strategy: 'epubjs-displayed-page-v1',
+        layout,
+        href: location.start.href || '',
+        index: location.start.index != null ? location.start.index : null,
+        page: layout === 'paginated' && typeof displayed.page === 'number' ? displayed.page : null,
+        total: layout === 'paginated' && typeof displayed.total === 'number' ? displayed.total : null,
+        prefsSignature: _buildPrefsSignature()
+      };
+    }
+
+    function _buildPositionFromLocation(location) {
+      if (!location || !location.start || !location.start.cfi) {
+        return { cfi: null, percent: null, locator: null };
+      }
+      const cfi = location.start.cfi;
       let percent = null;
       if (cfi && state.book && state.book.locations && state.book.locations.length()) {
         const progress = state.book.locations.percentageFromCfi(cfi);
         percent = Math.round(progress * 1000) / 10;
+      } else if (typeof location.start.percentage === 'number') {
+        const progress = location.start.percentage <= 1 ? location.start.percentage * 100 : location.start.percentage;
+        percent = Math.round(progress * 10) / 10;
       }
-      return { cfi, percent };
+      return { cfi, percent, locator: _buildDisplayedPageLocator(location) };
     }
 
     function _refreshStablePositionFromRendition() {
       if (state.isRestoringPosition || state.isResizing) return;
       if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
-      const anchor = _getLocationAnchor(state.rendition.currentLocation());
-      if (!anchor.cfi) return;
-      state.currentStableCfi = anchor.cfi;
-      if (anchor.percent !== null) state.lastPercent = anchor.percent;
+      const position = _buildPositionFromLocation(state.rendition.currentLocation());
+      if (!position.cfi) return;
+      state.currentStableCfi = position.cfi;
+      state.currentStableLocator = position.locator;
+      if (position.percent !== null) state.lastPercent = position.percent;
     }
 
     function flushPositionSave() {
@@ -63,10 +95,11 @@
       state.posTimer = null;
       _refreshStablePositionFromRendition();
       if (state.currentBookId && state.currentStableCfi) {
-        state.lastPositionSave = EpubStorage.savePosition(
+        state.lastPositionSave = _savePosition(
           state.currentBookId,
           state.currentStableCfi,
-          state.lastPercent
+          state.lastPercent,
+          state.currentStableLocator
         );
         return state.lastPositionSave;
       }
@@ -138,7 +171,7 @@
         state.lastProgress = progress;
       }
 
-      const anchor = _getLocationAnchor(location);
+      const position = _buildPositionFromLocation(location);
 
       updateReadingStats();
 
@@ -157,11 +190,12 @@
       }
 
       // 恢复期间跳过写入，也不替换 currentStableCfi；正常阅读时写入
-      // _getLocationAnchor() 选出的可恢复锚点。
+      // start.cfi + displayed-page locator，恢复时再做有界页校正。
       if (!state.isRestoringPosition) {
-        state.currentStableCfi = anchor.cfi || location.start.cfi;
-        state.lastPercent = anchor.percent !== null ? anchor.percent : percent;
-        schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent);
+        state.currentStableCfi = position.cfi || location.start.cfi;
+        state.currentStableLocator = position.locator;
+        state.lastPercent = position.percent !== null ? position.percent : percent;
+        schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent, state.currentStableLocator);
       } else if (percent !== null) {
         state.lastPercent = percent;
       }

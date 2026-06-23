@@ -20,8 +20,10 @@ test.describe('ReaderState', () => {
     assert.equal(state.locationsBreak, null);
     assert.equal(state.locationsError, null);
     assert.equal(state.lastPositionSave, null);
+    assert.equal(state.currentStableLocator, null);
     assert.equal(state.prefs.theme, 'light');
     assert.equal(state.prefs.layout, 'paginated');
+    assert.equal(state.prefs.spread, 'auto');
   });
 
   test.it('resetReadingSession 清空计时、速度与防抖状态', () => {
@@ -39,6 +41,7 @@ test.describe('ReaderState', () => {
     state.lastProgress = 0.4;
     state.lastPercent = 40;
     state.currentStableCfi = 'epubcfi(/6/2)';
+    state.currentStableLocator = { page: 2 };
     state.lastPositionSave = Promise.resolve();
     state.hasLocations = true;
     state.locationsStatus = 'ready';
@@ -58,6 +61,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.lastProgress, 0);
     assert.equal(state.lastPercent, null);
     assert.equal(state.currentStableCfi, null);
+    assert.equal(state.currentStableLocator, null);
     assert.equal(state.lastPositionSave, null);
     assert.equal(state.hasLocations, false);
     assert.equal(state.locationsStatus, 'idle');
