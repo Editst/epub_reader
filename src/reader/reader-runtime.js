@@ -301,6 +301,8 @@
       if (displayCfi) await state.rendition.display(displayCfi);
       else await state.rendition.display();
       if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
+      state.isRestoringPosition = false;
+      state.isLayoutStable = true;
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
       // ── recentBooks ─────────────────────────────────────────────────────────
@@ -351,13 +353,9 @@
           persistence.onRelocated(loc);
         }
         // v2.2.4：locations 加载完毕，恢复阶段结束，后续翻页正常写入
-        state.isRestoringPosition = false;
-        state.isLayoutStable = true;
       } else {
         // v2.2.4：无缓存 locations，display 已完成，恢复阶段结束。
         // locations 异步生成期间用户可能翻页，须允许正常位置保存。
-        state.isRestoringPosition = false;
-        state.isLayoutStable = true;
         const activeBook = state.book;
         const locationsBreak = chooseLocationsBreak(fileData);
         state.hasLocations = false;

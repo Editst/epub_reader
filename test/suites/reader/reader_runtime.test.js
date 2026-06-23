@@ -437,7 +437,7 @@ test.describe('ReaderRuntime', () => {
     assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)']);
     assert.equal(result.nextCalls, 0, '不应执行 next 导航——信任 CFI 本身');
     assert.equal(result.prevCalls, 0, '不应执行 prev 导航——信任 CFI 本身');
-    assert.equal(result.relocatedCalls[0].restoring, true);
+    assert.equal(result.relocatedCalls[0].restoring, false, 'display 后 isRestoringPosition 已为 false，relocated 应正常保存');
   });
 
   test.it('openBook 恢复边界 CFI 后不做页校正导航，仅验证章节匹配', async () => {
