@@ -4,6 +4,18 @@
 
 ---
 
+## [2.3.1] - 2026-06-24
+
+### fix
+- **高亮悬浮栏关闭**：修复 v2.3.0 后高亮工具栏在首屏 iframe 中点击正文空白不关闭的问题。根因是 `Highlights.setBookDetails()` 在 `rendition.display()` 后才执行，旧代码只通过 `hooks.content.register()` 绑定未来 contents，未补绑定已存在的首屏 iframe。
+- **Reader 子模块生命周期**：收敛 `openBook()` 中 lifecycle mount 后的重复直调路径，避免 `Bookmarks`、`Search`、`Highlights` 在同一书籍打开流程中重复绑定或并发加载。
+- **iframe hook 幂等性**：`ImageViewer` 与 `Annotations` 对同一 rendition/document 做幂等绑定，并在 hook 晚于 display 时补绑定当前 `rendition.getContents()`。
+
+### test
+- 新增高亮悬浮栏 iframe 空白点击、首屏 display 后补绑定、ImageViewer/Annotations hook 幂等、openBook 不重复直调子模块的回归测试。
+
+---
+
 ## [2.3.0] - 2026-06-23
 
 ### fix

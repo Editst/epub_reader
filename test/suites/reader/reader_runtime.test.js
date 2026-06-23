@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const { loadWindowScript, createMockDocument } = require('../../helpers/browser_env');
 
@@ -115,6 +116,18 @@ test.describe('ReaderRuntime', () => {
     runtime.displayPercentage(75);
 
     assert.deepEqual(displayed, ['epubcfi(/6/10)']);
+  });
+
+  test.it('openBook 子模块挂载后不再重复直调 Bookmarks/Search/Highlights', () => {
+    const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
+    const mountStart = src.indexOf('moduleLifecycle.mount(context);');
+    const loadedStart = src.indexOf('// ── isBookLoaded', mountStart);
+    const mountSection = src.slice(mountStart, loadedStart);
+
+    assert.ok(mountStart !== -1, 'openBook must mount reader modules');
+    assert.ok(!mountSection.includes('Bookmarks.setBook('));
+    assert.ok(!mountSection.includes('Search.setBook('));
+    assert.ok(!mountSection.includes('Highlights.setBookDetails('));
   });
 
   test.it('openBook 首次无缓存时先进入阅读，再后台生成大书索引', async () => {

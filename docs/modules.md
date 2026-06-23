@@ -1,7 +1,7 @@
 # EPUB Reader — 模块接口参考
 
-版本：v2.3.0  
-更新：2026-06-23
+版本：v2.3.1  
+更新：2026-06-24
 
 本文档列出每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -300,6 +300,7 @@ Highlights.setBookDetails(
 ): Promise<void>
 // 绑定新书，加载已有高亮，注册 rendition.on('selected')
 // 每次切换书籍或布局时调用
+// v2.3.1：必须补绑定 rendition.getContents() 中已存在 iframe 的空白点击关闭监听
 
 Highlights.closePanels(): void
 // 关闭工具栏和笔记弹窗，清除所有 CFI 状态
@@ -413,6 +414,7 @@ ImageViewer.init(): void
 
 ImageViewer.hookRendition(rendition: Rendition): void
 // 在 rendition.hooks.content 中注册图片 click 拦截
+// v2.3.1：同一 rendition/document 幂等，且 late hook 时补处理当前 getContents()
 
 ImageViewer.mount(context): void
 ImageViewer.unmount(): void
@@ -441,6 +443,10 @@ Annotations.unmount(): void
 
 **v2.2.3 行为约束**：
 - `mount(context)` 必须确保 Escape 键监听已绑定；`unmount()` 解除后，下一次 mount 要能恢复。
+
+**v2.3.1 行为约束**：
+- `hookRendition()` 对同一 rendition 只能注册一次 `hooks.content` callback。
+- 对同一 contents document 只能绑定一次注释捕获监听；若调用时 iframe 已存在，必须通过 `rendition.getContents()` 补绑定。
 
 ---
 

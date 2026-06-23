@@ -15,6 +15,15 @@ function loadGlobalConst(filePath, constName) {
   return global[constName];
 }
 
+function loadIsolatedConst(filePath, constName, context = {}) {
+  const code = fs.readFileSync(filePath, 'utf8');
+  const sandbox = { result: null, console, ...context };
+  sandbox.window = sandbox.window || sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(`${code}; result = ${constName};`, sandbox, { filename: filePath });
+  return sandbox.result;
+}
+
 test.describe('Reader 模块基础行为', () => {
   const originalDocument = global.document;
   const originalWindow = global.window;
@@ -113,5 +122,61 @@ test.describe('Reader 模块基础行为', () => {
 
     assert.equal(popup.classList.contains('is-visible'), false);
     assert.equal(overlay.classList.contains('is-visible'), false);
+  });
+
+  test.it('Annotations 同一个 rendition 不会重复注册 content hook', () => {
+    const Annotations = loadGlobalConst('src/reader/annotations.js', 'Annotations');
+    const callbacks = [];
+    const rendition = {
+      hooks: {
+        content: {
+          register(fn) {
+            callbacks.push(fn);
+          }
+        }
+      }
+    };
+
+    Annotations.hookRendition(rendition);
+    Annotations.hookRendition(rendition);
+
+    assert.equal(callbacks.length, 1);
+  });
+
+  test.it('ImageViewer 同一个 rendition 不重复注册 hook，且补绑定当前 iframe 图片', () => {
+    const ImageViewer = loadIsolatedConst('src/reader/image-viewer.js', 'ImageViewer');
+    const callbacks = [];
+    const imageListeners = [];
+    const image = {
+      tagName: 'IMG',
+      src: 'blob:image',
+      classList: { add() {} },
+      addEventListener(type, fn) {
+        if (type === 'click') imageListeners.push(fn);
+      }
+    };
+    const doc = {
+      querySelectorAll(selector) {
+        return selector === 'img, image, svg image' ? [image] : [];
+      }
+    };
+    const rendition = {
+      hooks: {
+        content: {
+          register(fn) {
+            callbacks.push(fn);
+          }
+        }
+      },
+      getContents() {
+        return [{ document: doc }];
+      }
+    };
+
+    ImageViewer.hookRendition(rendition);
+    ImageViewer.hookRendition(rendition);
+
+    assert.equal(callbacks.length, 1);
+    assert.equal(imageListeners.length, 1);
   });
 });

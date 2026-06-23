@@ -66,6 +66,7 @@ function loadHighlights(storedHighlights) {
   };
 
   const annotations = [];
+  const currentContents = [];
   const rendition = {
     annotations: {
       highlight(cfi, data, cb, className, styles) {
@@ -78,6 +79,9 @@ function loadHighlights(storedHighlights) {
         const index = annotations.findIndex(item => item.cfi === cfi && item.type === type);
         if (index !== -1) annotations.splice(index, 1);
       }
+    },
+    getContents() {
+      return currentContents;
     },
     hooks: {
       content: {
@@ -123,6 +127,7 @@ function loadHighlights(storedHighlights) {
     Highlights: context.window.Highlights,
     rendition,
     annotations,
+    currentContents,
     elements
   };
 }
@@ -189,6 +194,37 @@ test.describe('Reader Highlights 行为', () => {
     }, 'epubcfi(/6/2)');
 
     assert.equal(elements.get('selection-toolbar').classList.contains('show'), true);
+
+    contentListeners.mousedown({ target: createElement('blank-page') });
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), false);
+  });
+
+  test.it('setBookDetails 在首屏 display 后调用时也会绑定当前 iframe 空白点击关闭', async () => {
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
+    const { Highlights, rendition, annotations, currentContents, elements } = loadHighlights(stored);
+    const contentListeners = {};
+    currentContents.push({
+      document: {
+        addEventListener(type, fn) {
+          contentListeners[type] = fn;
+        }
+      },
+      window: {
+        getSelection() {
+          return { isCollapsed: false };
+        }
+      }
+    });
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    annotations[0].cb({
+      stopPropagation() {},
+      target: createElement('rendered-highlight')
+    }, 'epubcfi(/6/2)');
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), true);
+    assert.equal(typeof contentListeners.mousedown, 'function');
 
     contentListeners.mousedown({ target: createElement('blank-page') });
 

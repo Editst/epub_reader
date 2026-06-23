@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.3.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.3.1-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -23,6 +23,7 @@
   - v2.0.0：ETA 升级为会话加权模型（指数衰减 β=0.8），智能识别跳读；locations 生成引入 Idle 调度与进度文案；书架支持骨架屏（Skeleton Screen）+ 逐本流式渲染。
   - v2.1.1：Reader 内核完成四层解耦（`reader-state.js` / `reader-runtime.js` / `reader-persistence.js` / `reader-ui.js`），由 Orchestrator 统一调度并落地 `mount/unmount` 生命周期契约。
   - v2.2.0：`speed.sessions` 深度持久化落地；CSP 继续暂保留 `'unsafe-inline'` 以兼容当前图片查看器与内联样式路径。
+  - v2.3.1：修复高亮悬浮栏首屏 iframe 空白点击不关闭的问题，并收敛 reader 子模块重复 hook / 重复挂载路径。
   - v2.3.0：阅读位置恢复升级为 `start.cfi + displayed-page locator + 有界页校正`，解决 start 前跳与 end 后跳两类分页边界问题。
   - v2.2.6：曾尝试分页模式改用 `location.end.cfi` 作为恢复锚点；该策略已由 v2.3.0 替代。
   - v2.2.5：修复恢复期间 epub.js page-start CFI 污染可落盘位置的部分路径。

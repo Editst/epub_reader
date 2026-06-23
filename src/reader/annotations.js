@@ -86,6 +86,9 @@ const _FN_STYLE_CSS = `
   }
 `;
 
+const _hookedRenditions = new WeakSet();
+const _hookedContentDocuments = new WeakSet();
+
 // ── Click handler factory ─────────────────────────────────────────────────────
 // One function instance per section load, shared across all footnote links.
 // Links are identified by their data attribute — zero false positives.
@@ -705,66 +708,81 @@ const Annotations = {
    */
   hookRendition(rendition) {
     this.rendition = rendition;
+    if (!rendition) return;
 
-    rendition.hooks.content.register((contents) => {
-      const doc = contents.document;
+    if (!_hookedRenditions.has(rendition)) {
+      _hookedRenditions.add(rendition);
+      rendition.hooks.content.register((contents) => this._hookContents(contents));
+    }
 
-      // Phase 0 ────────────────────────────────────────────────────────────────
-      const ctx = this._buildDocContext(doc);
-      if (ctx.isGlobalTocDoc) return;
+    if (typeof rendition.getContents === 'function') {
+      rendition.getContents().forEach((contents) => this._hookContents(contents));
+    }
+  },
 
-      // Inject per-iframe styles ───────────────────────────────────────────────
-      try {
-        if (!doc.getElementById(_FN_STYLE_ID)) {
-          const styleEl = doc.createElement('style');
-          styleEl.id          = _FN_STYLE_ID;
-          styleEl.textContent = _FN_STYLE_CSS;
-          (doc.head || doc.documentElement).appendChild(styleEl);
-        }
-      } catch (_) {}
+  _hookContents(contents) {
+    const doc = contents && contents.document;
+    if (!doc ||
+        typeof doc.addEventListener !== 'function' ||
+        typeof doc.querySelectorAll !== 'function' ||
+        _hookedContentDocuments.has(doc)) return;
+    _hookedContentDocuments.add(doc);
 
-      // Cancel token (scoped to this section load) ─────────────────────────────
-      const cancelToken = { cancelled: false };
+    // Phase 0 ────────────────────────────────────────────────────────────────
+    const ctx = this._buildDocContext(doc);
+    if (ctx.isGlobalTocDoc) return;
 
-      // Document-level capture handler ─────────────────────────────────────────
-      // Capture phase fires before any element-level listener, and before
-      // epub.js's own document-level delegation.
-      const docCaptureHandler = _makeDocCaptureHandler(this, contents, cancelToken);
-      doc.addEventListener('click', docCaptureHandler, true);
-
-      // Stamp footnote reference links ─────────────────────────────────────────
-      const links = doc.querySelectorAll('a[href]');
-      for (let i = 0; i < links.length; i++) {
-        const link = links[i];
-        if (this.isBackLink(link, ctx))      continue;
-        if (!this.isFootnoteLink(link, ctx)) continue;
-
-        const href = link.getAttribute('href');
-        link.setAttribute(_FN_DATA_ATTR, href);
-        link.removeAttribute('href');    // prevent browser default navigation
-
-        // epub.js linksHandler set link.onclick = function(){ rendition.display(href) }
-        // before our hook ran. The closure captured the original href, so removing
-        // the attribute is not enough. We must null onclick directly.
-        // stopImmediatePropagation() in our capture handler cannot block onclick
-        // because onclick is an IDL attribute, not an addEventListener listener.
-        link.onclick = null;
-
-        link.classList.add(_FN_CSS_CLASS);
+    // Inject per-iframe styles ───────────────────────────────────────────────
+    try {
+      if (!doc.getElementById(_FN_STYLE_ID)) {
+        const styleEl = doc.createElement('style');
+        styleEl.id          = _FN_STYLE_ID;
+        styleEl.textContent = _FN_STYLE_CSS;
+        (doc.head || doc.documentElement).appendChild(styleEl);
       }
+    } catch (_) {}
 
-      // Cleanup ─────────────────────────────────────────────────────────────────
-      // 'destroy' fires exactly once when the iframe is torn down.
-      // We do NOT use 'relocated': epub.js fires it on every page turn AND on
-      // initial layout, which would kill cancelToken before the first click.
-      const cleanup = () => {
-        if (cancelToken.cancelled) return;
-        cancelToken.cancelled = true;
-        try { doc.removeEventListener('click', docCaptureHandler, true); } catch (_) {}
-        ctx.doc = null;
-      };
+    // Cancel token (scoped to this section load) ─────────────────────────────
+    const cancelToken = { cancelled: false };
 
-      try { contents.on('destroy', cleanup); } catch (_) {}
-    });
+    // Document-level capture handler ─────────────────────────────────────────
+    // Capture phase fires before any element-level listener, and before
+    // epub.js's own document-level delegation.
+    const docCaptureHandler = _makeDocCaptureHandler(this, contents, cancelToken);
+    doc.addEventListener('click', docCaptureHandler, true);
+
+    // Stamp footnote reference links ─────────────────────────────────────────
+    const links = doc.querySelectorAll('a[href]');
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
+      if (this.isBackLink(link, ctx))      continue;
+      if (!this.isFootnoteLink(link, ctx)) continue;
+
+      const href = link.getAttribute('href');
+      link.setAttribute(_FN_DATA_ATTR, href);
+      link.removeAttribute('href');    // prevent browser default navigation
+
+      // epub.js linksHandler set link.onclick = function(){ rendition.display(href) }
+      // before our hook ran. The closure captured the original href, so removing
+      // the attribute is not enough. We must null onclick directly.
+      // stopImmediatePropagation() in our capture handler cannot block onclick
+      // because onclick is an IDL attribute, not an addEventListener listener.
+      link.onclick = null;
+
+      link.classList.add(_FN_CSS_CLASS);
+    }
+
+    // Cleanup ─────────────────────────────────────────────────────────────────
+    // 'destroy' fires exactly once when the iframe is torn down.
+    // We do NOT use 'relocated': epub.js fires it on every page turn AND on
+    // initial layout, which would kill cancelToken before the first click.
+    const cleanup = () => {
+      if (cancelToken.cancelled) return;
+      cancelToken.cancelled = true;
+      try { doc.removeEventListener('click', docCaptureHandler, true); } catch (_) {}
+      ctx.doc = null;
+    };
+
+    try { contents.on('destroy', cleanup); } catch (_) {}
   },
 };

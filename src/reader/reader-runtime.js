@@ -309,21 +309,9 @@
       };
       moduleLifecycle.mount(context);
 
-      // ── 各模块显式 setBook / setBookDetails（兼容旧接口） ──────────────────
-      if (typeof Bookmarks !== 'undefined') {
-        Bookmarks.setBook(state.currentBookId, state.book, state.rendition);
-      }
-      if (typeof Search !== 'undefined') {
-        Search.setBook(state.book, state.rendition);
-      }
-
       // ── isBookLoaded ─────────────────────────────────────────────────────────
       ui.showLoading(false);
       state.isBookLoaded = true;
-
-      if (typeof Highlights !== 'undefined') {
-        Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
-      }
 
       setTimeout(() => ui.ensureFocus(), 300);
 

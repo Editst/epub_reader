@@ -12,6 +12,8 @@ const ImageViewer = {
   isDragging: false,
   startX: 0,
   startY: 0,
+  hookedRenditions: new WeakSet(),
+  hookedDocuments: new WeakSet(),
 
   init() {
     this.overlay = document.getElementById('image-viewer');
@@ -113,28 +115,41 @@ const ImageViewer = {
    * @param {object} rendition - epub.js rendition object
    */
   hookRendition(rendition) {
-    rendition.hooks.content.register((contents) => {
-      const doc = contents.document;
-      const images = doc.querySelectorAll('img, image, svg image');
+    if (!rendition) return;
+    if (!this.hookedRenditions.has(rendition)) {
+      this.hookedRenditions.add(rendition);
+      rendition.hooks.content.register((contents) => this.bindContentImages(contents));
+    }
 
-      images.forEach((img) => {
-        img.classList.add('image-viewer-zoomable');
-        img.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+    if (typeof rendition.getContents === 'function') {
+      rendition.getContents().forEach((contents) => this.bindContentImages(contents));
+    }
+  },
 
-          let src = '';
-          if (img.tagName.toLowerCase() === 'img') {
-            src = img.src;
-          } else {
-            // SVG image element
-            src = img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || img.getAttribute('href');
-          }
+  bindContentImages(contents) {
+    const doc = contents && contents.document;
+    if (!doc || this.hookedDocuments.has(doc)) return;
+    this.hookedDocuments.add(doc);
+    if (typeof doc.querySelectorAll !== 'function') return;
 
-          if (src) {
-            this.open(src);
-          }
-        });
+    const images = doc.querySelectorAll('img, image, svg image');
+    images.forEach((img) => {
+      img.classList.add('image-viewer-zoomable');
+      img.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        let src = '';
+        if (img.tagName.toLowerCase() === 'img') {
+          src = img.src;
+        } else {
+          // SVG image element
+          src = img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || img.getAttribute('href');
+        }
+
+        if (src) {
+          this.open(src);
+        }
       });
     });
   }

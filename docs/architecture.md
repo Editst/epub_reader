@@ -1,7 +1,7 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.3.0  
-更新：2026-06-23
+版本：v2.3.1  
+更新：2026-06-24
 
 ---
 
@@ -312,6 +312,8 @@ Utils.formatMinutes(minutes: number): string
 **协作模式**：
 - 模块间通过显式 `context` (包含 `book`, `rendition`, `bookId`) 传递，杜绝全局变量读写。
 - 生命周期契约：所有模块必须实现 `mount(context)` 以接收运行时上下文。
+- `openBook()` 中 lifecycle mount 是 Bookmarks/Search/Highlights 的唯一挂载路径；不要在 mount 后再直调 `setBook()` / `setBookDetails()`。
+- iframe hook 模块必须同时处理“未来 contents”（`hooks.content.register`）和“当前已存在 contents”（`rendition.getContents()`），且对同一 rendition/document 幂等绑定。
 
 ---
 
@@ -326,6 +328,7 @@ Highlights.init(): void
 Highlights.setBookDetails(bookId, fileName, rendition): Promise<void>
 // 绑定新书，加载高亮，注册 rendition.on('selected')
 // 切换书籍或重分布(setLayout)时必须调用
+// 若首屏 iframe 已存在，必须补绑定当前 contents 的空白点击关闭监听
 
 Highlights.closePanels(): void
 ```
@@ -381,6 +384,7 @@ Search.reset(): void // 取消进行中的搜索并清空状态
 ImageViewer.init(): void
 ImageViewer.hookRendition(rendition): void
 // 注册 hooks.content 拦截图片 click
+// 同一 rendition/document 幂等；late hook 时补处理 getContents()
 ImageViewer.open(src): void
 ```
 
@@ -395,6 +399,7 @@ Annotations.init(): void
 Annotations.setBook(book): void
 Annotations.hookRendition(rendition): void
 // 拦截 <a> 标签，识别脚注，避免页面跳转
+// 同一 rendition/document 幂等；late hook 时补处理 getContents()
 ```
 
 ---
@@ -447,6 +452,7 @@ Annotations.hookRendition(rendition): void
 - **ADR-006：阅读位置保存实时化 (v2.2.2)**：首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛，降低快速关闭页面时丢失最新进度的概率。
 - **ADR-007：恢复期 CFI 不落盘 (v2.2.5)**：`display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
 - **ADR-008：分页边界 CFI 不作为唯一真相 (v2.3.0)**：`start.cfi` 可前跳、`end.cfi` 可后跳；持久化 `start.cfi + displayed-page locator`，恢复时只在同章节内做一次页校正。
+- **ADR-009：Reader 子模块 hook 必须幂等 (v2.3.1)**：`openBook()`、`setLayout()` 与 epub.js contents 生命周期可能多次触达同一模块；模块需用 rendition/document 级 guard 防止重复监听，并在 display 后挂载时补绑定当前 iframe。
 
 ---
 
@@ -455,6 +461,7 @@ Annotations.hookRendition(rendition): void
 - **MV3 生命周期**：SW 不持有内存状态，所有配置必须持久化。
 - **Hooks 拦截机制**：通过 `rendition.hooks.content.register` 注入 iframe，拦截点击事件或注入层。
 - **重分布绑定契约**：每次 `setLayout` 后，必须重新调用所有子模块的 `setBook/hookRendition`。
+- **幂等绑定契约**：子模块不得假设 hook 一定早于 `display()`；不得假设同一 rendition 只会被 hook 一次。
 
 ---
 

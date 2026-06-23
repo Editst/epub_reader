@@ -17,6 +17,7 @@ window.Highlights = (function () {
   let _activeHighlightCfi = null;
   let _renderedHighlightCfis = new Set();
   const _hookedRenditions = new WeakSet();
+  const _hookedContentDocuments = new WeakSet();
 
   const toolbar = document.getElementById('selection-toolbar');
   const btnAddNote = document.getElementById('btn-add-note');
@@ -118,26 +119,39 @@ window.Highlights = (function () {
     if (!_hookedRenditions.has(_rendition)) {
       _hookedRenditions.add(_rendition);
       _rendition.hooks.content.register((contents) => {
-        const doc = contents.document;
-        // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
-        doc.addEventListener('mousedown', (e) => {
-          setTimeout(() => {
-            if (toolbar.classList.contains('show') || notePopup.classList.contains('show')) {
-              if (!_internalAction) closePanels();
-              return;
-            }
-
-            const selection = contents.window.getSelection();
-            if (selection && !selection.isCollapsed) {
-              // A selection is active; the 'selected' event will handle toolbar display.
-            } else {
-              if (_internalAction) return;
-              closePanels();
-            }
-          }, 10);
-        });
+        bindContentMouseDown(contents);
       });
     }
+
+    if (typeof _rendition.getContents === 'function') {
+      _rendition.getContents().forEach(bindContentMouseDown);
+    }
+  }
+
+  function bindContentMouseDown(contents) {
+    const doc = contents && contents.document;
+    if (!doc || _hookedContentDocuments.has(doc)) return;
+    _hookedContentDocuments.add(doc);
+
+    // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
+    doc.addEventListener('mousedown', () => {
+      setTimeout(() => {
+        if (toolbar.classList.contains('show') || notePopup.classList.contains('show')) {
+          if (!_internalAction) closePanels();
+          return;
+        }
+
+        const selection = contents.window && contents.window.getSelection
+          ? contents.window.getSelection()
+          : null;
+        if (selection && !selection.isCollapsed) {
+          // A selection is active; the 'selected' event will handle toolbar display.
+        } else {
+          if (_internalAction) return;
+          closePanels();
+        }
+      }, 10);
+    });
   }
 
   // Deprecated in v1.2.0 in favor of direct rect inheritance for Modify Button,
