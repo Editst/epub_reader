@@ -122,11 +122,15 @@ window.Highlights = (function () {
         // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
         doc.addEventListener('mousedown', (e) => {
           setTimeout(() => {
+            if (toolbar.classList.contains('show') || notePopup.classList.contains('show')) {
+              if (!_internalAction) closePanels();
+              return;
+            }
+
             const selection = contents.window.getSelection();
             if (selection && !selection.isCollapsed) {
               // A selection is active; the 'selected' event will handle toolbar display.
             } else {
-              if (!toolbar.classList.contains('show') && !notePopup.classList.contains('show')) return;
               if (_internalAction) return;
               closePanels();
             }

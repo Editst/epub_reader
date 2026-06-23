@@ -163,4 +163,35 @@ test.describe('Reader Highlights 行为', () => {
 
     assert.equal(rendition.hooks.content.callbacks.length, 1);
   });
+
+  test.it('iframe 空白点击即使保留原生选区也会关闭高亮悬浮栏', async () => {
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
+    const contentListeners = {};
+    const contents = {
+      document: {
+        addEventListener(type, fn) {
+          contentListeners[type] = fn;
+        }
+      },
+      window: {
+        getSelection() {
+          return { isCollapsed: false };
+        }
+      }
+    };
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    rendition.hooks.content.callbacks[0](contents);
+    annotations[0].cb({
+      stopPropagation() {},
+      target: createElement('rendered-highlight')
+    }, 'epubcfi(/6/2)');
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), true);
+
+    contentListeners.mousedown({ target: createElement('blank-page') });
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), false);
+  });
 });
