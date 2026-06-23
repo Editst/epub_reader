@@ -98,9 +98,10 @@
         ]);
       }
 
-      if (state.rendition && typeof state.rendition.reportLocation === 'function') {
-        state.rendition.reportLocation();
-      }
+      // 不在此处调用 reportLocation()——display() 已触发，
+      // 此处再调用会 double-defer 导致 currentLocation() 读到旧值。
+      // 等待 2 帧给浏览器布局 reflow 时间。
+      await _nextFrame();
       await _nextFrame();
     }
 
@@ -114,25 +115,34 @@
       };
     }
 
+    /**
+     * 位置恢复后验证 CFI 是否落在目标章节。
+     * 不再做 next/prev 页校正——CFI 本身是可靠的 DOM 位置指针，
+     * 页码差异来自字体加载导致的布局偏移，不是位置错误。
+     *
+     * @returns {{ matched: boolean }} 章节是否匹配
+     */
     async function _correctRestoredPage(savedPos) {
       const locator = savedPos && savedPos.locator;
-      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return;
-      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return;
-      if (!_isSignatureCompatible(locator.prefsSignature)) return;
+      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false };
+      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return { matched: false };
+      if (!_isSignatureCompatible(locator.prefsSignature)) return { matched: false };
 
       await _waitForRenditionStable();
-      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return { matched: false };
 
       const currentPage = _getDisplayedPage(state.rendition.currentLocation());
-      if (!currentPage) return;
-      if (currentPage.index !== locator.index || currentPage.href !== locator.href) return;
+      if (!currentPage) return { matched: false };
 
-      const diff = currentPage.page - locator.page;
-      if (diff === -1 && typeof state.rendition.next === 'function') {
-        await state.rendition.next();
-      } else if (diff === 1 && typeof state.rendition.prev === 'function') {
-        await state.rendition.prev();
+      // 仅验证章节是否一致（href + index），不做页码比较
+      const matched = currentPage.index === locator.index && currentPage.href === locator.href;
+      if (!matched) {
+        console.warn('[Runtime] CFI restore: chapter mismatch', {
+          expected: { href: locator.href, index: locator.index },
+          actual: { href: currentPage.href, index: currentPage.index }
+        });
       }
+      return { matched };
     }
 
     // ── Data Normalization ────────────────────────────────────────────────────
@@ -284,6 +294,7 @@
       // v2.2.4 BUG-FIX：display 期间抑制 relocated 事件的位置回写，
       // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
       state.isRestoringPosition = true;
+      state.isLayoutStable = false;
       const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
       state.currentStableCfi = displayCfi;
       state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
@@ -341,10 +352,12 @@
         }
         // v2.2.4：locations 加载完毕，恢复阶段结束，后续翻页正常写入
         state.isRestoringPosition = false;
+        state.isLayoutStable = true;
       } else {
         // v2.2.4：无缓存 locations，display 已完成，恢复阶段结束。
         // locations 异步生成期间用户可能翻页，须允许正常位置保存。
         state.isRestoringPosition = false;
+        state.isLayoutStable = true;
         const activeBook = state.book;
         const locationsBreak = chooseLocationsBreak(fileData);
         state.hasLocations = false;
@@ -401,6 +414,22 @@
           }
         });
       }
+
+      // ── 窗口 resize 防抖（PC 端拖拽窗口） ──────────────────────────────────
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        let resizeTimer = null;
+        state._onResize = () => {
+          state.isResizing = true;
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            if (state.rendition && typeof state.rendition.resize === 'function') {
+              state.rendition.resize();
+            }
+            state.isResizing = false;
+          }, 500);
+        };
+        window.addEventListener('resize', state._onResize);
+      }
     }
 
     // ── Load Helpers ──────────────────────────────────────────────────────────
@@ -447,14 +476,14 @@
     // ── Navigation ────────────────────────────────────────────────────────────
 
     function next() {
-      if (state.navLock || !state.rendition) return;
+      if (state.navLock || !state.rendition || !state.isLayoutStable) return;
       state.navLock = true;
       state.rendition.next();
       setTimeout(() => { state.navLock = false; }, 150);
     }
 
     async function prev() {
-      if (state.navLock || !state.rendition) return;
+      if (state.navLock || !state.rendition || !state.isLayoutStable) return;
       state.navLock = true;
       const loc = state.rendition.currentLocation();
       const readerMain = document.getElementById('reader-main');
@@ -473,7 +502,7 @@
     }
 
     function displayPercentage(percent) {
-      if (!state.rendition || !state.book) return;
+      if (!state.rendition || !state.book || !state.isLayoutStable) return;
       if (!state.book.locations || !state.book.locations.length()) return;
       const cfi = state.book.locations.cfiFromPercentage(percent / 100);
       if (cfi) state.rendition.display(cfi);
@@ -564,9 +593,14 @@
         moduleLifecycle.unmount();
         state.rendition.destroy();
       }
+      if (typeof window !== 'undefined' && state._onResize) {
+        window.removeEventListener('resize', state._onResize);
+        state._onResize = null;
+      }
       state.book        = null;
       state.rendition   = null;
       state.isBookLoaded = false;
+      state.isLayoutStable = false;
     }
 
     return {
