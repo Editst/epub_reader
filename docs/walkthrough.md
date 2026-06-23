@@ -35,18 +35,15 @@
 
 ---
 
-## [v2.3.0 - v2.3.1] — Annotations 算法深度对齐 + iframe hook 幂等性
+## [v2.3.0 - v2.3.1] — 阅读位置恢复 + iframe hook 幂等性
 
-**核心目标**：Annotations 识别算法与 Calibre/KOReader 对齐；修复 iframe 内容 hook 生命周期缺陷。
+**核心目标**：彻底解决分页模式下 start.cfi/end.cfi 边界跳转问题；修复 iframe 内容 hook 生命周期缺陷。
 
-### v2.3.0 — Annotations 算法专项 + 代码质量专项
+### v2.3.0 — 阅读位置恢复重写
 
-- **AN-1 computedStyle 垂直对齐检测**：补全 CSS `vertical-align: super` 替代 `<sup>` 标签的漏判场景，识别率从 0% 提升至 ≥ 95%。
-- **AN-2 源节点孤立性检查**：排除扁平 `<p>` 单链接（TOC 变体）被误判为注释，10 种变体误判率降至 0。
-- **AN-3a 同文档位置前后关系**：`href.startsWith('#')` 时用 `compareDocumentPosition` 判断目标节点与源节点顺序。
-- **AN-4 注释内容提取安全阀**：空锚点弹窗内容上限 2000 字符，沿 nextSibling 遍历并在 `<hr>`/`H1-H6`/含 id 的 `<a>` 处停止。
-- **AN-5 跨文档注释 LRU 缓存**：容量 50 的 Map LRU，TTL = book 生命周期，同文档第二次点击 P90 < 15ms。
-- **AN-C1～C8 代码质量重构**：提取 `_hasSup()`、`_BLOCK_TAGS` 升为模块级 Set、inline style 迁移为 CSS class、提取 `_PAGINATION_SETTLE_MS` 常量、统一 `_parseHref()`、`bind` 提取至循环外、来源注释补全。
+- **替代 v2.2.6 的 end.cfi 策略**：改为 `start.cfi + displayed-page locator + 有界页校正`。保存时记录 epub.js 报告的 `displayed.page/index/href` 与布局签名；恢复时先用 CFI 粗定位，等待渲染与字体稳定后，若同一章节内仅偏移一页，则自动 `next()` 或 `prev()` 校正。
+- `flushPositionSave()` 在刷新/关闭前重建完整 position（CFI、percentage、locator），避免持久化过期内存位置。
+- `savePosition()` 向后兼容地支持 `locator` 字段，旧 `{ cfi, percentage, timestamp }` 数据无需迁移。
 
 ### v2.3.1 — iframe hook 幂等性 + 生命周期收敛
 
