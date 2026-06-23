@@ -35,6 +35,59 @@
 
 ---
 
+## [v2.3.0 - v2.3.1] — Annotations 算法深度对齐 + iframe hook 幂等性
+
+**核心目标**：Annotations 识别算法与 Calibre/KOReader 对齐；修复 iframe 内容 hook 生命周期缺陷。
+
+### v2.3.0 — Annotations 算法专项 + 代码质量专项
+
+- **AN-1 computedStyle 垂直对齐检测**：补全 CSS `vertical-align: super` 替代 `<sup>` 标签的漏判场景，识别率从 0% 提升至 ≥ 95%。
+- **AN-2 源节点孤立性检查**：排除扁平 `<p>` 单链接（TOC 变体）被误判为注释，10 种变体误判率降至 0。
+- **AN-3a 同文档位置前后关系**：`href.startsWith('#')` 时用 `compareDocumentPosition` 判断目标节点与源节点顺序。
+- **AN-4 注释内容提取安全阀**：空锚点弹窗内容上限 2000 字符，沿 nextSibling 遍历并在 `<hr>`/`H1-H6`/含 id 的 `<a>` 处停止。
+- **AN-5 跨文档注释 LRU 缓存**：容量 50 的 Map LRU，TTL = book 生命周期，同文档第二次点击 P90 < 15ms。
+- **AN-C1～C8 代码质量重构**：提取 `_hasSup()`、`_BLOCK_TAGS` 升为模块级 Set、inline style 迁移为 CSS class、提取 `_PAGINATION_SETTLE_MS` 常量、统一 `_parseHref()`、`bind` 提取至循环外、来源注释补全。
+
+### v2.3.1 — iframe hook 幂等性 + 生命周期收敛
+
+- `Highlights.setBookDetails()` / `ImageViewer.hookRendition()` / `Annotations.hookRendition()` 改为幂等（WeakSet 按 rendition/document 做 guard）。
+- `hookRendition()` 同时处理未来 hook 和当前 `rendition.getContents()` 补绑定，修复已有 contents 的 iframe 空白点击不关闭。
+- `openBook()` 中 Bookmarks/Search/Highlights 重复直调收敛，仅保留 lifecycle mount 唯一路径。
+
+---
+
+## [v2.2.0 - v2.2.6] — 安全与可访问性 + UI 视觉重设计
+
+**核心目标**：CSP 收敛、ARIA 语义补全、阅读位置恢复策略迭代。
+
+- **v2.2.0**：`speed.sessions` 持久化落地（`storage.js` 补全 `sessions: []` + `sessionCount: 0`，向后兼容旧数据）；ARIA 语义补全（工具栏/面板/书架卡片）；`image-viewer.js` `style.transform` 迁移为 CSS 自定义属性（`--iv-tx/--iv-ty/--iv-scale`）。
+- **v2.2.2**：阅读位置改为"首次立即落盘 + 300ms 最终位置收敛"；修复搜索取消与注释弹窗切书后的交互恢复问题。
+- **v2.2.3**：完成大规模代码审查，执行 TDD 工作流修复 11 项 UX 缺陷，确认高价值数据安全。
+- **v2.2.5**：修复恢复期间 epub.js page-start CFI 污染可落盘位置的部分路径。
+- **v2.2.6**：曾尝试分页模式改用 `location.end.cfi` 作为恢复锚点（该策略已由 v2.3.0 替代）。
+
+---
+
+## [v2.1.0 - v2.1.1] — Reader 内核解耦 (Reader Core Decoupling)
+
+**核心目标**：完成 roadmap v2.1.0 的 R-1/R-2/R-3，建立 reader 分层边界。
+
+### 交付内容
+- 新增 `src/reader/reader-state.js`：单一状态源（可序列化），集中管理 `currentBookId` 等变量。
+- 新增 `src/reader/reader-runtime.js`：epub.js 生命周期钩子与 locations idle 调度中心。
+- 新增 `src/reader/reader-persistence.js`：位置（防抖）与阅读时长（visibility 监测）持久化策略。
+- 新增 `src/reader/reader-ui.js`：DOM 监听器绑定与主题/排版 UI 状态控制。
+- `src/reader/reader.js`：降级为入口 orchestrator（< 120 行），通过 `mount(context)` 编排各层。
+- 子模块生命周期：移除匿名适配层，建立统一原生 `mount/unmount` 接口契约。
+- 移除隐式共享：消除全局变量跨模块写入，改为显式 `state/context` 传递。
+- 清理：删除 `DbGateway.getByFilename()` 死代码。
+
+### 测试
+- 新增 `test/suites/v2_1_tdd.test.js`。
+- 运行 `node --test test/suites/*.test.js` 与 `node test/run_tests.js`。
+
+---
+
 ## [v1.8.0] - 交互鲁棒性增强与持续性能优化 (Stability & UX)
 **核心目标**：彻底解决 Popup 失焦状态下的文件输入竞态，校准 ETA 速率同步逻辑，并提升 Resize 状态下的位置保持精度。
 
@@ -166,19 +219,4 @@
 - **存储方案**：确立 `storage.local` (配置) + `IndexedDB` (大容量文件) 的混合架构。
 - **基础套件**：实现 TOC 提取、全文搜索排队器、主题切换系统。
 
-## [v2.1.0] - Reader 内核解耦版本 (Reader Core Decoupling)
-**核心目标**：完成 roadmap v2.1.0 的 R-1/R-2/R-3，建立 reader 分层边界。
 
-### 交付内容
-- 新增 `src/reader/reader-state.js`：单一状态源（可序列化），集中管理 `currentBookId` 等变量。
-- 新增 `src/reader/reader-runtime.js`：epub.js 生命周期钩子与 locations idle 调度中心。
-- 新增 `src/reader/reader-persistence.js`：位置（防抖）与阅读时长（visibility 监测）持久化策略。
-- 新增 `src/reader/reader-ui.js`：DOM 监听器绑定与主题/排版 UI 状态控制。
-- `src/reader/reader.js`：降级为入口 orchestrator（< 120 行），通过 `mount(context)` 编排各层。
-- 子模块生命周期：移除匿名适配层，建立统一原生 `mount/unmount` 接口契约。
-- 移除隐式共享：消除全局变量跨模块写入，改为显式 `state/context` 传递。
-- 清理：删除 `DbGateway.getByFilename()` 死代码。
-
-### 测试
-- 新增 `test/suites/v2_1_tdd.test.js`。
-- 运行 `node --test test/suites/*.test.js` 与 `node test/run_tests.js`。

@@ -1,14 +1,15 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-03-17（v2.2.0：安全与可访问性 + UI 视觉重设计）
+> 最后更新：2026-06-24（v2.3.1：iframe hook 幂等性 + 生命周期收敛）
 
 ---
 
 ## 当前状态
 
-- **v2.2.0 已完成**：speed.sessions 持久化落地
+- **v2.3.1 已完成**：修复高亮悬浮栏 iframe 空白点击不关闭 + reader 子模块重复 hook/挂载收敛。
+- **v2.3.0 已完成**：Annotations 算法深度对齐 + 代码质量专项。
 - **D-2026-07/08/25 已闭环**，全部 P1/P2/P3 债务进度更新见技术债务索引。
-- **下一步**：启动 v2.3.0 Annotations 算法深度对齐 + 代码质量专项。
+- **下一步**：启动 v2.4.0 Annotations 跨文档拓扑与 FB2 兼容。
 
 ---
 
@@ -63,7 +64,7 @@
 
 ---
 
-### v2.3.0 — Annotations 算法深度对齐 + 代码质量专项（计划 5～7 工作日）
+### v2.3.0 — Annotations 算法深度对齐 + 代码质量专项 ✅ 完成
 
 > 本版本两个并行专项集中在 `annotations.js` 单文件，测试套件统一补充。
 
@@ -143,6 +144,16 @@
 
 ---
 
+### v2.3.1 — iframe hook 幂等性 + 生命周期收敛 ✅ 完成
+
+- [x] Highlights/ImageViewer/Annotations 的 `hookRendition` 改为幂等（WeakSet 按 rendition/document 做 guard）。
+- [x] `hookRendition()` 同时处理未来 hook 和当前 `rendition.getContents()` 补绑定，修复已有 contents 的 iframe 空白点击不关闭。
+- [x] `openBook()` 中 Bookmarks/Search/Highlights 重复直调收敛，仅保留 lifecycle mount 唯一路径。
+- [x] 高亮悬浮栏 mousedown 空白关闭逻辑同步修复。
+- [x] 测试 105 pass / 0 fail。
+
+---
+
 ### v2.4.0 — Annotations 跨文档拓扑与 FB2 兼容（计划 3～4 工作日）
 
 > v2.3.0 的延伸，处理更复杂的跨文档场景与历史格式兼容。
@@ -172,18 +183,18 @@
 | 🔵 P3 | D-2026-08 | ARIA 语义缺失（工具栏/面板/书架卡片） | v2.2.0 | ✅ 已修复 |
 | 🔵 P3 | D-2026-09 | 阅读速度模型等权平均 | v2.0.0 | ✅ 已修复 |
 | 🔵 P3 | D-2026-10 | locations 生成阻塞主线程 | v2.0.0 | ✅ 已修复 |
-| 🔵 P3 | D-2026-11 | CSS `vertical-align` 替代 `<sup>` 漏判 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-12 | 孤立性链接缺乏专项排他检查 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-13 | `_extractContent` 无文本长度安全阀 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-14 | 跨文档注释无缓存 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-11 | CSS `vertical-align` 替代 `<sup>` 漏判 | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-12 | 孤立性链接缺乏专项排他检查 | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-13 | `_extractContent` 无文本长度安全阀 | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-14 | 跨文档注释无缓存 | v2.3.0 | ✅ 已修复 |
 | 🔵 P3 | D-2026-15 | FB2 转换格式注释容器未识别 | v2.4.0 | 📋 已规划 |
 | 🔵 P3 | D-2026-16 | `noteTextMarker` 4 位数字年份误判风险 | v2.4.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-17 | `isBackLink`/`isFootnoteLink` 重复 sup 查询 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-18 | `_BLOCK_TAGS` 局部数组每次重建 | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-19 | last-resort 降级路径含 inline style | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 100ms magic number | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-21 | href 解析碎片化，edge case 处理不一致 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-17 | `isBackLink`/`isFootnoteLink` 重复 sup 查询 | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-18 | `_BLOCK_TAGS` 局部数组每次重建 | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-19 | last-resort 降级路径含 inline style | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-20 | `_compensatePaginationOffset` 100ms magic number | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-21 | href 解析碎片化，edge case 处理不一致 | v2.3.0 | ✅ 已修复 |
 | ✅ P4 | D-2026-22 | `init()` Escape 键监听匿名函数永不释放 | v2.1.1 | ✅ 已修复 |
-| 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()` | v2.3.0 | 📋 已规划 |
-| 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释 | v2.3.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-23 | `_loadFromBook` Method 4 循环内重复 `.bind()` | v2.3.0 | ✅ 已修复 |
+| 🔵 P3 | D-2026-24 | `_isTocList` 阈值与 `_RE` 正则词汇无来源注释 | v2.3.0 | ✅ 已修复 |
 | ✅ P3 | D-2026-25 | speed.sessions/sessionCount 存储结构未在 storage.js 落地 | v2.2.0 | ✅ 已修复 |

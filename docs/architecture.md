@@ -467,53 +467,11 @@ Annotations.hookRendition(rendition): void
 
 ## 8. 已知技术债务
 
-### 8.0 v1.9.3 核心教训：Chrome Extension popup 的 `display:none` 限制
+### 8.0 Chrome Extension popup 的 `display:none` 限制（v1.9.3 教训）
 
-**BUG-B 完整调试路径与根因**：
-
-这个 bug 经历了 5 轮修复尝试，每次都找到了"看似合理"的原因，但问题始终存在，
-直到注意到"DevTools 打开时能用"这个决定性线索。
-
-**调试时序**：
-
-1. **v1.9.2 初始改动**：将 popup 样式从内联 `<style>` 分离为外部 `popup.css` + `@import` 字体
-2. **第一轮猜测**：`@import` 阻塞 CSS 加载 → 将字体改为 `<link>` 外部引入（错误：不是根因）
-3. **第二轮猜测**：`loadRecentBooks()` 缺少 `try/catch` 导致回调中断 → 加了保护（部分有效，非根因）
-4. **第三轮猜测**：`emptyState` 用 `classList` 而非 `style.display` 控制 → 还原直写（正确但不够）
-5. **第四轮猜测**：`<link rel="preconnect">` 被 CSP 阻断 → 恢复内联 `<style>`（正确但不够）
-6. **决定性线索**：用户发现"开 DevTools 就能用" → 指向 Chrome 安全限制
-7. **根因确认**：`display:none` 元素无法被程序 `.click()`，DevTools 放宽了这个限制
-
-**核心规则**：在 Chrome Extension popup 中，任何需要通过 JS 的 `.click()` 触发的
-`<input type="file">`，必须使用物理隐藏（零尺寸+透明），而非逻辑隐藏（`display:none`）。
+`display:none` 元素无法被程序 `.click()`，DevTools 打开时限制放宽。在 Chrome Extension popup 中，任何需要通过 JS `.click()` 触发的 `<input type="file">`，必须使用物理隐藏（零尺寸+透明），而非逻辑隐藏（`display:none`）。
 
 ---
-
-### 8.1 v1.9.2 审计结论：1.x 正式封版（原 8.0）
-
-经 v1.9.2 最终收尾，P1/P2 问题全部清零：
-
-1. ✅ `EpubStorage._get/_set/_remove` 已检查 `chrome.runtime.lastError`，失败时 reject（D-2026-01）。
-2. ✅ `bookMeta` 写入引入 `_bookMetaQueue` 串行化，消除并发 RMW 覆盖窗口（D-2026-02）。
-3. ✅ `getAllHighlights()` 增加全量 key 扫描，突破 recentBooks 上限约束（D-2026-03）。
-4. ✅ `reader.js（v2.1 入口编排）` 全部 `style.display` 迁移为 class 控制，home/popup/reader 三入口 `style.*` 全量清零（D-2026-04）。
-
-**style.* 迁移说明（v1.9.2 最终收口）**：
-- `reader.js（v2.1 入口编排）` 中 `openBook`（3 处）、`setTheme`（1 处）、`showLoading`（1 处）共 5 处 `style.display` 已迁移为 `classList.add/toggle`。
-- `reader.html` 移除 `#reader-main`、`#bottom-bar`、`#loading-overlay`、`#custom-theme-options` 的内联 `style="display:none"`。
-- `reader.css` 新增 5 个辅助类：`.welcome-screen.is-hidden`、`.reader-main.is-visible`、`.bottom-bar.is-visible`、`.loading-overlay.is-hidden`、`.custom-theme-options.is-visible`。
-- **唯一豁免**：`image-viewer.js` `style.transform`（动态平移+缩放计算值，无法静态化）→ v2.2.0 通过 CSS 自定义属性替代。
-
-### P3（计划 v2.x）
-
-- **D-2026-05**（v2.1.0）：`reader.js` 高耦合问题已通过四层拆分完成治理。
-- **D-2026-06**（v2.1.0）：`DbGateway.getByFilename()` 死代码已删除。
-- **D-2026-07**（v2.2.0）：`image-viewer.js` `style.transform` 已通过 CSS 自定义属性（`--iv-tx/--iv-ty/--iv-scale`）替代完成。
-- **D-2026-08**（v2.2.0）：ARIA 语义已补全，包括进度滑块、工具栏按钮及面板 `role="dialog"` 属性。
-- **D-2026-25**（v2.2.0）：`speed.sessions` 与 `sessionCount` 的存储结构已在 `storage.js` 落地并支持向后兼容。
-
----
-
 
 ## 9. 附录：模块加载顺序
 
@@ -523,8 +481,3 @@ Annotations.hookRendition(rendition): void
 2. **工具层**：`db-gateway.js`, `utils.js`, `storage.js` (依赖前者)
 3. **子模块**：`image-viewer.js`, `annotations.js`, `toc.js`, `search.js`, `bookmarks.js`, `highlights.js` (依赖工具层)
 4. **主控制器**：`reader.js（v2.1 入口编排）` (必须最后加载，负责调度上述所有模块)
-
-
-## v1.9 架构注记
-- UI 显隐与视觉状态进一步收敛为 CSS class，减少 JS 内联样式写入。
-- CSP 策略收敛后，样式来源统一至外联 CSS + 主题变量覆盖路径。
