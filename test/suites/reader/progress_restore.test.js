@@ -59,8 +59,8 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     EpubStorage.savePosition = origSavePosition;
 
-    // 内存状态应更新（currentStableCfi），但不应写入 storage
-    assert.equal(state.currentStableCfi, 'epubcfi(/6/4)');
+    // 恢复期间 page-start CFI 不应进入可落盘状态
+    assert.equal(state.currentStableCfi, null);
     assert.equal(savePositionCalls, 0, '位置恢复期间不应调用 savePosition');
   });
 
@@ -101,13 +101,62 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     EpubStorage.savePosition = origSavePosition;
 
-    // 内存状态应全部更新
-    assert.equal(state.currentStableCfi, 'epubcfi(/6/8)');
+    // 进度状态应更新，但 page-start CFI 不应进入可落盘状态
+    assert.equal(state.currentStableCfi, null);
     assert.equal(state.lastPercent, 35.0);
     assert.equal(state.lastProgress, 0.35);
     assert.equal(mockUi.progressUpdated, 35.0);
     // 但不应写入 storage
     assert.equal(savePositionCalls, 0, '位置恢复期间不应调用 savePosition');
+  });
+
+  /**
+   * 回归：刷新/重开时 display(savedCfi) 触发的 relocated 可能回报上一页边界 CFI。
+   * 恢复期间不能让该 page-start CFI 进入 currentStableCfi，否则关闭页面时
+   * flushPositionSave 会把它落盘，造成每次刷新继续向前倒退一页。
+   */
+  test.it('isRestoringPosition 期间不替换 currentStableCfi，避免关闭时落盘 page-start CFI', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+
+    const state = ReaderState.createReaderState();
+    state.currentBookId = 'book-restore-flush';
+    state.currentStableCfi = 'epubcfi(/6/10!/4/20)';
+    state.isBookLoaded = true;
+    state.isRestoringPosition = true;
+    state.book = {
+      navigation: { toc: [] },
+      locations: {
+        length: () => 100,
+        percentageFromCfi: () => 0.42
+      }
+    };
+
+    const savedArgs = [];
+    const origSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (bookId, cfi, percent) => {
+      savedArgs.push({ bookId, cfi, percent });
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    persistence.onRelocated({
+      start: { cfi: 'epubcfi(/6/8!/4/2)', href: 'chapter3.xhtml' }
+    });
+    state.isRestoringPosition = false;
+    await persistence.flushPositionSave();
+
+    EpubStorage.savePosition = origSavePosition;
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/10!/4/20)');
+    assert.deepEqual(savedArgs, [{
+      bookId: 'book-restore-flush',
+      cfi: 'epubcfi(/6/10!/4/20)',
+      percent: 42
+    }]);
   });
 
   /**

@@ -4,6 +4,17 @@
 
 ---
 
+## [2.2.5] - 2026-06-23
+
+### fix
+- **阅读位置恢复**：修复 v2.2.4 后仍可能在刷新/关闭时继续向前回退一页的问题。根因为恢复期间虽然跳过了 `schedulePositionSave`，但 `relocated` 事件仍会把 epub.js 回报的 page-start CFI 写入 `state.currentStableCfi`，随后 `flushPositionSave()` 在页面隐藏或卸载时将该上一页边界 CFI 落盘。
+- `openBook()` 在恢复前先把目标/已保存 CFI 初始化为可 flush 的稳定 CFI；`onRelocated()` 在 `isRestoringPosition=true` 时只更新进度与章节 UI，不替换可落盘 CFI。
+
+### test
+- 新增刷新/重开位置倒退的 TDD 回归测试，覆盖“恢复期间污染 `currentStableCfi` 后由关闭 flush 落盘”的完整链路。全量 93 个用例通过。
+
+---
+
 ## [2.2.4] - 2026-06-23
 
 ### fix

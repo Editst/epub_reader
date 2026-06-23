@@ -1,7 +1,7 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.2.3  
-更新：2026-06-22
+版本：v2.2.5  
+更新：2026-06-23
 
 ---
 
@@ -286,17 +286,20 @@ Utils.formatMinutes(minutes: number): string
 1.  **Runtime (`reader-runtime.js`)**：
     - 绑定 `epub.js` 的 `book` 和 `rendition` 生命周期。
     - 转发 `relocated`、`rendered` 等核心事件至全局总线。
+    - 恢复阅读位置前，将目标/已保存 CFI 初始化为 `currentStableCfi`，供页面隐藏或卸载时安全 flush（v2.2.5）。
     - 管理 `locations.generate()` 的后台调度、自适应 break 与缓存复用；首开正文不再等待全量 locations 构建（v2.2.1）。
 
 2.  **State (`reader-state.js`)**：
     - 提供单一事实来源（Single Source of Truth）。
     - 缓存 `currentBookId`、`isBookLoaded`、`rendition` 实例等运行时状态。
+    - `currentStableCfi` 只保存允许落盘的稳定 CFI；`isRestoringPosition` 为 true 时不得被 epub.js 恢复期 page-start CFI 覆盖。
     - 维护 `hasLocations`、`locationsStatus`、`locationsBreak`、`locationsError`，为后台索引和 UI 降级提供状态来源。
 
 3.  **Persistence (`reader-persistence.js`)**：
     - 实现阅读位置（CFI）的“首次立即写入 + 300ms 防抖收敛最终位置”策略。
     - 处理阅读速率采样（v2.0.0 P-1）与累计时长落盘。
     - `flushPositionSave()` 返回最新位置写入 Promise，关闭/隐藏路径可等待最新保存。
+    - `isRestoringPosition=true` 时，`onRelocated()` 只更新进度/章节 UI，不替换 `currentStableCfi`，避免关闭 flush 保存上一页边界 CFI（v2.2.5）。
     - 在 locations 未就绪或失败时，将 ETA 降级为 `--`，并同步底部定位状态文案，保证阅读不中断。
 
 4.  **UI (`reader-ui.js`)**：
@@ -440,6 +443,7 @@ Annotations.hookRendition(rendition): void
 - **ADR-004：锚点对齐 start.cfi (v1.8.0)**：解决字号变大时由于单屏字数变少导致的重排偏移。
 - **ADR-005：废弃 highlightKeys 索引 (v1.7.0)**：消除索引同步 Bug，改为遍历 `recentBooks` 并行读取。
 - **ADR-006：阅读位置保存实时化 (v2.2.2)**：首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛，降低快速关闭页面时丢失最新进度的概率。
+- **ADR-007：恢复期 CFI 不落盘 (v2.2.5)**：`display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
 
 ---
 

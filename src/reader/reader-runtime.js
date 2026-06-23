@@ -196,6 +196,7 @@
       // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
       state.isRestoringPosition = true;
       const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
+      state.currentStableCfi = displayCfi;
       if (displayCfi) await state.rendition.display(displayCfi);
       else await state.rendition.display();
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
