@@ -43,8 +43,9 @@
 
 - **移除页校正导航**：重写 `_correctRestoredPage`，移除 next/prev 导航逻辑。CFI 本身是可靠的 DOM 位置指针，`display(cfi)` 后仅验证 href/index 是否与保存时一致；页码差异是字体加载导致的布局偏移，不是位置错误，不做导航。
 - **修正 `_waitForRenditionStable`**：移除 triple-deferred 的 `reportLocation()` 调用（导致 `currentLocation()` 同步读取旧值），改为双帧等待布局 reflow。
-- **`isLayoutStable` 标志**：`openBook()` display 期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；locations 就绪后设为 true。避免字体加载完成前的误触发。
+- **`isLayoutStable` 标志**：`openBook()` display 期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；`_correctRestoredPage` 完成后立即设为 true。避免字体加载完成前的误触发。
 - **窗口 resize 防抖**：500ms debounce，resize 期间 `isResizing = true`，防止 relocated 事件在窗口拖拽过程中写入不完整位置。
+- **进度不更新回归修复**：`isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段——后者包含 `await getLocations` 异步调用，会导致 `onRelocated` 长时间跳过位置写入，用户翻页后进度条不更新。
 
 ### v2.3.0 — 阅读位置恢复重写
 

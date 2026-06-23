@@ -423,6 +423,7 @@ scheduleLocationsGeneration(task: Function): void
 - 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
+- `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
 - `_correctRestoredPage` 仅验证 href/index 章节匹配，不做 next/prev 导航。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
