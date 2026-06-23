@@ -1,6 +1,6 @@
 # EPUB Reader — 系统架构文档
 
-版本：v2.2.5  
+版本：v2.2.6  
 更新：2026-06-23
 
 ---
@@ -287,6 +287,7 @@ Utils.formatMinutes(minutes: number): string
     - 绑定 `epub.js` 的 `book` 和 `rendition` 生命周期。
     - 转发 `relocated`、`rendered` 等核心事件至全局总线。
     - 恢复阅读位置前，将目标/已保存 CFI 初始化为 `currentStableCfi`，供页面隐藏或卸载时安全 flush（v2.2.5）。
+    - 分页模式下持久化 `location.end.cfi` 作为恢复锚点，避免 `display(location.start.cfi)` 被 epub.js 归入上一页（v2.2.6）。
     - 管理 `locations.generate()` 的后台调度、自适应 break 与缓存复用；首开正文不再等待全量 locations 构建（v2.2.1）。
 
 2.  **State (`reader-state.js`)**：
@@ -299,6 +300,7 @@ Utils.formatMinutes(minutes: number): string
     - 实现阅读位置（CFI）的“首次立即写入 + 300ms 防抖收敛最终位置”策略。
     - 处理阅读速率采样（v2.0.0 P-1）与累计时长落盘。
     - `flushPositionSave()` 返回最新位置写入 Promise，关闭/隐藏路径可等待最新保存。
+    - `flushPositionSave()` 在非恢复/非 resize 状态下会重新读取 `rendition.currentLocation()`，确保刷新/关闭保存的是当前页面锚点而非过期内存值。
     - `isRestoringPosition=true` 时，`onRelocated()` 只更新进度/章节 UI，不替换 `currentStableCfi`，避免关闭 flush 保存上一页边界 CFI（v2.2.5）。
     - 在 locations 未就绪或失败时，将 ETA 降级为 `--`，并同步底部定位状态文案，保证阅读不中断。
 
@@ -444,6 +446,7 @@ Annotations.hookRendition(rendition): void
 - **ADR-005：废弃 highlightKeys 索引 (v1.7.0)**：消除索引同步 Bug，改为遍历 `recentBooks` 并行读取。
 - **ADR-006：阅读位置保存实时化 (v2.2.2)**：首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛，降低快速关闭页面时丢失最新进度的概率。
 - **ADR-007：恢复期 CFI 不落盘 (v2.2.5)**：`display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
+- **ADR-008：分页恢复锚点使用 end.cfi (v2.2.6)**：分页模式下 `start.cfi` 是显示区左边界，恢复时可能落入上一页；持久化与关闭 flush 使用 `end.cfi`，滚动模式继续使用 `start.cfi`。
 
 ---
 

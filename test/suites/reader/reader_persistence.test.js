@@ -173,6 +173,118 @@ test.describe('ReaderPersistence', () => {
     assert.equal(document.getElementById('btn-bookmark').title, '移除书签 (B)');
   });
 
+  test.it('onRelocated 分页模式保存 end.cfi 作为恢复锚点，避免 display(start.cfi) 回到上一页', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    const positionCalls = [];
+    const originalSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => {
+      positionCalls.push(args);
+    };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-paginated-anchor',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0.1,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi(cfi) {
+            return cfi === 'epubcfi(/6/8!/4/20)' ? 0.31 : 0.30;
+          }
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: { cfi: 'epubcfi(/6/8!/4/2)', href: 'chapter.xhtml' },
+            end: { cfi: 'epubcfi(/6/8!/4/20)', href: 'chapter.xhtml' }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    persistence.onRelocated({
+      start: { cfi: 'epubcfi(/6/8!/4/2)', href: 'chapter.xhtml' },
+      end: { cfi: 'epubcfi(/6/8!/4/20)', href: 'chapter.xhtml' }
+    });
+    await Promise.resolve();
+
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/20)');
+    assert.equal(state.lastPercent, 31);
+    assert.deepEqual(positionCalls, [[
+      'book-paginated-anchor',
+      'epubcfi(/6/8!/4/20)',
+      31
+    ]]);
+  });
+
+  test.it('flushPositionSave 关闭/刷新前从 currentLocation 重新采样分页 end.cfi', async () => {
+    const state = {
+      posTimer: 9,
+      currentBookId: 'book-flush-sample',
+      currentStableCfi: 'epubcfi(/6/6!/4/2)',
+      lastPercent: 20,
+      isRestoringPosition: false,
+      isResizing: false,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi(cfi) {
+            return cfi === 'epubcfi(/6/8!/4/20)' ? 0.31 : 0.20;
+          }
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: { cfi: 'epubcfi(/6/8!/4/2)' },
+            end: { cfi: 'epubcfi(/6/8!/4/20)' }
+          };
+        }
+      }
+    };
+    const originalClearTimeout = global.clearTimeout;
+    const originalSavePosition = EpubStorage.savePosition;
+    const saves = [];
+
+    global.clearTimeout = () => {};
+    EpubStorage.savePosition = async (...args) => {
+      saves.push(args);
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    await persistence.flushPositionSave();
+
+    global.clearTimeout = originalClearTimeout;
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/20)');
+    assert.equal(state.lastPercent, 31);
+    assert.deepEqual(saves, [[
+      'book-flush-sample',
+      'epubcfi(/6/8!/4/20)',
+      31
+    ]]);
+  });
+
   test.it('updateReadingStats 在索引未就绪时显示 ETA 降级文案', () => {
     const { document } = createMockDocument(['progress-time', 'progress-location']);
     global.document = document;

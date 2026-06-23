@@ -32,9 +32,36 @@
       }, 300);
     }
 
+    function _getLocationAnchor(location) {
+      if (!location || !location.start) return { cfi: null, percent: null };
+      // 分页模式下 start.cfi 是页边界，display(start.cfi) 可能恢复到上一页；
+      // end.cfi 更适合作为下次打开时的稳定恢复锚点。滚动模式保留 start.cfi。
+      const isScrolled = state.prefs && state.prefs.layout === 'scrolled';
+      const anchor = (!isScrolled && location.end && location.end.cfi)
+        ? location.end
+        : location.start;
+      const cfi = anchor && anchor.cfi ? anchor.cfi : null;
+      let percent = null;
+      if (cfi && state.book && state.book.locations && state.book.locations.length()) {
+        const progress = state.book.locations.percentageFromCfi(cfi);
+        percent = Math.round(progress * 1000) / 10;
+      }
+      return { cfi, percent };
+    }
+
+    function _refreshStablePositionFromRendition() {
+      if (state.isRestoringPosition || state.isResizing) return;
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
+      const anchor = _getLocationAnchor(state.rendition.currentLocation());
+      if (!anchor.cfi) return;
+      state.currentStableCfi = anchor.cfi;
+      if (anchor.percent !== null) state.lastPercent = anchor.percent;
+    }
+
     function flushPositionSave() {
       clearTimeout(state.posTimer);
       state.posTimer = null;
+      _refreshStablePositionFromRendition();
       if (state.currentBookId && state.currentStableCfi) {
         state.lastPositionSave = EpubStorage.savePosition(
           state.currentBookId,
@@ -109,8 +136,9 @@
           flushSpeedSession(progress);  // async，非阻塞
         }
         state.lastProgress = progress;
-        state.lastPercent  = percent;
       }
+
+      const anchor = _getLocationAnchor(location);
 
       updateReadingStats();
 
@@ -128,11 +156,14 @@
         if (typeof TOC !== 'undefined' && TOC.setActive) TOC.setActive(currentSection);
       }
 
-      // v2.2.4 BUG-FIX：openBook 位置恢复期间跳过写入，防止 relocated 事件
-      // 以 null percentage 或 page-start CFI 覆写 storage 中的正确进度。
+      // 恢复期间跳过写入，也不替换 currentStableCfi；正常阅读时写入
+      // _getLocationAnchor() 选出的可恢复锚点。
       if (!state.isRestoringPosition) {
-        state.currentStableCfi = location.start.cfi;
-        schedulePositionSave(state.currentBookId, state.currentStableCfi, percent);
+        state.currentStableCfi = anchor.cfi || location.start.cfi;
+        state.lastPercent = anchor.percent !== null ? anchor.percent : percent;
+        schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent);
+      } else if (percent !== null) {
+        state.lastPercent = percent;
       }
 
       // 书签按钮状态
