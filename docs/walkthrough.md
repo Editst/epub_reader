@@ -35,9 +35,16 @@
 
 ---
 
-## [v2.3.0 - v2.3.1] — 阅读位置恢复 + iframe hook 幂等性
+## [v2.3.0 - v2.3.2] — 阅读位置恢复 + iframe hook 幂等性
 
 **核心目标**：彻底解决分页模式下 start.cfi/end.cfi 边界跳转问题；修复 iframe 内容 hook 生命周期缺陷。
+
+### v2.3.2 — 位置恢复跳页修复
+
+- **移除页校正导航**：重写 `_correctRestoredPage`，移除 next/prev 导航逻辑。CFI 本身是可靠的 DOM 位置指针，`display(cfi)` 后仅验证 href/index 是否与保存时一致；页码差异是字体加载导致的布局偏移，不是位置错误，不做导航。
+- **修正 `_waitForRenditionStable`**：移除 triple-deferred 的 `reportLocation()` 调用（导致 `currentLocation()` 同步读取旧值），改为双帧等待布局 reflow。
+- **`isLayoutStable` 标志**：`openBook()` display 期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；locations 就绪后设为 true。避免字体加载完成前的误触发。
+- **窗口 resize 防抖**：500ms debounce，resize 期间 `isResizing = true`，防止 relocated 事件在窗口拖拽过程中写入不完整位置。
 
 ### v2.3.0 — 阅读位置恢复重写
 

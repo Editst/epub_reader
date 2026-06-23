@@ -4,6 +4,19 @@
 
 ---
 
+## [2.3.2] - 2026-06-24
+
+### fix
+- **阅读位置恢复跳页**：重写 `_correctRestoredPage`，移除 next/prev 页校正导航——CFI 本身是可靠的 DOM 位置指针，display 后仅验证 href/index 章节匹配，不再基于偏移页码做翻页导航。页码差异是字体加载导致的布局偏移，不是位置错误。
+- `_waitForRenditionStable` 移除多余的 `reportLocation()` 调用（epub.js triple-deferred 机制导致 `currentLocation()` 同步读取旧值），改为双帧等待布局 reflow。
+- 新增 `state.isLayoutStable` 标志：`openBook()` display 期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；locations 就绪后设为 true。避免字体加载完成前的误触发。
+- 新增窗口 resize 防抖（500ms），resize 期间 `isResizing = true`，防止 relocated 事件在窗口拖拽过程中写入不完整位置。
+
+### test
+- 新增 `isLayoutStable` 门控测试（false 时 next/prev/displayPercentage 不执行、true 时正常导航、openBook 完成后为 true）、页校正导航移除测试（start.cfi/boundary 恢复不做导航、页号一致不校正、currentStableCfi 不偏移）。全量 110 个用例通过。
+
+---
+
 ## [2.3.1] - 2026-06-24
 
 ### fix

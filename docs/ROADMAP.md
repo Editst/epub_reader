@@ -1,11 +1,12 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-06-24（v2.3.1）
+> 最后更新：2026-06-24（v2.3.2）
 
 ---
 
 ## 当前状态
 
+- **v2.3.2 已完成**（2026-06-24）：位置恢复跳页修复——移除页校正导航、isLayoutStable 门控、resize 防抖。
 - **v2.3.1 已完成**（2026-06-24）：iframe hook 幂等性 + 生命周期收敛。
 - **v2.3.0 已完成**（2026-06-24）：阅读位置恢复重写（start.cfi + displayed-page locator）。
 - **下一步**：v2.4.0 Annotations 算法深度对齐 + 代码质量专项。
@@ -16,6 +17,7 @@
 
 | 版本 | 主题 | 关键交付 |
 |------|------|---------|
+| v2.3.2 | 位置恢复跳页修复 | 移除页校正导航、isLayoutStable 门控、resize 防抖 |
 | v2.3.1 | iframe hook 幂等性 | WeakSet guard、补绑定当前 contents、openBook 直调收敛 |
 | v2.3.0 | 位置恢复重写 | start.cfi + displayed-page locator + 有界页校正、flushPositionSave 重建 |
 | v2.2.x | 位置恢复迭代 | 实时位置保存、end.cfi 尝试（已被 v2.3.0 替代）、CFI 恢复期保护 |
