@@ -129,7 +129,12 @@
       }
 
       state.currentStableCfi = location.start.cfi;
-      schedulePositionSave(state.currentBookId, state.currentStableCfi, percent);
+
+      // v2.2.4 BUG-FIX：openBook 位置恢复期间跳过写入，防止 relocated 事件
+      // 以 null percentage 或 page-start CFI 覆写 storage 中的正确进度。
+      if (!state.isRestoringPosition) {
+        schedulePositionSave(state.currentBookId, state.currentStableCfi, percent);
+      }
 
       // 书签按钮状态
       _updateBookmarkButtonState();

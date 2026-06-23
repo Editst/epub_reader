@@ -192,6 +192,9 @@
       }
 
       // ── display（位置恢复） ──────────────────────────────────────────────────
+      // v2.2.4 BUG-FIX：display 期间抑制 relocated 事件的位置回写，
+      // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
+      state.isRestoringPosition = true;
       const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
       if (displayCfi) await state.rendition.display(displayCfi);
       else await state.rendition.display();
@@ -256,7 +259,12 @@
           initSpeedTracking(p);
           persistence.onRelocated(loc);
         }
+        // v2.2.4：locations 加载完毕，恢复阶段结束，后续翻页正常写入
+        state.isRestoringPosition = false;
       } else {
+        // v2.2.4：无缓存 locations，display 已完成，恢复阶段结束。
+        // locations 异步生成期间用户可能翻页，须允许正常位置保存。
+        state.isRestoringPosition = false;
         const activeBook = state.book;
         const locationsBreak = chooseLocationsBreak(fileData);
         state.hasLocations = false;

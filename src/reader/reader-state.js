@@ -30,8 +30,9 @@
 
       // ── CFI / 导航保护 ────────────────────────────────────────────────────
       currentStableCfi: null,
-      isResizing:       false,   // 字号/布局重排保护锁（期间忽略 relocated）
-      navLock:          false,   // 翻页防连击锁
+      isResizing:          false,   // 字号/布局重排保护锁（期间忽略 relocated）
+      isRestoringPosition: false,   // openBook 位置恢复期间为 true，防止 relocated 覆写已保存进度
+      navLock:             false,   // 翻页防连击锁
 
       // ── 阅读计时 ──────────────────────────────────────────────────────────
       readingTimer:         null,
@@ -72,6 +73,7 @@
     state.lastProgress         = 0;
     state.lastPercent          = null;
     state.currentStableCfi     = null;
+    state.isRestoringPosition  = false;
     state.lastPositionSave     = null;
     state.hasLocations         = false;
     state.locationsStatus      = 'idle';
