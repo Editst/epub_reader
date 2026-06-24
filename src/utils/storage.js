@@ -321,18 +321,24 @@ const EpubStorage = {
    * LRU：保留最近 maxCount 本书的文件缓存，驱逐其余。
    *
    * v1.7.0 修复：驱逐时级联清理 recentBooks + bookMeta，消除书架孤立条目。
+   * v2.4.0 修复：改为串行执行，避免并发 removeRecentBook 的读改写竞态。
    */
   async enforceFileLRU(maxCount = 10) {
     const meta = await DbGateway.getAllMeta('files', ['timestamp']);
     if (meta.length <= maxCount) return;
     meta.sort((a, b) => b.timestamp - a.timestamp);
-    await Promise.all(
-      meta.slice(maxCount).map(m => Promise.all([
-        DbGateway.delete('files', m.bookId),
-        this.removeRecentBook(m.bookId),
-        this.removeBookMeta(m.bookId)
-      ]))
-    );
+    const toRemove = meta.slice(maxCount);
+    for (const m of toRemove) {
+      try {
+        await Promise.all([
+          DbGateway.delete('files', m.bookId),
+          this.removeRecentBook(m.bookId),
+          this.removeBookMeta(m.bookId)
+        ]);
+      } catch (e) {
+        console.warn('[Storage] enforceFileLRU: failed to remove book', m.bookId, e);
+      }
+    }
   },
 
   // ── Cascading Delete ──────────────────────────────────────────────────────

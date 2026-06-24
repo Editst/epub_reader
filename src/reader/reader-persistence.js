@@ -181,14 +181,11 @@
       // 章节标题 + TOC 高亮（使用事件参数，反映用户可见的最新位置）
       const currentSection = location.start.href;
       if (currentSection) {
-        const chapterTitleEl = document.getElementById('chapter-title');
-        if (chapterTitleEl) {
-          const tocItem = ReaderState.findTocItem(
-            state.book && state.book.navigation ? state.book.navigation.toc : [],
-            currentSection
-          );
-          chapterTitleEl.textContent = tocItem ? tocItem.label.trim() : '';
-        }
+        const tocItem = ReaderState.findTocItem(
+          state.book && state.book.navigation ? state.book.navigation.toc : [],
+          currentSection
+        );
+        ui.updateChapterTitle(tocItem ? tocItem.label.trim() : '');
         if (typeof TOC !== 'undefined' && TOC.setActive) TOC.setActive(currentSection);
       }
 
@@ -223,14 +220,12 @@
     }
 
     async function _updateBookmarkButtonState() {
-      const btn = document.getElementById('btn-bookmark');
-      if (!btn || !state.rendition || !state.isBookLoaded) return;
+      if (!state.rendition || !state.isBookLoaded) return;
       const location = state.rendition.currentLocation();
       if (!location || !location.start) return;
       try {
         const isBookmarked = await Bookmarks.isBookmarked(location.start.cfi);
-        btn.classList.toggle('active', isBookmarked);
-        btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
+        ui.updateBookmarkButtonState(isBookmarked);
       } catch (e) {
         console.warn('[Persistence] bookmark state check failed:', e);
       }
@@ -247,8 +242,7 @@
      *   3. Fallback：静态估算（每 location ≈ 150字，400字/分钟）
      */
     function updateReadingStats() {
-      const progressTimeEl = document.getElementById('progress-time');
-      if (!progressTimeEl || !state.rendition || !state.book) return;
+      if (!state.rendition || !state.book) return;
 
       const readStr = Utils.formatDuration(state.activeReadingSeconds);
 
@@ -285,7 +279,7 @@
         }
       }
 
-      progressTimeEl.textContent = `阅读时长: ${readStr} | 预计剩余: ${remainingStr}`;
+      ui.updateReadingStatsText(`阅读时长: ${readStr} | 预计剩余: ${remainingStr}`);
 
       if (typeof ui.setLocationIndexStatus === 'function' && !hasLocations) {
         if (state.locationsStatus === 'pending' || state.locationsStatus === 'generating') {

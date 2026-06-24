@@ -42,7 +42,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     persistence.schedulePositionSave('book-1', 'cfi-1', 10);
     persistence.schedulePositionSave('book-1', 'cfi-2', 20);
 
@@ -83,7 +83,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     persistence.schedulePositionSave('book-live', 'epubcfi(/6/10)', 42.1);
     await Promise.resolve();
 
@@ -113,7 +113,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     await persistence.flushPositionSave();
 
     global.clearTimeout = originalClearTimeout;
@@ -130,6 +130,8 @@ test.describe('ReaderPersistence', () => {
     global.Bookmarks = { async isBookmarked() { return true; } };
 
     const updates = [];
+    let chapterTitle = '';
+    let bookmarkState = null;
     const state = {
       isResizing: false,
       currentBookId: 'book-3',
@@ -157,7 +159,10 @@ test.describe('ReaderPersistence', () => {
       updateProgress(percent) {
         updates.push(percent);
       },
-      updateReadingStats() {}
+      updateReadingStats() {},
+      updateChapterTitle(title) { chapterTitle = title; },
+      updateBookmarkButtonState(isBookmarked) { bookmarkState = isBookmarked; },
+      updateReadingStatsText() {}
     };
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
     persistence.updateReadingStats = () => {};
@@ -167,10 +172,9 @@ test.describe('ReaderPersistence', () => {
 
     assert.deepEqual(updates, [23]);
     assert.equal(state.currentStableCfi, 'epubcfi(/6/2)');
-    assert.equal(document.getElementById('chapter-title').textContent, '第一章');
+    assert.equal(chapterTitle, '第一章');
     assert.deepEqual(global.TOC.setActiveCalls, ['chapter1.xhtml']);
-    assert.ok(document.getElementById('btn-bookmark').classList.contains('active'));
-    assert.equal(document.getElementById('btn-bookmark').title, '移除书签 (B)');
+    assert.equal(bookmarkState, true);
   });
 
   test.it('onRelocated 分页模式保存 start.cfi 与 displayed-page locator，不再保存 end.cfi', async () => {
@@ -213,7 +217,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.onRelocated({
@@ -292,7 +296,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     await persistence.flushPositionSave();
 
     global.clearTimeout = originalClearTimeout;
@@ -337,7 +341,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.onRelocated({
@@ -364,6 +368,7 @@ test.describe('ReaderPersistence', () => {
     global.document = document;
 
     const locationStatusCalls = [];
+    let statsText = '';
     const state = {
       activeReadingSeconds: 45,
       locationsStatus: 'pending',
@@ -382,6 +387,8 @@ test.describe('ReaderPersistence', () => {
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
       ui: {
+        updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsText = text; },
         setLocationIndexStatus(status, detail) {
           locationStatusCalls.push([status, detail]);
         }
@@ -390,7 +397,7 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 45秒 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 45秒 \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['pending', '阅读定位索引生成中']]);
   });
 
@@ -414,9 +421,12 @@ test.describe('ReaderPersistence', () => {
       }
     };
 
+    let statsText = '';
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
       ui: {
+        updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsText = text; },
         setLocationIndexStatus(status, detail) {
           locationStatusCalls.push([status, detail]);
         }
@@ -425,7 +435,7 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 1分钟 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 1分钟 \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['failed', '阅读定位索引不可用']]);
   });
 
@@ -528,7 +538,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     // relocated 事件参数传入一个「旧」CFI，rendition.currentLocation() 返回「新」CFI
@@ -592,7 +602,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     // relocated 事件参数 CFI 与 currentLocation().start.cfi 相同
@@ -644,7 +654,7 @@ test.describe('ReaderPersistence', () => {
     };
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.mount();

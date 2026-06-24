@@ -4,6 +4,32 @@
 
 ---
 
+## [2.4.0] - 2026-06-25
+
+### refactor
+- **架构重构**：修复 8 项 Bug、清除死代码、合并重复代码、修复架构违规。
+- **Bug 修复**：
+  - `showLoadError` DOM 销毁导致后续打开书籍失败
+  - `openBook()` 缺少 `try/finally` 导致阅读器死锁
+  - `setLayout()` 缺少 `try/catch/finally` 导致保护标志永久生效
+  - `_withCfiLock()` 异步函数缺少错误处理
+  - `bindResize()` 异步函数缺少错误处理
+  - `moduleLifecycle` 缺少逐模块错误隔离
+  - 文件上传缺少错误处理
+  - `activeElement` 可能为 `null` 导致 TypeError
+- **死代码清除**：删除未使用的 `btnCloseToolbar`、弃用的 `showToolbarForHighlight()`、重复的 `loadEpubFile()`
+- **重复代码合并**：`findTocItem`、`buildPrefsSignature` 统一到 `reader-state.js`；`_escapeHtml` 替换为 `Utils.escapeHtml()`；`sanitizeColor` 统一到 `Utils.sanitizeColor()`
+- **架构违规修复**：DOM 操作委托给 `ui` 辅助函数；消除 `state._runtime` 注入模式；`setLayout` 补充 `Annotations.setBook()` 调用
+
+### fix
+- **enforceFileLRU 竞态条件修复**：`enforceFileLRU` 改为串行执行淘汰，避免并发 `removeRecentBook` 的读改写竞态导致书籍记录丢失。
+- **persistence 层 DOM 违约修复**：`reader-persistence.js` 中的章节标题、书签按钮、阅读统计文本更新委托给 `reader-ui.js` 的辅助函数，遵守"本层不持有 DOM 引用"的架构约定。
+
+### test
+- 更新测试 mock 以支持新的 `ui` 辅助函数（`updateChapterTitle`、`updateBookmarkButtonState`、`updateReadingStatsText`）。全量 116 个用例通过。
+
+---
+
 ## [2.3.3] - 2026-06-24
 
 ### fix
