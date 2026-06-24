@@ -30,10 +30,9 @@ const TOC = {
     // Keyboard shortcut
     document.addEventListener('keydown', (e) => {
       if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Only if no input is focused
-        if (document.activeElement.tagName !== 'INPUT' &&
-            document.activeElement.tagName !== 'SELECT' &&
-            document.activeElement.tagName !== 'TEXTAREA') {
+        const active = document.activeElement;
+        const tag = active ? active.tagName : '';
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
           e.preventDefault();
           this.toggle();
         }

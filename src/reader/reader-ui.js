@@ -16,6 +16,7 @@
   'use strict';
 
   function createReaderUi({ state }) {
+    let _runtime = null;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -66,6 +67,31 @@
       dom.bottomBar?.classList.toggle('is-visible', isVisible);
     }
 
+    /**
+     * 清除 reader-main 的 error 样式（对应 showLoadError 设置的 reader-main-error）。
+     */
+    function clearReaderError() {
+      dom.readerMain?.classList.remove('reader-main-error');
+    }
+
+    /**
+     * 设置书名显示（同步 book-title 元素和 document.title）。
+     * @param {string} title
+     */
+    function setBookTitle(title) {
+      const bookTitle = title || state.currentFileName;
+      if (dom.bookTitleEl) dom.bookTitleEl.textContent = bookTitle;
+      document.title = bookTitle + ' - EPUB Reader';
+    }
+
+    /**
+     * 设置 reader-main 的 dimmed 状态（用于 prev 翻页章头特效）。
+     * @param {boolean} dimmed
+     */
+    function setReaderDimmed(dimmed) {
+      dom.readerMain?.classList.toggle('reader-main-dimmed', dimmed);
+    }
+
     function showLoading(show, message = '') {
       dom.loadingOverlay?.classList.toggle('is-hidden', !show);
       if (show && message && dom.loadingText) dom.loadingText.textContent = message;
@@ -76,7 +102,12 @@
       if (dom.welcomeScreen) dom.welcomeScreen.classList.add('is-hidden');
       const rm = dom.readerMain;
       if (!rm) return;
-      rm.innerHTML = '';
+
+      // 清理epub-viewer（如果存在）和旧的error wrapper
+      const epubViewer = document.getElementById('epub-viewer');
+      if (epubViewer) epubViewer.remove();
+      const oldWrapper = rm.querySelector('.reader-error-wrapper');
+      if (oldWrapper) oldWrapper.remove();
 
       const wrapper = document.createElement('div');
       wrapper.className = 'reader-error-wrapper';
@@ -280,11 +311,16 @@
       fn();
       requestAnimationFrame(() => {
         requestAnimationFrame(async () => {
-          if (savedCfi) await state.rendition.display(savedCfi);
-          state.isResizing = false;
-          // 等待 relocated 事件处理完毕后解除恢复保护
-          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-          state.isRestoringPosition = false;
+          try {
+            if (savedCfi) await state.rendition.display(savedCfi);
+          } catch (e) {
+            console.warn('[Ui] _withCfiLock display failed:', e);
+          } finally {
+            state.isResizing = false;
+            // 等待 relocated 事件处理完毕后解除恢复保护
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+            state.isRestoringPosition = false;
+          }
           const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
         });
@@ -297,10 +333,10 @@
      * 注册 rendition.hooks.content 内的键盘/滚轮事件（epub iframe 内部）。
      * 与 reader-full.js setupRenditionKeyEvents 完全对齐。
      */
-    function setupRenditionKeyEvents(rend, persistence) {
+    function setupRenditionKeyEvents(rend, persistence, runtime) {
       rend.hooks.content.register((contents) => {
         const doc = contents.document;
-        doc.addEventListener('keydown', (e) => _handleKeyNav(e));
+        doc.addEventListener('keydown', (e) => _handleKeyNav(e, runtime));
         doc.addEventListener('click', (e) => {
           if (!e.target.closest('a')) {
             if (document.querySelector('.settings-panel.open, .bookmarks-panel.open, .sidebar.open')) {
@@ -312,8 +348,8 @@
           if (!state.isBookLoaded || !state.rendition) return;
           if (state.prefs.layout === 'scrolled') return;
           e.preventDefault();
-          if (e.deltaY > 0 || e.deltaX > 0) { if (state._runtime) state._runtime.next(); }
-          else { if (state._runtime) state._runtime.prev(); }
+          if (e.deltaY > 0 || e.deltaX > 0) { if (runtime) runtime.next(); }
+          else { if (runtime) runtime.prev(); }
         }, { passive: false });
       });
     }
@@ -339,7 +375,7 @@
     // ── Keyboard Nav ──────────────────────────────────────────────────────────
 
     // _runtime 在 bindRuntime 后注入
-    function _handleKeyNav(e) {
+    function _handleKeyNav(e, runtime) {
       if (!state.isBookLoaded) return;
       const active = document.activeElement;
       const tag = active ? active.tagName : '';
@@ -347,7 +383,6 @@
         if (e.key === 'Escape') active.blur();
         return;
       }
-      const runtime = state._runtime;
       switch (e.key) {
         case 'Escape':
           e.preventDefault(); closeAllPanels(); break;
@@ -362,7 +397,7 @@
         case 's':
           if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleSettings(); } break;
         case 'b':
-          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); _toggleBookmarkAtCurrent(); } break;
+          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); _toggleBookmarkAtCurrent(); break; }
         case 'h':
           if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
@@ -377,7 +412,7 @@
       if (!location || !location.start) return;
       const cfi = location.start.cfi;
       const currentSection = location.start.href;
-      const tocItem = _findTocItemForBookmark(
+      const tocItem = ReaderState.findTocItem(
         state.book && state.book.navigation ? state.book.navigation.toc : [],
         currentSection
       );
@@ -392,18 +427,6 @@
         btn.classList.toggle('active', isBookmarked);
         btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
       }
-    }
-
-    function _findTocItemForBookmark(items, href) {
-      if (!items || !items.length) return null;
-      for (const item of items) {
-        if (href.includes(item.href.split('#')[0])) return item;
-        if (item.subitems && item.subitems.length > 0) {
-          const found = _findTocItemForBookmark(item.subitems, href);
-          if (found) return found;
-        }
-      }
-      return null;
     }
 
     // ── Preferences Load ──────────────────────────────────────────────────────
@@ -446,7 +469,7 @@
 
       dom.readerMain?.addEventListener('click', () => ensureFocus());
 
-      document.addEventListener('keydown', _handleKeyNav);
+      document.addEventListener('keydown', (e) => _handleKeyNav(e, runtime));
     }
 
     function bindProgress(runtime) {
@@ -581,10 +604,15 @@
         resizeTimer = setTimeout(async () => {
           const targetCfi = preResizeCfi;
           preResizeCfi = null;
-          state.rendition.resize();
-          await new Promise(resolve => requestAnimationFrame(resolve));
-          if (targetCfi) await state.rendition.display(targetCfi);
-          state.isResizing = false;
+          try {
+            state.rendition.resize();
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            if (targetCfi) await state.rendition.display(targetCfi);
+          } catch (e) {
+            console.warn('[Ui] bindResize display failed:', e);
+          } finally {
+            state.isResizing = false;
+          }
           const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
         }, 250);
@@ -611,8 +639,7 @@
      * 注册所有顶层事件监听，必须在 runtime 实例化后调用。
      */
     async function bindRuntime(runtime, persistence) {
-      // 将 runtime 注入 state，供 _handleKeyNav 和 iframe wheel 事件使用
-      state._runtime = runtime;
+      _runtime = runtime;
 
       document.getElementById('welcome-open-btn')?.addEventListener('click', () => {
         dom.fileInput && dom.fileInput.click();
@@ -656,6 +683,9 @@
       unmount,
       bindRuntime,
       setReaderVisible,
+      clearReaderError,
+      setBookTitle,
+      setReaderDimmed,
       showLoading,
       showLoadError,
       updateProgress,
@@ -666,8 +696,6 @@
       setupRenditionKeyEvents,
       injectCustomStyleElement,
       updateCustomStyles,
-      generateCustomCss,
-      getActiveThemeColors,
       closeAllPanels,
       syncPrefsToControls
     };

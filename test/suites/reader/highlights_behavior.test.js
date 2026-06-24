@@ -115,6 +115,12 @@ function loadHighlights(storedHighlights) {
         storedHighlights.splice(0, storedHighlights.length, ...highlights.map(item => ({ ...item })));
       }
     },
+    Utils: {
+      sanitizeColor(colorStr) {
+        if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
+        return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+      }
+    },
     console
   };
   context.window.window = context.window;

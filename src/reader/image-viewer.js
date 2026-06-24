@@ -108,7 +108,11 @@ const ImageViewer = {
     this.hookRendition(context.rendition);
   },
 
-  unmount() {},
+  unmount() {
+    this.close();
+    this.hookedRenditions = new WeakSet();
+    this.hookedDocuments = new WeakSet();
+  },
 
   /**
    * Hook into epub.js rendition to intercept image clicks inside EPUB iframes

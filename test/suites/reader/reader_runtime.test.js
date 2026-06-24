@@ -239,6 +239,9 @@ test.describe('ReaderRuntime', () => {
       state,
       ui: {
         setReaderVisible() {},
+        clearReaderError() {},
+        setBookTitle() {},
+        setReaderDimmed() {},
         syncPrefsToControls() {},
         applyThemeToRendition() {},
         setupRenditionKeyEvents() {},
@@ -384,6 +387,9 @@ test.describe('ReaderRuntime', () => {
       state,
       ui: {
         setReaderVisible() {},
+        clearReaderError() {},
+        setBookTitle() {},
+        setReaderDimmed() {},
         syncPrefsToControls() {},
         applyThemeToRendition() {},
         setupRenditionKeyEvents() {},
@@ -724,7 +730,8 @@ test.describe('ReaderRuntime', () => {
     const runtime = ReaderRuntime.createReaderRuntime({
       state,
       ui: {
-        setReaderVisible() {}, syncPrefsToControls() {}, applyThemeToRendition() {},
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
         setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
         showLoading() {}, setLocationIndexStatus() {}
       },
@@ -810,7 +817,8 @@ test.describe('ReaderRuntime', () => {
     const runtime = ReaderRuntime.createReaderRuntime({
       state,
       ui: {
-        setReaderVisible() {}, syncPrefsToControls() {}, applyThemeToRendition() {},
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
         setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
         showLoading() {}, setLocationIndexStatus() {}
       },
@@ -901,7 +909,8 @@ test.describe('ReaderRuntime', () => {
     const runtime = ReaderRuntime.createReaderRuntime({
       state,
       ui: {
-        setReaderVisible() {}, syncPrefsToControls() {}, applyThemeToRendition() {},
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
         setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
         showLoading() {}, setLocationIndexStatus() {}
       },
@@ -1008,7 +1017,8 @@ test.describe('ReaderRuntime', () => {
     const runtime = ReaderRuntime.createReaderRuntime({
       state,
       ui: {
-        setReaderVisible() {}, syncPrefsToControls() {}, applyThemeToRendition() {},
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
         setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
         showLoading() {}, setLocationIndexStatus() {}
       },

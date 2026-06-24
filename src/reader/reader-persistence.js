@@ -51,18 +51,6 @@
       }, 300);
     }
 
-    function _buildPrefsSignature() {
-      const prefs = state.prefs || {};
-      return {
-        layout: prefs.layout || 'paginated',
-        fontSize: prefs.fontSize || 18,
-        lineHeight: prefs.lineHeight || 1.8,
-        fontFamily: prefs.fontFamily || '',
-        paragraphIndent: prefs.paragraphIndent !== false,
-        spread: prefs.spread || 'auto'
-      };
-    }
-
     function _buildDisplayedPageLocator(location) {
       if (!location || !location.start) return null;
       const layout = (state.prefs && state.prefs.layout) || 'paginated';
@@ -74,7 +62,7 @@
         index: location.start.index != null ? location.start.index : null,
         page: layout === 'paginated' && typeof displayed.page === 'number' ? displayed.page : null,
         total: layout === 'paginated' && typeof displayed.total === 'number' ? displayed.total : null,
-        prefsSignature: _buildPrefsSignature()
+        prefsSignature: ReaderState.buildPrefsSignature(state.prefs || {})
       };
     }
 
@@ -195,7 +183,7 @@
       if (currentSection) {
         const chapterTitleEl = document.getElementById('chapter-title');
         if (chapterTitleEl) {
-          const tocItem = _findTocItem(
+          const tocItem = ReaderState.findTocItem(
             state.book && state.book.navigation ? state.book.navigation.toc : [],
             currentSection
           );
@@ -232,18 +220,6 @@
 
       // 书签按钮状态
       _updateBookmarkButtonState();
-    }
-
-    function _findTocItem(items, href) {
-      if (!items || !items.length) return null;
-      for (const item of items) {
-        if (href.includes(item.href.split('#')[0])) return item;
-        if (item.subitems && item.subitems.length > 0) {
-          const found = _findTocItem(item.subitems, href);
-          if (found) return found;
-        }
-      }
-      return null;
     }
 
     async function _updateBookmarkButtonState() {

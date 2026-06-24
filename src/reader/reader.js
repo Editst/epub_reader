@@ -24,12 +24,20 @@
     return {
       mount(context) {
         modules.forEach((m) => {
-          if (typeof m.mount === 'function') m.mount(context);
+          try {
+            if (typeof m.mount === 'function') m.mount(context);
+          } catch (e) {
+            console.error('[Lifecycle] mount failed for module:', m?.constructor?.name || m, e);
+          }
         });
       },
       unmount() {
         modules.forEach((m) => {
-          if (typeof m.unmount === 'function') m.unmount();
+          try {
+            if (typeof m.unmount === 'function') m.unmount();
+          } catch (e) {
+            console.error('[Lifecycle] unmount failed for module:', m?.constructor?.name || m, e);
+          }
         });
       }
     };

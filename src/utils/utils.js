@@ -74,6 +74,17 @@ const Utils = {
   },
 
   /**
+   * 验证并标准化 CSS 颜色值，防止 CSS 注入。
+   *
+   * @param {string} colorStr
+   * @returns {string} 合法的颜色值，或默认值 '#ffeb3b'
+   */
+  sanitizeColor(colorStr) {
+    if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
+    return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+  },
+
+  /**
    * 计算会话样本权重，用于区分连续阅读与跳读样本。
    *
    * @param {number} deltaProgress  会话进度增量（0-1）

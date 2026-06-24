@@ -93,8 +93,44 @@
     }
   }
 
+  /**
+   * 在 TOC 树中递归查找匹配当前 href 的条目。
+   * @param {Array} items TOC 节点数组
+   * @param {string} href 当前 section href
+   * @returns {object|null}
+   */
+  function findTocItem(items, href) {
+    if (!items || !items.length) return null;
+    for (const item of items) {
+      if (href.includes(item.href.split('#')[0])) return item;
+      if (item.subitems && item.subitems.length > 0) {
+        const found = findTocItem(item.subitems, href);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 构建当前偏好快照，用于 locator 签名比对。
+   * @param {object} prefs
+   * @returns {object}
+   */
+  function buildPrefsSignature(prefs) {
+    return {
+      layout: prefs.layout || 'paginated',
+      fontSize: prefs.fontSize || 18,
+      lineHeight: prefs.lineHeight || 1.8,
+      fontFamily: prefs.fontFamily || '',
+      paragraphIndent: prefs.paragraphIndent !== false,
+      spread: prefs.spread || 'auto'
+    };
+  }
+
   window.ReaderState = {
     createReaderState,
-    resetReadingSession
+    resetReadingSession,
+    findTocItem,
+    buildPrefsSignature
   };
 })();

@@ -3,13 +3,6 @@
  * Handles text selection, colored highlights, and custom note taking.
  */
 window.Highlights = (function () {
-  // D-1-H: Validate CSS color values before passing to epub.js SVG annotations.
-  // Same whitelist regex used in home.js to prevent CSS injection via stored color data.
-  function sanitizeColor(colorStr) {
-    if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
-    return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
-  }
-
   let _rendition = null;
   let _bookId = '';
   let _fileName = '';
@@ -23,8 +16,7 @@ window.Highlights = (function () {
   const btnAddNote = document.getElementById('btn-add-note');
   const btnClearHl = document.getElementById('btn-clear-hl');
   const colorBtns = toolbar.querySelectorAll('.color-btn');
-  const btnCloseToolbar = document.createElement('button'); // New hidden close button or just refinement
-  
+
   let _pendingCfi = null; // Store CFI for note-taking before highlight is created
   let _internalAction = false; // v1.2.0: Strict sync lock to prevent panel persistence
 
@@ -152,49 +144,6 @@ window.Highlights = (function () {
         }
       }, 10);
     });
-  }
-
-  // Deprecated in v1.2.0 in favor of direct rect inheritance for Modify Button,
-  // but kept for potential future API use
-  async function showToolbarForHighlight(cfiRange) {
-     const hl = highlights.find(h => h.cfi === cfiRange);
-     if (!hl) return;
-
-     colorBtns.forEach(b => {
-        if (b.dataset.color === hl.color) b.classList.add('active');
-        else b.classList.remove('active');
-     });
-     btnClearHl.classList.remove('is-hidden');
-
-     // Find the element for coordinates using the CFI
-     try {
-         const range = await _rendition.book.getRange(cfiRange);
-         if (range) {
-             const rect = range.getBoundingClientRect();
-             // Find which iframe contains this range
-             const views = _rendition.manager.views;
-             let iframeRect = { top: 0, left: 0 };
-             
-             // Try to find the iframe that matches the range context
-             if (views && views.length > 0) {
-                 const iframe = views[0].document.defaultView.frameElement;
-                 if (iframe) iframeRect = iframe.getBoundingClientRect();
-             }
-
-             const top = iframeRect.top + rect.bottom + 10;
-             const left = iframeRect.left + rect.left + (rect.width / 2);
-
-             toolbar.style.top = `${top}px`;
-             toolbar.style.left = `${left}px`;
-             toolbar.classList.add('show');
-         } else {
-             // Fallback if range fails
-             toolbar.classList.add('show');
-         }
-     } catch (e) {
-         console.warn("Failed to get range for toolbar positioning", e);
-         toolbar.classList.add('show');
-     }
   }
 
   function handleSelection(cfiRange, contents) {
@@ -422,7 +371,7 @@ window.Highlights = (function () {
         // 1. Always render the base highlight if it has a color
         if (hl.color !== 'transparent') {
             // D-1-H: sanitize color before passing to epub.js SVG fill attribute
-            const safeColor = sanitizeColor(hl.color);
+            const safeColor = Utils.sanitizeColor(hl.color);
             _rendition.annotations.highlight(
                 hl.cfi,
                 {},
@@ -526,6 +475,9 @@ window.Highlights = (function () {
   }
 
   function unmount() {
+    if (_rendition) {
+      try { _rendition.off('selected', handleSelection); } catch (_) {}
+    }
     clearRenderedHighlights();
     closePanels();
   }

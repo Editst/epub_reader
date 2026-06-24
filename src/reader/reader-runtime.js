@@ -58,21 +58,9 @@
       return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
-    function _buildPrefsSignature() {
-      const prefs = state.prefs || {};
-      return {
-        layout: prefs.layout || 'paginated',
-        fontSize: prefs.fontSize || 18,
-        lineHeight: prefs.lineHeight || 1.8,
-        fontFamily: prefs.fontFamily || '',
-        paragraphIndent: prefs.paragraphIndent !== false,
-        spread: prefs.spread || 'auto'
-      };
-    }
-
     function _isSignatureCompatible(savedSignature) {
       if (!savedSignature || typeof savedSignature !== 'object') return false;
-      const current = _buildPrefsSignature();
+      const current = ReaderState.buildPrefsSignature(state.prefs || {});
       return current.layout === savedSignature.layout &&
         current.fontSize === savedSignature.fontSize &&
         current.lineHeight === savedSignature.lineHeight &&
@@ -181,9 +169,7 @@
       }
 
       ui.setReaderVisible(true);
-      // 清除上次加载失败留下的 error 样式（对应 showLoadError 设置的 reader-main-error）
-      const readerMainEl = document.getElementById('reader-main');
-      if (readerMainEl) readerMainEl.classList.remove('reader-main-error');
+      ui.clearReaderError();
 
       state.currentBookId   = bookId;
       state.currentFileName = fileName || '';
@@ -250,7 +236,7 @@
         Annotations.setBook(state.book);
         Annotations.hookRendition(state.rendition);
       }
-      ui.setupRenditionKeyEvents(state.rendition, persistence);
+      ui.setupRenditionKeyEvents(state.rendition, persistence, { next, prev });
 
       // ── relocated / displayed ───────────────────────────────────────────────
       state.rendition.on('relocated', (location) => persistence.onRelocated(location));
@@ -274,10 +260,7 @@
 
       // ── metadata / title ────────────────────────────────────────────────────
       const bookMeta = await state.book.loaded.metadata;
-      const bookTitle = bookMeta.title || state.currentFileName;
-      const titleEl = document.getElementById('book-title');
-      if (titleEl) titleEl.textContent = bookTitle;
-      document.title = bookTitle + ' - EPUB Reader';
+      ui.setBookTitle(bookMeta.title || state.currentFileName);
 
       // ── TOC ─────────────────────────────────────────────────────────────────
       const navigation = await state.book.loaded.navigation;
@@ -295,14 +278,17 @@
       // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
       state.isRestoringPosition = true;
       state.isLayoutStable = false;
-      const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
-      state.currentStableCfi = displayCfi;
-      state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
-      if (displayCfi) await state.rendition.display(displayCfi);
-      else await state.rendition.display();
-      if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
-      state.isRestoringPosition = false;
-      state.isLayoutStable = true;
+      try {
+        const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
+        state.currentStableCfi = displayCfi;
+        state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
+        if (displayCfi) await state.rendition.display(displayCfi);
+        else await state.rendition.display();
+        if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
+      } finally {
+        state.isRestoringPosition = false;
+        state.isLayoutStable = true;
+      }
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
       // ── recentBooks ─────────────────────────────────────────────────────────
@@ -422,22 +408,6 @@
 
     // ── Load Helpers ──────────────────────────────────────────────────────────
 
-    async function loadEpubFile(file) {
-      try {
-        ui.showLoading(true);
-        state.currentFileName = file.name;
-        const arrayBuffer = await file.arrayBuffer();
-        const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-        EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId).catch(e => {
-          console.warn('[Runtime] Failed to store book in IndexedDB:', e);
-        });
-        await openBook(arrayBuffer, bookId, file.name);
-      } catch (err) {
-        console.error('[Runtime] Failed to load EPUB:', err);
-        ui.showLoadError('无法加载此 EPUB 文件: ' + err.message);
-      }
-    }
-
     async function loadFileByBookId(bookId, options = {}) {
       const { targetCfi = null } = options;
       try {
@@ -474,13 +444,12 @@
       if (state.navLock || !state.rendition || !state.isLayoutStable) return;
       state.navLock = true;
       const loc = state.rendition.currentLocation();
-      const readerMain = document.getElementById('reader-main');
       if (loc && loc.atStart && state.prefs.layout !== 'scrolled') {
         try {
-          if (readerMain) readerMain.classList.add('reader-main-dimmed');
+          ui.setReaderDimmed(true);
           await state.rendition.prev();
         } finally {
-          if (readerMain) readerMain.classList.remove('reader-main-dimmed');
+          ui.setReaderDimmed(false);
           setTimeout(() => { state.navLock = false; }, 150);
         }
       } else {
@@ -507,9 +476,7 @@
     async function setLayout(layout) {
       if (!layout || !['paginated', 'scrolled'].includes(layout)) return;
       state.prefs.layout = layout;
-      document.querySelectorAll('.layout-btn').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.layout === layout);
-      });
+      ui.syncPrefsToControls();
       EpubStorage.savePreferences({ layout });
 
       if (!state.book || !state.isBookLoaded) return;
@@ -522,14 +489,12 @@
       state.rendition = state.book.renderTo('epub-viewer', {
         width:  '100%',
         height: '100%',
-        spread: 'auto',
+        spread: state.prefs.spread || 'auto',
         flow:    layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
         manager: layout === 'scrolled' ? 'continuous'   : 'default',
         allowScriptedContent: false,
         gap: layout === 'scrolled' ? 48 : 80
       });
-
-      const prefs = await EpubStorage.getPreferences();
 
       state.rendition.hooks.content.register((contents) => {
         ui.injectCustomStyleElement(contents);
@@ -543,17 +508,20 @@
         },
         'p': {
           'margin-bottom': '0.5em',
-          'text-indent': prefs.paragraphIndent !== false ? '2em' : '0',
+          'text-indent': state.prefs.paragraphIndent !== false ? '2em' : '0',
           'text-align': 'justify'
         },
         'img':   { 'max-width': '100% !important', 'height': 'auto !important' },
         'image': { 'max-width': '100% !important', 'height': 'auto !important' }
       });
-      ui.applyThemeToRendition(prefs.theme || 'light');
+      ui.applyThemeToRendition(state.prefs.theme || 'light');
 
       if (typeof ImageViewer !== 'undefined') ImageViewer.hookRendition(state.rendition);
-      if (typeof Annotations !== 'undefined') Annotations.hookRendition(state.rendition);
-      ui.setupRenditionKeyEvents(state.rendition, persistence);
+      if (typeof Annotations !== 'undefined') {
+        Annotations.setBook(state.book);
+        Annotations.hookRendition(state.rendition);
+      }
+      ui.setupRenditionKeyEvents(state.rendition, persistence, { next, prev });
 
       state.rendition.on('relocated', (location) => persistence.onRelocated(location));
       state.rendition.on('displayed', () => setTimeout(() => ui.ensureFocus(), 100));
@@ -567,11 +535,14 @@
         Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
       }
 
-      if (currentCfi) await state.rendition.display(currentCfi);
-      else await state.rendition.display();
-      // 布局切换完成，等待 relocated 事件处理完毕后解除保护
-      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      state.isRestoringPosition = false;
+      try {
+        if (currentCfi) await state.rendition.display(currentCfi);
+        else await state.rendition.display();
+        // 布局切换完成，等待 relocated 事件处理完毕后解除保护
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      } finally {
+        state.isRestoringPosition = false;
+      }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -595,7 +566,6 @@
       mount,
       unmount,
       openBook,
-      loadEpubFile,
       loadFileByBookId,
       scheduleLocationsGeneration,
       next,

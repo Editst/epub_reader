@@ -80,29 +80,45 @@ const Bookmarks = {
     this.listEl.innerHTML = '';
 
     if (bookmarks.length === 0) {
-      this.listEl.innerHTML = '<div class="bookmarks-empty">暂无书签<br><span>按 B 键或点击书签按钮添加</span></div>';
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'bookmarks-empty';
+      emptyEl.innerHTML = '暂无书签<br><span>按 B 键或点击书签按钮添加</span>';
+      this.listEl.appendChild(emptyEl);
       return;
     }
 
     bookmarks.forEach((bm) => {
       const item = document.createElement('div');
       item.className = 'bookmark-item';
-      item.innerHTML = `
-        <div class="bookmark-item-info">
-          <div class="bookmark-item-chapter">${this._escapeHtml(bm.chapter || '未知章节')}</div>
-          <div class="bookmark-item-meta">${bm.progress}% · ${this._formatDate(bm.timestamp)}</div>
-        </div>
-        <button class="bookmark-item-remove" title="删除书签">✕</button>
-      `;
 
-      item.querySelector('.bookmark-item-info').addEventListener('click', () => {
+      const info = document.createElement('div');
+      info.className = 'bookmark-item-info';
+
+      const chapter = document.createElement('div');
+      chapter.className = 'bookmark-item-chapter';
+      chapter.textContent = bm.chapter || '未知章节';
+
+      const meta = document.createElement('div');
+      meta.className = 'bookmark-item-meta';
+      meta.textContent = `${bm.progress}% · ${this._formatDate(bm.timestamp)}`;
+
+      info.append(chapter, meta);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'bookmark-item-remove';
+      removeBtn.title = '删除书签';
+      removeBtn.textContent = '✕';
+
+      item.append(info, removeBtn);
+
+      info.addEventListener('click', () => {
         if (this.rendition) {
           this.rendition.display(bm.cfi);
           this.closePanel();
         }
       });
 
-      item.querySelector('.bookmark-item-remove').addEventListener('click', async (e) => {
+      removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         let bms = await this.getBookmarks();
         bms = bms.filter(b => b.cfi !== bm.cfi);
@@ -152,12 +168,6 @@ const Bookmarks = {
     this.book = null;
     this.rendition = null;
     if (this.listEl) this.listEl.innerHTML = '';
-  },
-
-  _escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
   },
 
   _formatDate(ts) {
