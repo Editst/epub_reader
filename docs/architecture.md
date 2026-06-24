@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.3.1  
+版本：v2.3.3  
 更新：2026-06-24
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -392,7 +392,7 @@ state.isLayoutStable: boolean
 state.isResizing: boolean
 ```
 
-**v2.3.2 运行约束**：
+**v2.3.3 运行约束**：
 - `hasLocations` 表示当前书籍是否已有可用定位索引。
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
 - `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
@@ -419,13 +419,15 @@ openBook(
 scheduleLocationsGeneration(task: Function): void
 ```
 
-**v2.3.2 行为约束**：
+**v2.3.3 行为约束**：
 - 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
 - `_correctRestoredPage` 仅验证 href/index 章节匹配，不做 next/prev 导航。
+- `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- locations cache-hit 和 generate-complete 路径中，若 `currentLocation().start.cfi === state.currentStableCfi`，跳过 `persistence.onRelocated` 调用。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - break 参数采用自适应策略：默认 `1600`，大于 1MB 使用 `3200`，大于 3MB 使用 `4800`。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
@@ -439,17 +441,19 @@ onRelocated(location: object): void
 schedulePositionSave(bookId: string, cfi: string, percent?: number | null): void
 flushPositionSave(): Promise<void>
 updateReadingStats(): void
+_isPositionMeaningfullyChanged(newCfi: string, oldCfi: string): boolean
 ```
 
-**v2.3.0 行为约束**：
+**v2.3.3 行为约束**：
 - `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
 - 连续位置变化仍保留 300ms 防抖，用最终 `start.cfi + locator` 覆盖首个位置。
-- `onRelocated()` 必须保存 `location.start.cfi` 与 displayed-page locator；不得用 `location.end.cfi` 作为主恢复锚点。
+- `onRelocated()` 始终从 `rendition.currentLocation()` 重采样 CFI 用于持久化（不使用事件参数的 `start.cfi`），locator 从事件参数构建（displayed.page/total 是事件快照）。事件参数仅用于 UI 更新。
+- `_isPositionMeaningfullyChanged()` 字符串精确比较新旧 CFI，相同则跳过 `schedulePositionSave`。
 - `flushPositionSave()` 必须清理防抖 timer，刷新/关闭前重新采样 `currentLocation()` 并重建完整 position，然后返回最新保存 Promise。
 - `onRelocated()` 在 `isRestoringPosition=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
 - `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
-- `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步“生成中/不可用”状态，而不是显示误导性的精确进度。
-
+- `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
+- `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时调用 `flushPositionSave()` 兜底。
 ---
 
 ## ReaderUi（reader/reader-ui.js）
@@ -461,9 +465,11 @@ setLocationIndexStatus(
 ): void
 ```
 
-**v2.2.1 行为约束**：
+**v2.3.3 行为约束**：
 - `progress-location` 用于承载非阻塞定位索引状态。
 - 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到“先等索引再阅读”的旧行为。
+- `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- `bindResize` 监听窗口 resize，防抖 500ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。
 
 ---
 

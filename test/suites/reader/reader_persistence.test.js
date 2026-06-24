@@ -489,4 +489,175 @@ test.describe('ReaderPersistence', () => {
     assert.equal(speedCalls.length, 1);
     assert.equal(state.sessionStart.progress, 0.5);
   });
+
+  test.it('onRelocated 正常阅读时从 rendition.currentLocation() 重采样 CFI', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    const positionCalls = [];
+    const originalSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => { positionCalls.push(args); };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-resample',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.50; }
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: { cfi: 'epubcfi(/6/10)', href: 'ch2.xhtml' },
+            end: { cfi: 'epubcfi(/6/12)', href: 'ch2.xhtml' }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    // relocated 事件参数传入一个「旧」CFI，rendition.currentLocation() 返回「新」CFI
+    persistence.onRelocated({
+      start: {
+        cfi: 'epubcfi(/6/8)',
+        href: 'ch1.xhtml',
+        displayed: { page: 4, total: 12 }
+      },
+      end: {
+        cfi: 'epubcfi(/6/10)',
+        href: 'ch1.xhtml',
+        displayed: { page: 4, total: 12 }
+      }
+    });
+    await Promise.resolve();
+
+    EpubStorage.savePosition = originalSavePosition;
+
+    // 应使用 rendition.currentLocation() 的 CFI，而非事件参数的 CFI
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/10)');
+    assert.equal(positionCalls.length, 1);
+    assert.equal(positionCalls[0][1], 'epubcfi(/6/10)');
+  });
+
+  test.it('CFI 未变时不触发 savePosition', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    const positionCalls = [];
+    const originalSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => { positionCalls.push(args); };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-nodup',
+      currentStableCfi: 'epubcfi(/6/10)',
+      lastPercent: 50,
+      lastProgress: 0.5,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.50; }
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: { cfi: 'epubcfi(/6/10)', href: 'ch2.xhtml' },
+            end: { cfi: 'epubcfi(/6/12)', href: 'ch2.xhtml' }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    // relocated 事件参数 CFI 与 currentLocation().start.cfi 相同
+    persistence.onRelocated({
+      start: { cfi: 'epubcfi(/6/10)', href: 'ch2.xhtml' },
+      end: { cfi: 'epubcfi(/6/12)', href: 'ch2.xhtml' }
+    });
+    await Promise.resolve();
+
+    EpubStorage.savePosition = originalSavePosition;
+
+    // CFI 未变，不应触发 savePosition
+    assert.equal(positionCalls.length, 0);
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/10)');
+  });
+
+  test.it('mount 注册 beforeunload → flushPositionSave', async () => {
+    const { document } = createMockDocument([]);
+    const origDoc = global.document;
+    global.document = document;
+
+    // Mock window.addEventListener/removeEventListener
+    const origWindowAddEventListener = global.window?.addEventListener;
+    const origWindowRemoveEventListener = global.window?.removeEventListener;
+    const beforeunloadHandlers = [];
+    if (!global.window) global.window = global;
+    global.window.addEventListener = (type, handler) => {
+      if (type === 'beforeunload') beforeunloadHandlers.push(handler);
+    };
+    global.window.removeEventListener = (type, handler) => {
+      if (type === 'beforeunload') {
+        const idx = beforeunloadHandlers.indexOf(handler);
+        if (idx >= 0) beforeunloadHandlers.splice(idx, 1);
+      }
+    };
+
+    // Mock EpubStorage.savePosition to detect flush calls
+    const saves = [];
+    const origSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => { saves.push(args); };
+
+    const state = {
+      isBookLoaded: true,
+      currentBookId: 'book-beforeunload',
+      currentStableCfi: 'epubcfi(/6/5)',
+      lastPercent: 25,
+      lastPositionSave: null,
+      posTimer: null
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {} }
+    });
+
+    persistence.mount();
+
+    // 模拟 beforeunload 事件
+    beforeunloadHandlers.forEach((h) => h());
+
+    persistence.unmount();
+    global.document = origDoc;
+    if (origWindowAddEventListener) global.window.addEventListener = origWindowAddEventListener;
+    if (origWindowRemoveEventListener) global.window.removeEventListener = origWindowRemoveEventListener;
+    EpubStorage.savePosition = origSavePosition;
+
+    assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
+  });
 });

@@ -4,6 +4,22 @@
 
 ---
 
+## [2.3.3] - 2026-06-24
+
+### fix
+- **位置恢复级联退化**：`onRelocated` 始终从 `rendition.currentLocation()` 重采样 CFI 用于持久化，不再直接使用 relocated 事件参数的 `start.cfi`。事件参数仅用于 UI 更新（章节标题、进度条、TOC）。避免快速翻页/布局重排时事件参数与 epub.js 内部状态不一致导致位置偏移。
+- **新增 `_isPositionMeaningfullyChanged` 守卫**：写入前比较新旧 CFI 字符串，完全相同则跳过 `schedulePositionSave`，避免 locations 加载后用边界 CFI 覆盖正确位置导致级联退化。
+- **locations 加载路径 CFI 守卫**：`openBook()` 的 cache-hit 和 generate-complete 路径中，若 `currentLocation().start.cfi` 与 `state.currentStableCfi` 相同，跳过 `persistence.onRelocated` 调用。
+- **`setLayout()` 恢复保护**：布局切换期间设置 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- **`_withCfiLock` 恢复保护**：字号/行高/字体切换的 CFI 保护锁同步增加 `isRestoringPosition` 标志。
+- **`beforeunload` 兜底**：在 `persistence.mount()` 中注册 `window.beforeunload` 事件，刷新/关闭前调用 `flushPositionSave()`，防止 `visibilitychange` 未先于页面卸载触发导致位置未落盘。
+- **移除重复 resize 监听器**：`reader-runtime.js` 的 resize 防抖已由 `reader-ui.js:bindResize` 覆盖（含 CFI 快照+恢复），移除 runtime 层重复监听。
+
+### test
+- 新增 6 个测试用例：onRelocated 重采样 CFI、CFI 未变不写入、locations 加载 CFI 改变时写入、setLayout 保护、beforeunload 触发 flush、CFI 重采样。全量 116 个用例通过。
+
+---
+
 ## [2.3.2] - 2026-06-24
 
 ### fix

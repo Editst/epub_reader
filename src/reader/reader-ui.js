@@ -276,11 +276,15 @@
       const loc = state.rendition.currentLocation();
       const savedCfi = (loc && loc.start) ? loc.start.cfi : state.currentStableCfi;
       state.isResizing = true;
+      state.isRestoringPosition = true;
       fn();
       requestAnimationFrame(() => {
         requestAnimationFrame(async () => {
           if (savedCfi) await state.rendition.display(savedCfi);
           state.isResizing = false;
+          // 等待 relocated 事件处理完毕后解除恢复保护
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          state.isRestoringPosition = false;
           const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
         });

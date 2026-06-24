@@ -350,7 +350,11 @@
         if (loc && loc.start) {
           const p = state.book.locations.percentageFromCfi(loc.start.cfi);
           initSpeedTracking(p);
-          persistence.onRelocated(loc);
+          // CFI 变化检测：若 currentLocation 返回的 CFI 与已保存的相同，
+          // 跳过 onRelocated 以避免用边界 CFI 覆盖正确位置。
+          if (loc.start.cfi !== state.currentStableCfi) {
+            persistence.onRelocated(loc);
+          }
         }
         // v2.2.4：locations 加载完毕，恢复阶段结束，后续翻页正常写入
       } else {
@@ -390,7 +394,9 @@
             if (loc && loc.start) {
               const p = state.book.locations.percentageFromCfi(loc.start.cfi);
               initSpeedTracking(p);
-              persistence.onRelocated(loc);
+              if (loc.start.cfi !== state.currentStableCfi) {
+                persistence.onRelocated(loc);
+              }
             }
 
             if (typeof ui.setLocationIndexStatus === 'function') {
@@ -411,22 +417,6 @@
             }
           }
         });
-      }
-
-      // ── 窗口 resize 防抖（PC 端拖拽窗口） ──────────────────────────────────
-      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-        let resizeTimer = null;
-        state._onResize = () => {
-          state.isResizing = true;
-          clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(() => {
-            if (state.rendition && typeof state.rendition.resize === 'function') {
-              state.rendition.resize();
-            }
-            state.isResizing = false;
-          }, 500);
-        };
-        window.addEventListener('resize', state._onResize);
       }
     }
 
@@ -527,6 +517,7 @@
       const loc = state.rendition ? state.rendition.currentLocation() : null;
       const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
+      state.isRestoringPosition = true;
       state.rendition.destroy();
       state.rendition = state.book.renderTo('epub-viewer', {
         width:  '100%',
@@ -576,8 +567,11 @@
         Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
       }
 
-      if (currentCfi) state.rendition.display(currentCfi);
-      else state.rendition.display();
+      if (currentCfi) await state.rendition.display(currentCfi);
+      else await state.rendition.display();
+      // 布局切换完成，等待 relocated 事件处理完毕后解除保护
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      state.isRestoringPosition = false;
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -590,10 +584,6 @@
       if (state.rendition) {
         moduleLifecycle.unmount();
         state.rendition.destroy();
-      }
-      if (typeof window !== 'undefined' && state._onResize) {
-        window.removeEventListener('resize', state._onResize);
-        state._onResize = null;
       }
       state.book        = null;
       state.rendition   = null;

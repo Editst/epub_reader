@@ -24,6 +24,20 @@
       return EpubStorage.savePosition(bookId, cfi, percent);
     }
 
+    /**
+     * 比较新旧 CFI，判断位置是否发生了有意义的变化。
+     * 字符串精确比较——CFI 不同就视为变化，保证不丢失用户的精确位置。
+     *
+     * @param {string|null} newCfi
+     * @param {string|null} oldCfi
+     * @returns {boolean} true 表示位置有变化，应触发写入
+     */
+    function _isPositionMeaningfullyChanged(newCfi, oldCfi) {
+      if (!newCfi && !oldCfi) return false;
+      if (!newCfi || !oldCfi) return true;
+      return newCfi !== oldCfi;
+    }
+
     function schedulePositionSave(bookId, cfi, percent, locator) {
       const shouldSaveImmediately = !state.posTimer;
       if (shouldSaveImmediately) {
@@ -171,11 +185,12 @@
         state.lastProgress = progress;
       }
 
-      const position = _buildPositionFromLocation(location);
-
       updateReadingStats();
 
-      // 章节标题 + TOC 高亮
+      // 从事件参数构建 displayed-page locator（用于保存）
+      const position = _buildPositionFromLocation(location);
+
+      // 章节标题 + TOC 高亮（使用事件参数，反映用户可见的最新位置）
       const currentSection = location.start.href;
       if (currentSection) {
         const chapterTitleEl = document.getElementById('chapter-title');
@@ -189,13 +204,28 @@
         if (typeof TOC !== 'undefined' && TOC.setActive) TOC.setActive(currentSection);
       }
 
-      // 恢复期间跳过写入，也不替换 currentStableCfi；正常阅读时写入
-      // start.cfi + displayed-page locator，恢复时再做有界页校正。
+      // 恢复期间跳过写入，也不替换 currentStableCfi；正常阅读时写入。
+      // CFI 始终从 rendition.currentLocation() 重采样——事件参数的 start.cfi 在快速翻页/
+      // 布局重排时可能与 epub.js 内部状态不一致。locator 仍从事件参数构建，
+      // 因为 displayed.page/total 是事件发生时的快照，currentLocation() 不一定包含。
       if (!state.isRestoringPosition) {
-        state.currentStableCfi = position.cfi || location.start.cfi;
-        state.currentStableLocator = position.locator;
-        state.lastPercent = position.percent !== null ? position.percent : percent;
-        schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent, state.currentStableLocator);
+        const currentLoc = state.rendition && typeof state.rendition.currentLocation === 'function'
+          ? state.rendition.currentLocation()
+          : null;
+        const cfi = (currentLoc && currentLoc.start && currentLoc.start.cfi)
+          || position.cfi
+          || location.start.cfi;
+
+        if (_isPositionMeaningfullyChanged(cfi, state.currentStableCfi)) {
+          state.currentStableCfi = cfi;
+          state.currentStableLocator = position.locator;
+          state.lastPercent = position.percent !== null ? position.percent : percent;
+          schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent, state.currentStableLocator);
+        } else {
+          // CFI 未变，仅更新百分比（可能因 locations 加载而变化）
+          if (position.percent !== null) state.lastPercent = position.percent;
+          else if (percent !== null) state.lastPercent = percent;
+        }
       } else if (percent !== null) {
         state.lastPercent = percent;
       }
@@ -327,8 +357,17 @@
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+    function _onBeforeUnload() {
+      if (state.currentBookId && state.isBookLoaded) {
+        flushPositionSave();
+      }
+    }
+
     function mount() {
       document.addEventListener('visibilitychange', _onVisibilityChange);
+      if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+        window.addEventListener('beforeunload', _onBeforeUnload);
+      }
     }
 
     function unmount() {
@@ -337,6 +376,9 @@
         state.readingTimer = null;
       }
       document.removeEventListener('visibilitychange', _onVisibilityChange);
+      if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('beforeunload', _onBeforeUnload);
+      }
       flushPositionSave();
     }
 

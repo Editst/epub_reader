@@ -35,9 +35,19 @@
 
 ---
 
-## [v2.3.0 - v2.3.2] — 阅读位置恢复 + iframe hook 幂等性
+## [v2.3.0 - v2.3.3] — 阅读位置恢复 + iframe hook 幂等性
 
 **核心目标**：彻底解决分页模式下 start.cfi/end.cfi 边界跳转问题；修复 iframe 内容 hook 生命周期缺陷。
+
+### v2.3.3 — 位置恢复级联退化修复
+
+- **`onRelocated` 重采样 CFI**：持久化路径始终从 `rendition.currentLocation()` 重采样 CFI，不再直接使用 relocated 事件参数的 `start.cfi`。事件参数仅用于 UI 更新。避免快速翻页/布局重排时事件参数与 epub.js 内部状态不一致。
+- **`_isPositionMeaningfullyChanged` 守卫**：写入前字符串精确比较新旧 CFI，相同则跳过 `schedulePositionSave`，避免 locations 加载后用边界 CFI 覆盖正确位置。
+- **locations 加载路径 CFI 守卫**：cache-hit 和 generate-complete 路径中，若 `currentLocation().start.cfi === state.currentStableCfi`，跳过 `persistence.onRelocated`。
+- **`setLayout()` 恢复保护**：布局切换期间 `isRestoringPosition = true`，await `display()` + 双帧等待后解除。
+- **`_withCfiLock` 恢复保护**：字号/行高/字体切换的 CFI 保护锁同步增加 `isRestoringPosition` 标志。
+- **`beforeunload` 兜底**：`persistence.mount()` 注册 `window.beforeunload`，刷新/关闭前调用 `flushPositionSave()`。
+- **移除重复 resize 监听器**：`reader-runtime.js` 的 resize 防抖已由 `reader-ui.js:bindResize` 覆盖。
 
 ### v2.3.2 — 位置恢复跳页修复
 
