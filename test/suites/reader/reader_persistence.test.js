@@ -670,4 +670,152 @@ test.describe('ReaderPersistence', () => {
 
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
   });
+
+  // ── 架构约束：persistence 层不直接操作 DOM ─────────────────────────────────
+
+  test.it('reader-persistence.js 源码不包含直接 DOM 操作（document.getElementById / textContent / classList）', () => {
+    const fs = require('fs');
+    const src = fs.readFileSync('src/reader/reader-persistence.js', 'utf8');
+
+    // 不应出现 document.getElementById 或直接 textContent/classList 赋值
+    assert.ok(!src.includes('document.getElementById'), 'persistence 不应调用 document.getElementById');
+    assert.ok(!src.includes('.textContent'), 'persistence 不应直接操作 .textContent');
+    assert.ok(!src.includes('.classList'), 'persistence 不应直接操作 .classList');
+    assert.ok(!src.includes('style.display'), 'persistence 不应直接操作 style.display');
+  });
+
+  test.it('reader-persistence.js onRelocated 通过 ui 委托章节标题更新', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    let chapterTitleArg = null;
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-ui-delegate',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: { length: () => 0 },
+        navigation: { toc: [{ href: 'ch1.xhtml', label: ' 第一章 ' }] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'ch1.xhtml' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {},
+        updateReadingStats() {},
+        updateChapterTitle(title) { chapterTitleArg = title; },
+        updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/2)', href: 'ch1.xhtml' } });
+    await Promise.resolve();
+
+    // 章节标题应通过 ui.updateChapterTitle 更新，而非直接操作 DOM
+    assert.equal(chapterTitleArg, '第一章');
+    // DOM 元素不应被直接修改
+    assert.equal(document.getElementById('chapter-title').textContent, '', 'chapter-title 不应被 persistence 直接修改');
+  });
+
+  test.it('reader-persistence.js onRelocated 通过 ui 委托书签按钮状态更新', async () => {
+    const { document } = createMockDocument(['btn-bookmark']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return true; } };
+
+    let bookmarkArg = null;
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-bookmark-delegate',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: { length: () => 0 },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'ch.xhtml' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {},
+        updateReadingStats() {},
+        updateChapterTitle() {},
+        updateBookmarkButtonState(isBookmarked) { bookmarkArg = isBookmarked; },
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/2)', href: 'ch.xhtml' } });
+    await Promise.resolve();
+
+    // 书签状态应通过 ui.updateBookmarkButtonState 更新
+    assert.equal(bookmarkArg, true);
+    // DOM 的 classList 不应被 persistence 直接修改
+    assert.ok(!document.getElementById('btn-bookmark').classList.contains('active'),
+      'btn-bookmark 不应被 persistence 直接修改');
+  });
+
+  test.it('reader-persistence.js updateReadingStats 通过 ui 委托统计文本更新', () => {
+    const { document } = createMockDocument(['progress-time']);
+    global.document = document;
+
+    let statsTextArg = null;
+    const state = {
+      activeReadingSeconds: 120,
+      locationsStatus: 'ready',
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.25; }
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/5)' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateChapterTitle() {},
+        updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsTextArg = text; }
+      }
+    });
+
+    persistence.updateReadingStats();
+
+    // 统计文本应通过 ui.updateReadingStatsText 更新
+    assert.ok(statsTextArg !== null, 'updateReadingStatsText 应被调用');
+    assert.ok(statsTextArg.includes('阅读时长'), '统计文本应包含阅读时长');
+    // DOM 元素不应被直接修改
+    assert.equal(document.getElementById('progress-time').textContent, '',
+      'progress-time 不应被 persistence 直接修改');
+  });
 });
