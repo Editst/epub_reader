@@ -6,9 +6,23 @@
 
 ## [2.4.0] - 2026-06-25
 
+全面架构重构版本。修复 8 项 Bug，消除死代码与重复代码，统一代码风格与架构约束。
+
 ### refactor
-- **架构重构**：修复 8 项 Bug、清除死代码、合并重复代码、修复架构违规。
-- **Bug 修复**：
+- **架构违规修复（7 项）**：
+  - `reader-persistence.js` 中章节标题/书签按钮/阅读统计更新委托给 `reader-ui.js` 辅助函数（`updateChapterTitle`、`updateBookmarkButtonState`、`updateReadingStatsText`），遵守"本层不持有 DOM 引用"约束。
+  - 消除 `state._runtime` 注入模式，`openBook` 改为显式参数传递。
+  - `setLayout()` 补充遗漏的 `Annotations.setBook()` 调用。
+- **死代码清除**：删除未使用的 `btnCloseToolbar`、弃用的 `showToolbarForHighlight()`、重复的 `loadEpubFile()`。
+- **重复代码合并**：
+  - `findTocItem`、`buildPrefsSignature` 统一到 `reader-state.js`，消除 reader 模块间隐式依赖。
+  - `_escapeHtml` 替换为 `Utils.escapeHtml()`；`sanitizeColor` 统一到 `Utils.sanitizeColor()`。
+- **IIFE 统一**：`annotations.js`、`bookmarks.js`、`toc.js`、`image-viewer.js` 统一包裹 IIFE，与 `reader-runtime.js` 等模块保持一致，11 个 reader 模块全部使用 IIFE 封装。
+- **魔法数字提取**：`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js`、`image-viewer.js` 中 60+ 个硬编码数字替换为命名常量（如 `POSITION_SAVE_DEBOUNCE_MS`、`GAP_SCROLLED_PX`、`ZOOM_MIN_SCALE` 等）。
+- **openBook 拆解**：从 ~250 行 `openBook()` 中提取 `_createRendition(layout)` 和 `_hookRenditionEvents(rendition, theme)` 两个共享辅助函数，消除与 `setLayout()` 的重复代码。`setLayout()` 从 71 行缩减至 ~25 行。
+
+### fix
+- **8 项 Bug 修复**：
   - `showLoadError` DOM 销毁导致后续打开书籍失败
   - `openBook()` 缺少 `try/finally` 导致阅读器死锁
   - `setLayout()` 缺少 `try/catch/finally` 导致保护标志永久生效
@@ -17,22 +31,12 @@
   - `moduleLifecycle` 缺少逐模块错误隔离
   - 文件上传缺少错误处理
   - `activeElement` 可能为 `null` 导致 TypeError
-- **死代码清除**：删除未使用的 `btnCloseToolbar`、弃用的 `showToolbarForHighlight()`、重复的 `loadEpubFile()`
-- **重复代码合并**：`findTocItem`、`buildPrefsSignature` 统一到 `reader-state.js`；`_escapeHtml` 替换为 `Utils.escapeHtml()`；`sanitizeColor` 统一到 `Utils.sanitizeColor()`
-- **架构违规修复**：DOM 操作委托给 `ui` 辅助函数；消除 `state._runtime` 注入模式；`setLayout` 补充 `Annotations.setBook()` 调用
-
-### refactor (P1)
-- **IIFE 统一**：`annotations.js`、`bookmarks.js`、`toc.js`、`image-viewer.js` 统一包裹 IIFE，与 `reader-runtime.js` 等模块保持一致。
-- **魔法数字提取**：`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js`、`image-viewer.js` 中 60+ 个硬编码数字替换为命名常量（如 `POSITION_SAVE_DEBOUNCE_MS`、`GAP_SCROLLED_PX`、`ZOOM_MIN_SCALE` 等）。
-- **openBook 拆解**：从 250 行 `openBook()` 中提取 `_createRendition(layout)` 和 `_hookRenditionEvents(rendition, theme)` 两个共享辅助函数，消除与 `setLayout()` 的重复代码。`setLayout()` 从 71 行缩减至 ~25 行。
-
-### fix
-- **enforceFileLRU 竞态条件修复**：`enforceFileLRU` 改为串行执行淘汰，避免并发 `removeRecentBook` 的读改写竞态导致书籍记录丢失。
-- **persistence 层 DOM 违约修复**：`reader-persistence.js` 中的章节标题、书签按钮、阅读统计文本更新委托给 `reader-ui.js` 的辅助函数，遵守"本层不持有 DOM 引用"的架构约定。
+- **enforceFileLRU 竞态条件修复**：`enforceFileLRU` 改为串行执行淘汰（逐项 try/catch），避免并发 `removeRecentBook` 的读改写竞态导致书籍记录丢失。
 
 ### test
-- 新增 enforceFileLRU 串行执行、LRU 排序、错误隔离测试。
-- 新增 persistence 层架构约束（源码无 DOM 直操作）与 ui 委托集成测试。
+- 新增 enforceFileLRU 串行执行、LRU 排序、错误隔离测试（4 个）。
+- 新增 persistence 层架构约束（源码无 DOM 直操作）与 ui 委托集成测试（4 个）。
+- 更新 `bugfix_reader_ux.test.js` 的 BUG-4 测试以匹配新的 `_createRendition` 结构。
 - 更新测试 mock 以支持新的 `ui` 辅助函数。全量 124 个用例通过。
 
 ---
