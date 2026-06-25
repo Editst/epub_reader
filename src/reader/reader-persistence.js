@@ -15,6 +15,18 @@
 (function () {
   'use strict';
 
+  // ── 常量 ───────────────────────────────────────────────────────────────────
+  const POSITION_SAVE_DEBOUNCE_MS      = 300;
+  const SPEED_MIN_PROGRESS_DELTA       = 0.001;
+  const SPEED_MAX_PROGRESS_DELTA       = 0.30;
+  const SPEED_MIN_SESSION_SECONDS      = 30;
+  const JUMP_DETECTION_THRESHOLD       = 0.05;
+  const CHARS_PER_LOCATION_ESTIMATE    = 150;
+  const READING_SPEED_CHARS_PER_MINUTE = 400;
+  const READING_TIMER_INTERVAL_MS      = 1000;
+  const READING_TIME_FLUSH_INTERVAL_S  = 10;
+  const READING_STATS_UPDATE_INTERVAL_S = 60;
+
   function createReaderPersistence({ state, ui }) {
 
     // ── Position ─────────────────────────────────────────────────────────────
@@ -48,7 +60,7 @@
       state.posTimer = setTimeout(() => {
         state.posTimer = null;
         state.lastPositionSave = _savePosition(bookId, cfi, percent, locator);
-      }, 300);
+      }, POSITION_SAVE_DEBOUNCE_MS);
     }
 
     function _buildDisplayedPageLocator(location) {
@@ -127,7 +139,7 @@
       const deltaProgress = state.lastProgress - state.sessionStart.progress;
       const deltaSeconds  = (Date.now() - state.sessionStart.timestamp) / 1000;
 
-      if (deltaProgress > 0.001 && deltaProgress < 0.30 && deltaSeconds > 30) {
+      if (deltaProgress > SPEED_MIN_PROGRESS_DELTA && deltaProgress < SPEED_MAX_PROGRESS_DELTA && deltaSeconds > SPEED_MIN_SESSION_SECONDS) {
         try {
           if (!state.cachedSpeed) {
             state.cachedSpeed = { sampledSeconds: 0, sampledProgress: 0 };
@@ -167,7 +179,7 @@
         ui.updateProgress(percent);
 
         // 跳跃检测：>5% 视为手动跳转，结束当前 session 并以新位置续期
-        if (state.sessionStart && Math.abs(progress - state.lastProgress) > 0.05) {
+        if (state.sessionStart && Math.abs(progress - state.lastProgress) > JUMP_DETECTION_THRESHOLD) {
           flushSpeedSession(progress);  // async，非阻塞
         }
         state.lastProgress = progress;
@@ -258,8 +270,8 @@
         if (progress >= 0 && progress <= 1) {
           const remainingProgress = 1 - progress;
           const totalLocations  = state.book.locations.length();
-          const charsTotal      = totalLocations * 150;
-          const estTotalMinutes = charsTotal / 400;
+          const charsTotal      = totalLocations * CHARS_PER_LOCATION_ESTIMATE;
+          const estTotalMinutes = charsTotal / READING_SPEED_CHARS_PER_MINUTE;
           const eta = Utils.estimateRemainingMinutes({
             remainingProgress,
             cachedSpeed: state.cachedSpeed,
@@ -298,13 +310,13 @@
         if (!document.hidden && state.currentBookId && state.isBookLoaded) {
           state.activeReadingSeconds++;
           // 每 10s 写入 storage
-          if (state.activeReadingSeconds % 10 === 0) {
+          if (state.activeReadingSeconds % READING_TIME_FLUSH_INTERVAL_S === 0) {
             EpubStorage.saveReadingTime(state.currentBookId, state.activeReadingSeconds);
           }
           // 每 60s 刷新 ETA 展示
-          if (state.activeReadingSeconds % 60 === 0) updateReadingStats();
+          if (state.activeReadingSeconds % READING_STATS_UPDATE_INTERVAL_S === 0) updateReadingStats();
         }
-      }, 1000);
+      }, READING_TIMER_INTERVAL_MS);
     }
 
     // ── Visibility ────────────────────────────────────────────────────────────

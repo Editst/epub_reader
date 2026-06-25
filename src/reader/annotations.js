@@ -43,6 +43,7 @@
  *  cancelToken aborts in-flight async lookups when section unloads.
  */
 
+(function () {
 'use strict';
 
 // ── Pre-compiled regexes (module-level, parsed once) ─────────────────────────
@@ -785,4 +786,7 @@ const Annotations = {
 
     try { contents.on('destroy', cleanup); } catch (_) {}
   },
-};
+  };
+
+  window.Annotations = Annotations;
+})();

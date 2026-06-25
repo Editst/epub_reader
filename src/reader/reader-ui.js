@@ -15,6 +15,8 @@
 (function () {
   'use strict';
 
+  const RESIZE_DEBOUNCE_MS = 250;
+
   function createReaderUi({ state }) {
     let _runtime = null;
 
@@ -645,7 +647,7 @@
           }
           const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
-        }, 250);
+        }, RESIZE_DEBOUNCE_MS);
       });
     }
 

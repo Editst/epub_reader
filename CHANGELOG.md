@@ -21,12 +21,19 @@
 - **重复代码合并**：`findTocItem`、`buildPrefsSignature` 统一到 `reader-state.js`；`_escapeHtml` 替换为 `Utils.escapeHtml()`；`sanitizeColor` 统一到 `Utils.sanitizeColor()`
 - **架构违规修复**：DOM 操作委托给 `ui` 辅助函数；消除 `state._runtime` 注入模式；`setLayout` 补充 `Annotations.setBook()` 调用
 
+### refactor (P1)
+- **IIFE 统一**：`annotations.js`、`bookmarks.js`、`toc.js`、`image-viewer.js` 统一包裹 IIFE，与 `reader-runtime.js` 等模块保持一致。
+- **魔法数字提取**：`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js`、`image-viewer.js` 中 60+ 个硬编码数字替换为命名常量（如 `POSITION_SAVE_DEBOUNCE_MS`、`GAP_SCROLLED_PX`、`ZOOM_MIN_SCALE` 等）。
+- **openBook 拆解**：从 250 行 `openBook()` 中提取 `_createRendition(layout)` 和 `_hookRenditionEvents(rendition, theme)` 两个共享辅助函数，消除与 `setLayout()` 的重复代码。`setLayout()` 从 71 行缩减至 ~25 行。
+
 ### fix
 - **enforceFileLRU 竞态条件修复**：`enforceFileLRU` 改为串行执行淘汰，避免并发 `removeRecentBook` 的读改写竞态导致书籍记录丢失。
 - **persistence 层 DOM 违约修复**：`reader-persistence.js` 中的章节标题、书签按钮、阅读统计文本更新委托给 `reader-ui.js` 的辅助函数，遵守"本层不持有 DOM 引用"的架构约定。
 
 ### test
-- 更新测试 mock 以支持新的 `ui` 辅助函数（`updateChapterTitle`、`updateBookmarkButtonState`、`updateReadingStatsText`）。全量 116 个用例通过。
+- 新增 enforceFileLRU 串行执行、LRU 排序、错误隔离测试。
+- 新增 persistence 层架构约束（源码无 DOM 直操作）与 ui 委托集成测试。
+- 更新测试 mock 以支持新的 `ui` 辅助函数。全量 124 个用例通过。
 
 ---
 

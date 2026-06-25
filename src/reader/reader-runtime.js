@@ -16,8 +16,76 @@
 (function () {
   'use strict';
 
+  // ── 常量 ───────────────────────────────────────────────────────────────────
+  const LOCATIONS_GENERATION_TIMEOUT_MS = 1500;
+  const LARGE_EPUB_THRESHOLD_BYTES     = 3 * 1024 * 1024;
+  const LOCATIONS_BREAK_LARGE           = 4800;
+  const MEDIUM_EPUB_THRESHOLD_BYTES     = 1024 * 1024;
+  const LOCATIONS_BREAK_MEDIUM          = 3200;
+  const LOCATIONS_BREAK_SMALL           = 1600;
+  const FONT_READY_TIMEOUT_MS           = 300;
+  const GAP_SCROLLED_PX                 = 48;
+  const GAP_PAGINATED_PX                = 80;
+  const POST_DISPLAY_FOCUS_DELAY_MS     = 100;
+  const POST_OPEN_FOCUS_DELAY_MS        = 300;
+  const NAV_DEBOUNCE_MS                 = 150;
+
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
+
+    // ── Rendition 工厂 ───────────────────────────────────────────────────────
+    // openBook 与 setLayout 共享的 rendition 创建 + 主题 + hook 逻辑
+
+    function _createRendition(layout) {
+      const rendition = state.book.renderTo('epub-viewer', {
+        width:  '100%',
+        height: '100%',
+        spread: state.prefs.spread || 'auto',
+        flow:    layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
+        manager: layout === 'scrolled' ? 'continuous'   : 'default',
+        allowScriptedContent: false,
+        gap: layout === 'scrolled' ? GAP_SCROLLED_PX : GAP_PAGINATED_PX
+      });
+
+      rendition.hooks.content.register((contents) => {
+        ui.injectCustomStyleElement(contents);
+      });
+
+      rendition.themes.default({
+        'body': {
+          'color':                    'var(--reader-text, #2d2d2d)',
+          'text-align':               'justify',
+          '-webkit-font-smoothing':   'antialiased',
+          '-moz-osx-font-smoothing':  'grayscale'
+        },
+        'p': {
+          'margin-bottom': '0.5em',
+          'text-indent':   state.prefs.paragraphIndent !== false ? '2em' : '0',
+          'text-align':    'justify'
+        },
+        'img':   { 'max-width': '100% !important', 'height': 'auto !important' },
+        'image': { 'max-width': '100% !important', 'height': 'auto !important' }
+      });
+
+      return rendition;
+    }
+
+    // ── 模块/事件挂钩 ────────────────────────────────────────────────────────
+    // openBook 与 setLayout 共享的 rendition 事件 + 模块 hook 逻辑
+
+    function _hookRenditionEvents(rendition, theme) {
+      ui.applyThemeToRendition(theme || 'light');
+
+      if (typeof ImageViewer !== 'undefined') ImageViewer.hookRendition(rendition);
+      if (typeof Annotations !== 'undefined') {
+        Annotations.setBook(state.book);
+        Annotations.hookRendition(rendition);
+      }
+      ui.setupRenditionKeyEvents(rendition, persistence, { next, prev });
+
+      rendition.on('relocated', (location) => persistence.onRelocated(location));
+      rendition.on('displayed', () => setTimeout(() => ui.ensureFocus(), POST_DISPLAY_FOCUS_DELAY_MS));
+    }
 
     // ── Locations ─────────────────────────────────────────────────────────────
 
@@ -26,7 +94,7 @@
         console.warn('[Runtime] locations generate failed:', e);
       });
       if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(() => run(), { timeout: 1500 });
+        requestIdleCallback(() => run(), { timeout: LOCATIONS_GENERATION_TIMEOUT_MS });
         return;
       }
       setTimeout(() => run(), 0);
@@ -42,9 +110,9 @@
 
     function chooseLocationsBreak(data) {
       const size = estimateBookSizeBytes(data);
-      if (size > 3 * 1024 * 1024) return 4800;
-      if (size > 1024 * 1024) return 3200;
-      return 1600;
+      if (size > LARGE_EPUB_THRESHOLD_BYTES) return LOCATIONS_BREAK_LARGE;
+      if (size > MEDIUM_EPUB_THRESHOLD_BYTES) return LOCATIONS_BREAK_MEDIUM;
+      return LOCATIONS_BREAK_SMALL;
     }
 
     function _nextFrame() {
@@ -82,7 +150,7 @@
       if (fontPromises.length) {
         await Promise.race([
           Promise.all(fontPromises).catch(() => {}),
-          _delay(300)
+          _delay(FONT_READY_TIMEOUT_MS)
         ]);
       }
 
@@ -198,49 +266,10 @@
       state.book = ePub(normalizeBookData(fileData));
 
       // ── Rendition ───────────────────────────────────────────────────────────
-      state.rendition = state.book.renderTo('epub-viewer', {
-        width:  '100%',
-        height: '100%',
-        spread: prefs.spread || 'auto',
-        flow:    state.prefs.layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
-        manager: state.prefs.layout === 'scrolled' ? 'continuous'   : 'default',
-        allowScriptedContent: false,
-        gap: state.prefs.layout === 'scrolled' ? 48 : 80
-      });
-
-      state.rendition.hooks.content.register((contents) => {
-        ui.injectCustomStyleElement(contents);
-      });
-
-      state.rendition.themes.default({
-        'body': {
-          'color':                    'var(--reader-text, #2d2d2d)',
-          'text-align':               'justify',
-          '-webkit-font-smoothing':   'antialiased',
-          '-moz-osx-font-smoothing':  'grayscale'
-        },
-        'p': {
-          'margin-bottom': '0.5em',
-          'text-indent':   state.prefs.paragraphIndent ? '2em' : '0',
-          'text-align':    'justify'
-        },
-        'img':   { 'max-width': '100% !important', 'height': 'auto !important' },
-        'image': { 'max-width': '100% !important', 'height': 'auto !important' }
-      });
-
-      ui.applyThemeToRendition(prefs.theme || 'light');
+      state.rendition = _createRendition(state.prefs.layout);
 
       // ── 子模块挂钩 ──────────────────────────────────────────────────────────
-      if (typeof ImageViewer !== 'undefined') ImageViewer.hookRendition(state.rendition);
-      if (typeof Annotations !== 'undefined') {
-        Annotations.setBook(state.book);
-        Annotations.hookRendition(state.rendition);
-      }
-      ui.setupRenditionKeyEvents(state.rendition, persistence, { next, prev });
-
-      // ── relocated / displayed ───────────────────────────────────────────────
-      state.rendition.on('relocated', (location) => persistence.onRelocated(location));
-      state.rendition.on('displayed', () => setTimeout(() => ui.ensureFocus(), 100));
+      _hookRenditionEvents(state.rendition, prefs.theme);
 
       // ── book.ready ──────────────────────────────────────────────────────────
       await state.book.ready;
@@ -312,7 +341,7 @@
       ui.showLoading(false);
       state.isBookLoaded = true;
 
-      setTimeout(() => ui.ensureFocus(), 300);
+      setTimeout(() => ui.ensureFocus(), POST_OPEN_FOCUS_DELAY_MS);
 
       // ── locations 索引（idle 调度，v2.0 P-2） ───────────────────────────────
       const initSpeedTracking = (progress) => {
@@ -437,7 +466,7 @@
       if (state.navLock || !state.rendition || !state.isLayoutStable) return;
       state.navLock = true;
       state.rendition.next();
-      setTimeout(() => { state.navLock = false; }, 150);
+      setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
     }
 
     async function prev() {
@@ -450,11 +479,11 @@
           await state.rendition.prev();
         } finally {
           ui.setReaderDimmed(false);
-          setTimeout(() => { state.navLock = false; }, 150);
+          setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
         }
       } else {
         state.rendition.prev();
-        setTimeout(() => { state.navLock = false; }, 150);
+        setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
       }
     }
 
@@ -486,45 +515,9 @@
 
       state.isRestoringPosition = true;
       state.rendition.destroy();
-      state.rendition = state.book.renderTo('epub-viewer', {
-        width:  '100%',
-        height: '100%',
-        spread: state.prefs.spread || 'auto',
-        flow:    layout === 'scrolled' ? 'scrolled-doc' : 'paginated',
-        manager: layout === 'scrolled' ? 'continuous'   : 'default',
-        allowScriptedContent: false,
-        gap: layout === 'scrolled' ? 48 : 80
-      });
+      state.rendition = _createRendition(layout);
 
-      state.rendition.hooks.content.register((contents) => {
-        ui.injectCustomStyleElement(contents);
-      });
-      state.rendition.themes.default({
-        'body': {
-          'color': 'var(--reader-text, #2d2d2d)',
-          'text-align': 'justify',
-          '-webkit-font-smoothing': 'antialiased',
-          '-moz-osx-font-smoothing': 'grayscale'
-        },
-        'p': {
-          'margin-bottom': '0.5em',
-          'text-indent': state.prefs.paragraphIndent !== false ? '2em' : '0',
-          'text-align': 'justify'
-        },
-        'img':   { 'max-width': '100% !important', 'height': 'auto !important' },
-        'image': { 'max-width': '100% !important', 'height': 'auto !important' }
-      });
-      ui.applyThemeToRendition(state.prefs.theme || 'light');
-
-      if (typeof ImageViewer !== 'undefined') ImageViewer.hookRendition(state.rendition);
-      if (typeof Annotations !== 'undefined') {
-        Annotations.setBook(state.book);
-        Annotations.hookRendition(state.rendition);
-      }
-      ui.setupRenditionKeyEvents(state.rendition, persistence, { next, prev });
-
-      state.rendition.on('relocated', (location) => persistence.onRelocated(location));
-      state.rendition.on('displayed', () => setTimeout(() => ui.ensureFocus(), 100));
+      _hookRenditionEvents(state.rendition, state.prefs.theme);
 
       if (typeof TOC !== 'undefined') TOC.build(state.book.navigation, state.rendition);
       if (typeof Bookmarks !== 'undefined') {

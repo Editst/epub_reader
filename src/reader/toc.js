@@ -2,7 +2,10 @@
  * Table of Contents Module
  * Builds and manages the sidebar TOC from epub.js navigation
  */
-const TOC = {
+(function () {
+  'use strict';
+
+  const TOC = {
   container: null,
   sidebar: null,
   overlay: null,
@@ -151,4 +154,7 @@ const TOC = {
     if (this.container) this.container.innerHTML = '';
     this.rendition = null;
   }
-};
+  };
+
+  window.TOC = TOC;
+})();
