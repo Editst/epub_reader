@@ -21,6 +21,10 @@
 - `reader-runtime.js` owns epub.js lifecycle, `openBook()`, file loading, navigation, layout switching, and locations generation.
 - `reader-persistence.js` owns reading position, time, speed, `relocated`, `visibilitychange`, and flush behavior.
 - Feature modules (`annotations`, `toc`, `search`, `bookmarks`, `highlights`, `image-viewer`) are mounted by lifecycle context; add new reader modules to `reader.html` and `reader.js` lifecycle wiring.
+- All reader modules use IIFE wrappers: `(function () { 'use strict'; ... window.XXX = XXX; })();`
+- Module-level magic numbers should be extracted as named constants at the top of the IIFE.
+- Shared helpers between `openBook` and `setLayout` live in `reader-runtime.js` as private functions (`_createRendition`, `_hookRenditionEvents`).
+- Shared utilities between reader modules live in `reader-state.js` (`findTocItem`, `buildPrefsSignature`).
 
 ## Critical Loading Order
 - In `reader.html`: libraries first (`jszip`, `epub`), then utils (`db-gateway`, `utils`, `storage`), then feature modules, then `reader-state`, `reader-runtime`, `reader-persistence`, `reader-ui`, and finally `reader.js`.

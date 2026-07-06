@@ -2,7 +2,10 @@
  * Bookmarks Module
  * Allows users to bookmark pages and manage bookmarks
  */
-const Bookmarks = {
+(function () {
+  'use strict';
+
+  const Bookmarks = {
   bookId: '',
   book: null,
   rendition: null,
@@ -175,4 +178,7 @@ const Bookmarks = {
     const d = new Date(ts);
     return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   }
-};
+  };
+
+  window.Bookmarks = Bookmarks;
+})();

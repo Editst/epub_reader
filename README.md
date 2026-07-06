@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.3.3-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -70,6 +70,8 @@
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
 - **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。
 - **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。
+- **文件淘汰串行化（v2.4.0）**：`enforceFileLRU` 改为逐项串行淘汰 + per-item try/catch，避免并发读改写竞态导致书籍记录丢失。
+- **架构约束强制化（v2.4.0）**：Reader 各层严格遵守职责边界——persistence 层不持有 DOM 引用，runtime 层不直接操作视图，UI 辅助函数作为唯一 DOM 入口。
 
 ## 📄 开源协议 (License)
 

@@ -42,7 +42,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     persistence.schedulePositionSave('book-1', 'cfi-1', 10);
     persistence.schedulePositionSave('book-1', 'cfi-2', 20);
 
@@ -83,7 +83,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     persistence.schedulePositionSave('book-live', 'epubcfi(/6/10)', 42.1);
     await Promise.resolve();
 
@@ -113,7 +113,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     await persistence.flushPositionSave();
 
     global.clearTimeout = originalClearTimeout;
@@ -130,6 +130,8 @@ test.describe('ReaderPersistence', () => {
     global.Bookmarks = { async isBookmarked() { return true; } };
 
     const updates = [];
+    let chapterTitle = '';
+    let bookmarkState = null;
     const state = {
       isResizing: false,
       currentBookId: 'book-3',
@@ -157,7 +159,10 @@ test.describe('ReaderPersistence', () => {
       updateProgress(percent) {
         updates.push(percent);
       },
-      updateReadingStats() {}
+      updateReadingStats() {},
+      updateChapterTitle(title) { chapterTitle = title; },
+      updateBookmarkButtonState(isBookmarked) { bookmarkState = isBookmarked; },
+      updateReadingStatsText() {}
     };
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
     persistence.updateReadingStats = () => {};
@@ -167,10 +172,9 @@ test.describe('ReaderPersistence', () => {
 
     assert.deepEqual(updates, [23]);
     assert.equal(state.currentStableCfi, 'epubcfi(/6/2)');
-    assert.equal(document.getElementById('chapter-title').textContent, '第一章');
+    assert.equal(chapterTitle, '第一章');
     assert.deepEqual(global.TOC.setActiveCalls, ['chapter1.xhtml']);
-    assert.ok(document.getElementById('btn-bookmark').classList.contains('active'));
-    assert.equal(document.getElementById('btn-bookmark').title, '移除书签 (B)');
+    assert.equal(bookmarkState, true);
   });
 
   test.it('onRelocated 分页模式保存 start.cfi 与 displayed-page locator，不再保存 end.cfi', async () => {
@@ -213,7 +217,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.onRelocated({
@@ -292,7 +296,7 @@ test.describe('ReaderPersistence', () => {
       saves.push(args);
     };
 
-    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} } });
     await persistence.flushPositionSave();
 
     global.clearTimeout = originalClearTimeout;
@@ -415,7 +419,12 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress(percent) { progressCalls.push(percent); } }
+      ui: {
+        updateProgress(percent) { progressCalls.push(percent); },
+        updateChapterTitle() {},
+        updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
     });
 
     persistence.onRelocated({
@@ -463,7 +472,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.onRelocated({
@@ -490,6 +499,7 @@ test.describe('ReaderPersistence', () => {
     global.document = document;
 
     const locationStatusCalls = [];
+    let statsText = '';
     const state = {
       activeReadingSeconds: 45,
       locationsStatus: 'pending',
@@ -508,6 +518,8 @@ test.describe('ReaderPersistence', () => {
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
       ui: {
+        updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsText = text; },
         setLocationIndexStatus(status, detail) {
           locationStatusCalls.push([status, detail]);
         }
@@ -516,7 +528,7 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 45秒 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 45秒 \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['pending', '阅读定位索引生成中']]);
   });
 
@@ -540,9 +552,12 @@ test.describe('ReaderPersistence', () => {
       }
     };
 
+    let statsText = '';
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
       ui: {
+        updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsText = text; },
         setLocationIndexStatus(status, detail) {
           locationStatusCalls.push([status, detail]);
         }
@@ -551,7 +566,7 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(document.getElementById('progress-time').textContent, /阅读时长: 1分钟 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 1分钟 \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['failed', '阅读定位索引不可用']]);
   });
 
@@ -654,7 +669,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     // relocated 事件参数传入一个「旧」CFI，rendition.currentLocation() 返回「新」CFI
@@ -721,7 +736,7 @@ test.describe('ReaderPersistence', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     // relocated 事件参数 CFI 与 currentLocation().start.cfi 相同
@@ -773,7 +788,7 @@ test.describe('ReaderPersistence', () => {
     };
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.mount();
@@ -788,5 +803,153 @@ test.describe('ReaderPersistence', () => {
     EpubStorage.savePosition = origSavePosition;
 
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
+  });
+
+  // ── 架构约束：persistence 层不直接操作 DOM ─────────────────────────────────
+
+  test.it('reader-persistence.js 源码不包含直接 DOM 操作（document.getElementById / textContent / classList）', () => {
+    const fs = require('fs');
+    const src = fs.readFileSync('src/reader/reader-persistence.js', 'utf8');
+
+    // 不应出现 document.getElementById 或直接 textContent/classList 赋值
+    assert.ok(!src.includes('document.getElementById'), 'persistence 不应调用 document.getElementById');
+    assert.ok(!src.includes('.textContent'), 'persistence 不应直接操作 .textContent');
+    assert.ok(!src.includes('.classList'), 'persistence 不应直接操作 .classList');
+    assert.ok(!src.includes('style.display'), 'persistence 不应直接操作 style.display');
+  });
+
+  test.it('reader-persistence.js onRelocated 通过 ui 委托章节标题更新', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    let chapterTitleArg = null;
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-ui-delegate',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: { length: () => 0 },
+        navigation: { toc: [{ href: 'ch1.xhtml', label: ' 第一章 ' }] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'ch1.xhtml' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {},
+        updateReadingStats() {},
+        updateChapterTitle(title) { chapterTitleArg = title; },
+        updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/2)', href: 'ch1.xhtml' } });
+    await Promise.resolve();
+
+    // 章节标题应通过 ui.updateChapterTitle 更新，而非直接操作 DOM
+    assert.equal(chapterTitleArg, '第一章');
+    // DOM 元素不应被直接修改
+    assert.equal(document.getElementById('chapter-title').textContent, '', 'chapter-title 不应被 persistence 直接修改');
+  });
+
+  test.it('reader-persistence.js onRelocated 通过 ui 委托书签按钮状态更新', async () => {
+    const { document } = createMockDocument(['btn-bookmark']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return true; } };
+
+    let bookmarkArg = null;
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-bookmark-delegate',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: { length: () => 0 },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'ch.xhtml' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {},
+        updateReadingStats() {},
+        updateChapterTitle() {},
+        updateBookmarkButtonState(isBookmarked) { bookmarkArg = isBookmarked; },
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/2)', href: 'ch.xhtml' } });
+    await Promise.resolve();
+
+    // 书签状态应通过 ui.updateBookmarkButtonState 更新
+    assert.equal(bookmarkArg, true);
+    // DOM 的 classList 不应被 persistence 直接修改
+    assert.ok(!document.getElementById('btn-bookmark').classList.contains('active'),
+      'btn-bookmark 不应被 persistence 直接修改');
+  });
+
+  test.it('reader-persistence.js updateReadingStats 通过 ui 委托统计文本更新', () => {
+    const { document } = createMockDocument(['progress-time']);
+    global.document = document;
+
+    let statsTextArg = null;
+    const state = {
+      activeReadingSeconds: 120,
+      locationsStatus: 'ready',
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.25; }
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/5)' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateChapterTitle() {},
+        updateBookmarkButtonState() {},
+        updateReadingStatsText(text) { statsTextArg = text; }
+      }
+    });
+
+    persistence.updateReadingStats();
+
+    // 统计文本应通过 ui.updateReadingStatsText 更新
+    assert.ok(statsTextArg !== null, 'updateReadingStatsText 应被调用');
+    assert.ok(statsTextArg.includes('阅读时长'), '统计文本应包含阅读时长');
+    // DOM 元素不应被直接修改
+    assert.equal(document.getElementById('progress-time').textContent, '',
+      'progress-time 不应被 persistence 直接修改');
   });
 });

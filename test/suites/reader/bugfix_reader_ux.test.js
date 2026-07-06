@@ -13,17 +13,17 @@ const fs = require('node:fs');
 // ────────────────────────────────────────────────────────────────────────────
 
 test.describe('BUG-4: setLayout includes image CSS rule', () => {
-  test.it('reader-runtime.js setLayout themes.default includes image rule', () => {
+  test.it('reader-runtime.js rendition theme includes image rule', () => {
     const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
-    // Find the setLayout function body
-    const setLayoutStart = src.indexOf('async function setLayout');
-    assert.ok(setLayoutStart !== -1, 'setLayout function must exist');
-    const setLayoutBody = src.slice(setLayoutStart, src.indexOf('\n    }', setLayoutStart + 200) + 6);
+    // The theme is now in _createRendition, shared by openBook and setLayout
+    const fnStart = src.indexOf('function _createRendition');
+    assert.ok(fnStart !== -1, '_createRendition function must exist');
+    const fnBody = src.slice(fnStart, src.indexOf('\n    }', fnStart + 200) + 6);
 
-    // themes.default in setLayout must contain 'image' rule (not just 'img')
+    // themes.default must contain 'image' rule (not just 'img')
     assert.ok(
-      setLayoutBody.includes("'image'"),
-      'setLayout themes.default must include an image rule for SVG <image> elements'
+      fnBody.includes("'image'"),
+      '_createRendition themes.default must include an image rule for SVG <image> elements'
     );
   });
 });

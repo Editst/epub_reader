@@ -44,7 +44,10 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     let savePositionCalls = 0;
     const mockUi = {
-      updateProgress() {}
+      updateProgress() {},
+      updateChapterTitle() {},
+      updateBookmarkButtonState() {},
+      updateReadingStatsText() {}
     };
 
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui: mockUi });
@@ -90,7 +93,10 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     const mockUi = {
       progressUpdated: null,
-      updateProgress(p) { this.progressUpdated = p; }
+      updateProgress(p) { this.progressUpdated = p; },
+      updateChapterTitle() {},
+      updateBookmarkButtonState() {},
+      updateReadingStatsText() {}
     };
 
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui: mockUi });
@@ -140,7 +146,7 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     persistence.onRelocated({
@@ -185,7 +191,7 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
     const origSetTimeout = global.setTimeout;
     global.setTimeout = (fn) => { return 999; };
 
-    const mockUi = { updateProgress() {} };
+    const mockUi = { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} };
     const persistence = ReaderPersistence.createReaderPersistence({ state, ui: mockUi });
 
     persistence.onRelocated({
@@ -218,7 +224,7 @@ test.describe('Progress Restore — isRestoringPosition 保护', () => {
 
     const persistence = ReaderPersistence.createReaderPersistence({
       state,
-      ui: { updateProgress() {} }
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
     });
 
     await persistence.flushPositionSave();

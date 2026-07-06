@@ -15,6 +15,8 @@
 (function () {
   'use strict';
 
+  const RESIZE_DEBOUNCE_MS = 250;
+
   function createReaderUi({ state }) {
     let _runtime = null;
 
@@ -90,6 +92,36 @@
      */
     function setReaderDimmed(dimmed) {
       dom.readerMain?.classList.toggle('reader-main-dimmed', dimmed);
+    }
+
+    /**
+     * 更新章节标题显示。
+     * @param {string} title
+     */
+    function updateChapterTitle(title) {
+      const el = document.getElementById('chapter-title');
+      if (el) el.textContent = title;
+    }
+
+    /**
+     * 更新书签按钮状态。
+     * @param {boolean} isBookmarked
+     */
+    function updateBookmarkButtonState(isBookmarked) {
+      const btn = document.getElementById('btn-bookmark');
+      if (btn) {
+        btn.classList.toggle('active', isBookmarked);
+        btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
+      }
+    }
+
+    /**
+     * 更新阅读统计文本（时长 + ETA）。
+     * @param {string} text
+     */
+    function updateReadingStatsText(text) {
+      const el = document.getElementById('progress-time');
+      if (el) el.textContent = text;
     }
 
     function showLoading(show, message = '') {
@@ -615,7 +647,7 @@
           }
           const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
-        }, 250);
+        }, RESIZE_DEBOUNCE_MS);
       });
     }
 
@@ -686,6 +718,9 @@
       clearReaderError,
       setBookTitle,
       setReaderDimmed,
+      updateChapterTitle,
+      updateBookmarkButtonState,
+      updateReadingStatsText,
       showLoading,
       showLoadError,
       updateProgress,

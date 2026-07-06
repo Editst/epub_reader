@@ -158,11 +158,18 @@ EpubStorage.enforceFileLRU = async (max=10) => {
   const meta = await _mockDb.getAllMeta('files');
   if (meta.length <= max) return;
   meta.sort((a,b)=>b.timestamp - a.timestamp);
-  await Promise.all(meta.slice(max).map(m=>Promise.all([
-    _mockDb.delete('files', m.bookId),
-    EpubStorage.removeRecentBook(m.bookId),
-    EpubStorage.removeBookMeta(m.bookId)
-  ])));
+  const toRemove = meta.slice(max);
+  for (const m of toRemove) {
+    try {
+      await Promise.all([
+        _mockDb.delete('files', m.bookId),
+        EpubStorage.removeRecentBook(m.bookId),
+        EpubStorage.removeBookMeta(m.bookId)
+      ]);
+    } catch (e) {
+      console.warn('[Storage] enforceFileLRU: failed to remove book', m.bookId, e);
+    }
+  }
 };
 
 function findTestFiles(dir) {

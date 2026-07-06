@@ -2,7 +2,15 @@
  * Image Viewer Module
  * Click-to-enlarge with zoom/pan support
  */
-const ImageViewer = {
+(function () {
+  'use strict';
+
+  const ZOOM_MIN_SCALE  = 0.2;
+  const ZOOM_MAX_SCALE  = 8;
+  const WHEEL_ZOOM_STEP = 0.15;
+  const BUTTON_ZOOM_STEP = 0.3;
+
+  const ImageViewer = {
   overlay: null,
   img: null,
   container: null,
@@ -27,14 +35,14 @@ const ImageViewer = {
     });
 
     // Zoom controls
-    document.getElementById('img-zoom-in').addEventListener('click', () => this.zoom(0.3));
-    document.getElementById('img-zoom-out').addEventListener('click', () => this.zoom(-0.3));
+    document.getElementById('img-zoom-in').addEventListener('click', () => this.zoom(BUTTON_ZOOM_STEP));
+    document.getElementById('img-zoom-out').addEventListener('click', () => this.zoom(-BUTTON_ZOOM_STEP));
     document.getElementById('img-zoom-reset').addEventListener('click', () => this.resetTransform());
 
     // Mouse wheel zoom
     this.container.addEventListener('wheel', (e) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.15 : 0.15;
+      const delta = e.deltaY > 0 ? -WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP;
       this.zoom(delta);
     }, { passive: false });
 
@@ -62,8 +70,8 @@ const ImageViewer = {
     document.addEventListener('keydown', (e) => {
       if (this.overlay.classList.contains('is-hidden')) return;
       if (e.key === 'Escape') this.close();
-      if (e.key === '+' || e.key === '=') this.zoom(0.3);
-      if (e.key === '-') this.zoom(-0.3);
+      if (e.key === '+' || e.key === '=') this.zoom(BUTTON_ZOOM_STEP);
+      if (e.key === '-') this.zoom(-BUTTON_ZOOM_STEP);
       if (e.key === '0') this.resetTransform();
     });
   },
@@ -86,7 +94,7 @@ const ImageViewer = {
   },
 
   zoom(delta) {
-    this.scale = Math.max(0.2, Math.min(8, this.scale + delta));
+    this.scale = Math.max(ZOOM_MIN_SCALE, Math.min(ZOOM_MAX_SCALE, this.scale + delta));
     this.applyTransform();
   },
 
@@ -157,4 +165,7 @@ const ImageViewer = {
       });
     });
   }
-};
+  };
+
+  window.ImageViewer = ImageViewer;
+})();
