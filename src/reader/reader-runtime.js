@@ -192,30 +192,37 @@
     /**
      * 位置恢复后做有界页校正。
      * 只在同章节、同布局签名、页总数一致且仅偏移一页时导航一次；
-     * 其余差异视为布局不可比，不用 epub.js 边界 CFI 覆盖保存锚点。
+     * 其余差异视为 locator 已过期，不用 epub.js 边界 CFI 覆盖保存锚点。
      *
      * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过校正
      */
     async function _correctRestoredPage(savedPos) {
       const locator = savedPos && savedPos.locator;
       if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false, corrected: false };
-      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return { matched: false, corrected: false };
-      if (!_isSignatureCompatible(locator.prefsSignature)) return { matched: false, corrected: false };
+      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') {
+        state.currentStableLocator = null;
+        return { matched: false, corrected: false };
+      }
+      if (!_isSignatureCompatible(locator.prefsSignature)) {
+        state.currentStableLocator = null;
+        return { matched: false, corrected: false };
+      }
 
       await _waitForRenditionStable();
       if (!state.rendition || typeof state.rendition.currentLocation !== 'function') {
+        state.currentStableLocator = null;
         return { matched: false, corrected: false };
       }
 
       const currentPage = _getDisplayedPage(state.rendition.currentLocation());
-      if (!currentPage) return { matched: false, corrected: false };
+      if (!currentPage) {
+        state.currentStableLocator = null;
+        return { matched: false, corrected: false };
+      }
 
       const matched = currentPage.index === locator.index && currentPage.href === locator.href;
       if (!matched) {
-        console.warn('[Runtime] CFI restore: chapter mismatch', {
-          expected: { href: locator.href, index: locator.index },
-          actual: { href: currentPage.href, index: currentPage.index }
-        });
+        state.currentStableLocator = null;
         return { matched: false, corrected: false };
       }
 
@@ -225,16 +232,14 @@
         typeof currentPage.page !== 'number' ||
         currentPage.total !== locator.total
       ) {
+        state.currentStableLocator = null;
         return { matched: true, corrected: false };
       }
 
       const pageDelta = locator.page - currentPage.page;
       if (pageDelta === 0) return { matched: true, corrected: false };
       if (Math.abs(pageDelta) !== 1) {
-        console.warn('[Runtime] CFI restore: page delta out of correction range', {
-          expected: { page: locator.page, total: locator.total },
-          actual: { page: currentPage.page, total: currentPage.total }
-        });
+        state.currentStableLocator = null;
         return { matched: true, corrected: false };
       }
 
@@ -253,14 +258,12 @@
           correctedPage.href === locator.href &&
           correctedPage.page === locator.page;
         if (!corrected) {
-          console.warn('[Runtime] CFI restore: one-page correction did not reach target', {
-            expected: { href: locator.href, index: locator.index, page: locator.page },
-            actual: correctedPage
-          });
+          state.currentStableLocator = null;
         }
         return { matched: true, corrected };
       } catch (e) {
         console.warn('[Runtime] CFI restore: one-page correction failed', e);
+        state.currentStableLocator = null;
         return { matched: true, corrected: false };
       }
     }

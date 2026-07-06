@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.1-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -67,6 +67,7 @@
 - **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
 - **阅读位置实时保存**：翻页/滚动后的首个稳定 CFI 会立即启动持久化，连续变化时再用 300ms 防抖保存最终位置，减少关闭页面时回到旧位置的风险。
 - **恢复锚点保护**：分页模式重新打开书籍后，用户真正导航前不会把 epub.js 回报的页边界 CFI 覆盖为新位置，避免刷新或重开时连续跳页。
+- **恢复 locator 失效自愈（v2.4.1）**：旧版或不可比的页码校正快照会自动失效，保留可靠 CFI 锚点并避免重复运行告警。
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
 - **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。
 - **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。

@@ -4,6 +4,13 @@
 
 ---
 
+## [v2.4.1] - 阅读位置恢复降级修复
+
+- `_correctRestoredPage()` 对章节不匹配、布局签名不兼容、页总数不一致或页码偏移超过一页的 displayed-page locator 统一视为过期快照，清空 `currentStableLocator`，保留 CFI 锚点。
+- 这类过期 locator 不再输出运行警告，后续 `flushPositionSave()` 会写回无 locator 的干净位置，避免重开阅读器时反复出现 `[Runtime] CFI restore: page delta out of correction range`。
+
+---
+
 ## [v2.0.0] - 数据与性能治理版本 (Data & Performance)
 **核心目标**：完成 roadmap v2.0.0 的 P-1/P-2/P-3，提升 ETA 可信度与首屏交互体验。
 
@@ -44,7 +51,7 @@
 - **`onRelocated` 自洽快照**：持久化路径优先使用 `rendition.currentLocation()` 重采样；当它与 relocated 事件参数不一致时，CFI、percentage、locator 必须来自同一个 location 源，避免保存出“当前 CFI + 旧页码/章节”的矛盾位置。
 - **`_isPositionMeaningfullyChanged` 守卫**：写入前字符串精确比较新旧 CFI，相同则跳过 `schedulePositionSave`，避免 locations 加载后用边界 CFI 覆盖正确位置。
 - **恢复锚点保护**：`openBook()` 通过保存 CFI 或 `targetCfi` 恢复分页位置后，`isRestoreAnchorProtected` 会阻止 locations cache-hit/generate-complete 与刷新 flush 把 epub.js 页边界 CFI 覆盖为新位置；用户翻页、进度跳转或目录/书签/搜索/注释跳转后解除。
-- **displayed-page 一页内校正**：恢复后仅在同章节、同布局签名、页总数一致且页码仅偏移一页时执行一次 next/prev；校正期间仍跳过位置写入。
+- **displayed-page 一页内校正**：恢复后仅在同章节、同布局签名、页总数一致且页码仅偏移一页时执行一次 next/prev；更大偏移视为 locator 过期，清空 locator、保留 CFI，校正期间仍跳过位置写入。
 - **locations 加载路径 CFI 守卫**：cache-hit 和 generate-complete 路径中，保护期使用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；非保护期仅在 CFI 真实变化时转交。
 - **`setLayout()` 恢复保护**：布局切换期间 `isRestoringPosition = true`，await `display()` + 双帧等待后解除。
 - **`_withCfiLock` 恢复保护**：字号/行高/字体切换的 CFI 保护锁同步增加 `isRestoringPosition` 标志。

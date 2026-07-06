@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.0  
+版本：v2.4.1  
 更新：2026-07-06
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -481,7 +481,7 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 | `POST_OPEN_FOCUS_DELAY_MS` | 300 | openBook 后聚焦延迟 |
 | `NAV_DEBOUNCE_MS` | 150 | 翻页防抖 |
 
-**v2.4.0 行为约束**：
+**v2.4.1 行为约束**：
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
 - `_hookRenditionEvents` 由 `openBook` 和 `setLayout` 共享，确保模块挂载逻辑一致。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
@@ -491,7 +491,7 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - 分页模式下，`displayCfi` 恢复完成后应设置 `isRestoreAnchorProtected=true`；`next()`/`prev()`/`displayPercentage()` 以及非恢复期的 `rendition.display()` 会解除该保护。
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
-- `_correctRestoredPage` 仅在 href/index 匹配、布局签名兼容、页总数一致且页码仅偏移一页时执行一次 next/prev 校正；其他差异只记录 warn，不导航。
+- `_correctRestoredPage` 仅在 href/index 匹配、布局签名兼容、页总数一致且页码仅偏移一页时执行一次 next/prev 校正；其他差异视为 locator 过期，清空 `currentStableLocator`，保留 CFI 锚点，不输出运行警告。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。

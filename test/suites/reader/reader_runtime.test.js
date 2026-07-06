@@ -472,7 +472,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(result.prevCalls, 1, '同章节且只差一页时应执行一次 prev 校正');
   });
 
-  test.it('openBook 页号一致或布局不可比时不做校正，href/index 不一致时仅 warn 不导航', async () => {
+  test.it('openBook 页号一致或布局不可比时不做校正，href/index 不一致时不导航', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const baseLocator = {
       strategy: 'epubjs-displayed-page-v1',
@@ -506,9 +506,57 @@ test.describe('ReaderRuntime', () => {
     });
 
     assert.equal(samePage.nextCalls + samePage.prevCalls, 0, '页号一致：不导航');
-    assert.equal(differentHref.nextCalls + differentHref.prevCalls, 0, 'href 不一致：仅 warn，不导航');
+    assert.equal(differentHref.nextCalls + differentHref.prevCalls, 0, 'href 不一致：不导航');
     assert.equal(differentSignature.nextCalls + differentSignature.prevCalls, 0, '签名不一致：跳过验证');
     assert.equal(scrolled.nextCalls + scrolled.prevCalls, 0, 'scrolled 模式：跳过验证');
+  });
+
+  test.it('openBook 恢复页码差超过一页时失效 locator 且不输出运行警告', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/8!/4/2)',
+      percentage: 30,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        href: 'chapter.xhtml',
+        index: 3,
+        page: 10,
+        total: 20,
+        prefsSignature: prefs
+      }
+    };
+    const warnCalls = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warnCalls.push(args); };
+
+    let result;
+    try {
+      result = await runRestoreCorrectionCase({
+        prefs,
+        savedPos,
+        initialLocation: {
+          start: {
+            index: 3,
+            href: 'chapter.xhtml',
+            cfi: 'cfi-page-4',
+            displayed: { page: 4, total: 20 }
+          },
+          end: { displayed: { page: 4, total: 20 } }
+        }
+      });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(result.nextCalls + result.prevCalls, 0, '超过一页不做校正导航');
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
+    assert.equal(result.state.currentStableLocator, null, '不可比 locator 应被清除，避免下次重开重复告警');
+    assert.equal(
+      warnCalls.some((args) => String(args[0]).includes('page delta out of correction range')),
+      false,
+      '页码差超范围是可预期降级，不应输出运行警告'
+    );
   });
 
   test.it('openBook 页校正后 currentStableCfi 仍等于 displayCfi', async () => {

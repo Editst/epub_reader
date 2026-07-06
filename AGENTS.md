@@ -49,5 +49,6 @@
 
 ## Release And Docs
 - Extension version is in `src/manifest.json`; version tests in `test/suites/system/sys_manifest.test.js` must match.
+- 修改代码后同步更新扩展版本号（`src/manifest.json`），并按需同步版本测试和发布文档。
 - Update `CHANGELOG.md`, `README.md`, `docs/architecture.md`, and `docs/modules.md` for behavior or version changes.
 - Comments and docs in this repo commonly use Chinese; keep that style when adding explanatory comments near existing Chinese documentation.
