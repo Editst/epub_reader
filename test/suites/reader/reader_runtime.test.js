@@ -2,7 +2,6 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 
 const { loadWindowScript, createMockDocument } = require('../../helpers/browser_env');
 
@@ -120,16 +119,358 @@ test.describe('ReaderRuntime', () => {
     assert.deepEqual(displayed, ['epubcfi(/6/10)']);
   });
 
-  test.it('openBook 子模块挂载后不再重复直调 Bookmarks/Search/Highlights', () => {
-    const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
-    const mountStart = src.indexOf('moduleLifecycle.mount(context);');
-    const loadedStart = src.indexOf('// ── isBookLoaded', mountStart);
-    const mountSection = src.slice(mountStart, loadedStart);
+  test.it('openBook 通过 lifecycle 挂载 Bookmarks/Search/Highlights，不再额外直调', async () => {
+    const { document } = createMockDocument([
+      'reader-main',
+      'book-title',
+      'chapter-title',
+      'progress-location'
+    ]);
+    global.document = document;
+    global.setTimeout = (fn) => { fn(); return 1; };
 
-    assert.ok(mountStart !== -1, 'openBook must mount reader modules');
-    assert.ok(!mountSection.includes('Bookmarks.setBook('));
-    assert.ok(!mountSection.includes('Search.setBook('));
-    assert.ok(!mountSection.includes('Highlights.setBookDetails('));
+    const rendition = {
+      hooks: { content: { register() {} } },
+      themes: { default() {}, override() {} },
+      on() {},
+      async display() {},
+      currentLocation() {
+        return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+      },
+      getContents() {
+        return [{ document: { fonts: { ready: Promise.resolve() } } }];
+      }
+    };
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 100; },
+      percentageFromCfi() { return 0.25; }
+    };
+
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      locations,
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: '生命周期测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const directCalls = { bookmarks: 0, search: 0, highlights: 0 };
+    const mountCalls = [];
+    global.ImageViewer = { hookRendition() {} };
+    global.Annotations = { setBook() {}, hookRendition() {} };
+    global.TOC = { build() {}, reset() {} };
+    global.Bookmarks = { setBook() { directCalls.bookmarks++; }, reset() {} };
+    global.Search = { setBook() { directCalls.search++; }, reset() {} };
+    global.Highlights = { setBookDetails() { directCalls.highlights++; } };
+    global.fetch = async () => ({ blob: async () => ({}) });
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.getLocations = async () => 'cached-locations';
+
+    try {
+      const state = {
+        book: null,
+        rendition: null,
+        currentBookId: '',
+        currentFileName: '',
+        isBookLoaded: false,
+        prefs: {},
+        activeReadingSeconds: 0,
+        cachedSpeed: null,
+        sessionStart: null,
+        lastProgress: 0
+      };
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          setReaderVisible() {},
+          clearReaderError() {},
+          setBookTitle() {},
+          setReaderDimmed() {},
+          syncPrefsToControls() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {},
+          updateProgress() {},
+          showLoading() {},
+          setLocationIndexStatus() {}
+        },
+        persistence: { startReadingTimer() {}, onRelocated() {} },
+        moduleLifecycle: {
+          mount(context) { mountCalls.push(context); },
+          unmount() {}
+        }
+      });
+
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-lifecycle', 'lifecycle.epub');
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+    }
+
+    assert.equal(mountCalls.length, 1);
+    assert.equal(mountCalls[0].bookId, 'book-lifecycle');
+    assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
+  });
+
+  test.it('openBook 与 setLayout 创建的 rendition 均约束 EPUB 图片尺寸', async () => {
+    const { document } = createMockDocument([
+      'reader-main',
+      'book-title',
+      'chapter-title',
+      'progress-location'
+    ]);
+    global.document = document;
+    global.requestAnimationFrame = (fn) => fn();
+    global.setTimeout = (fn) => { fn(); return 1; };
+
+    const themeDefaults = [];
+    function createRendition() {
+      return {
+        hooks: { content: { register() {} } },
+        themes: {
+          default(rules) { themeDefaults.push(rules); },
+          override() {}
+        },
+        on() {},
+        async display() {},
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+        },
+        getContents() {
+          return [{ document: { fonts: { ready: Promise.resolve() } } }];
+        },
+        destroy() {}
+      };
+    }
+
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 100; },
+      percentageFromCfi() { return 0.25; }
+    };
+    const book = {
+      ready: Promise.resolve(),
+      locations,
+      navigation: { toc: [] },
+      renderTo() { return createRendition(); },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: '图片测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    };
+
+    global.ePub = () => book;
+    global.ImageViewer = { hookRendition() {} };
+    global.Annotations = { setBook() {}, hookRendition() {} };
+    global.TOC = { build() {}, reset() {} };
+    global.Bookmarks = { setBook() {}, reset() {} };
+    global.Search = { setBook() {}, reset() {} };
+    global.Highlights = { setBookDetails() {} };
+    global.fetch = async () => ({ blob: async () => ({}) });
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    const originalSavePreferences = EpubStorage.savePreferences;
+
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.getLocations = async () => 'cached-locations';
+    EpubStorage.savePreferences = async () => {};
+
+    try {
+      const state = {
+        book: null,
+        rendition: null,
+        currentBookId: '',
+        currentFileName: '',
+        isBookLoaded: false,
+        prefs: {},
+        activeReadingSeconds: 0,
+        cachedSpeed: null,
+        sessionStart: null,
+        lastProgress: 0
+      };
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          setReaderVisible() {},
+          clearReaderError() {},
+          setBookTitle() {},
+          setReaderDimmed() {},
+          syncPrefsToControls() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {},
+          updateProgress() {},
+          showLoading() {},
+          setLocationIndexStatus() {}
+        },
+        persistence: { startReadingTimer() {}, onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-image-rule', 'image.epub');
+      await runtime.setLayout('scrolled');
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
+
+    assert.equal(themeDefaults.length, 2);
+    themeDefaults.forEach((rules) => {
+      assert.equal(rules.img['max-width'], '100% !important');
+      assert.equal(rules.image['max-width'], '100% !important');
+      assert.equal(rules.image.height, 'auto !important');
+    });
+  });
+
+  test.it('openBook 提取封面后会释放 Blob URL', async () => {
+    const { document } = createMockDocument([
+      'reader-main',
+      'book-title',
+      'chapter-title',
+      'progress-location'
+    ]);
+    global.document = document;
+    global.requestAnimationFrame = (fn) => fn();
+    global.setTimeout = (fn) => { fn(); return 1; };
+
+    const rendition = {
+      hooks: { content: { register() {} } },
+      themes: { default() {}, override() {} },
+      on() {},
+      async display() {},
+      currentLocation() {
+        return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+      },
+      getContents() {
+        return [{ document: { fonts: { ready: Promise.resolve() } } }];
+      },
+      destroy() {}
+    };
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 100; },
+      percentageFromCfi() { return 0.25; }
+    };
+
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      locations,
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => 'blob:cover-url',
+      loaded: {
+        metadata: Promise.resolve({ title: '封面测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+    global.ImageViewer = { hookRendition() {} };
+    global.Annotations = { setBook() {}, hookRendition() {} };
+    global.TOC = { build() {}, reset() {} };
+    global.Bookmarks = { setBook() {}, reset() {} };
+    global.Search = { setBook() {}, reset() {} };
+    global.Highlights = { setBookDetails() {} };
+
+    const savedCovers = [];
+    const revokedUrls = [];
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    const originalSaveCover = EpubStorage.saveCover;
+    const originalFetch = global.fetch;
+    const originalRevokeObjectURL = global.URL && global.URL.revokeObjectURL;
+
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.getLocations = async () => 'cached-locations';
+    EpubStorage.saveCover = async (bookId, blob) => savedCovers.push([bookId, blob]);
+    global.fetch = async () => ({ blob: async () => ({ type: 'image/png' }) });
+    if (!global.URL) global.URL = {};
+    global.URL.revokeObjectURL = (url) => revokedUrls.push(url);
+
+    try {
+      const state = {
+        book: null,
+        rendition: null,
+        currentBookId: '',
+        currentFileName: '',
+        isBookLoaded: false,
+        prefs: {},
+        activeReadingSeconds: 0,
+        cachedSpeed: null,
+        sessionStart: null,
+        lastProgress: 0
+      };
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          setReaderVisible() {},
+          clearReaderError() {},
+          setBookTitle() {},
+          setReaderDimmed() {},
+          syncPrefsToControls() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {},
+          updateProgress() {},
+          showLoading() {},
+          setLocationIndexStatus() {}
+        },
+        persistence: { startReadingTimer() {}, onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-cover', 'cover.epub');
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+      EpubStorage.saveCover = originalSaveCover;
+      global.fetch = originalFetch;
+      if (global.URL) global.URL.revokeObjectURL = originalRevokeObjectURL;
+    }
+
+    assert.deepEqual(savedCovers, [['book-cover', { type: 'image/png' }]]);
+    assert.deepEqual(revokedUrls, ['blob:cover-url']);
   });
 
   test.it('openBook 首次无缓存时先进入阅读，再后台生成大书索引', async () => {

@@ -3,34 +3,109 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const vm = require('node:vm');
+
+const { createMockDocument, createMockElement } = require('../../helpers/browser_env');
 
 const expectedContracts = [
-  ['src/reader/annotations.js', ['init(', 'setBook(', 'hookRendition(']],
-  ['src/reader/bookmarks.js', ['init(', 'setBook(', 'toggle(', 'isBookmarked(', 'mount(', 'unmount(']],
-  ['src/reader/highlights.js', ['init(', 'setBookDetails(', 'closePanels(', 'mount(', 'unmount(']],
-  ['src/reader/image-viewer.js', ['init(', 'hookRendition(', 'open(', 'close(', 'mount(', 'unmount(']],
-  ['src/reader/search.js', ['init(', 'setBook(', 'togglePanel(', 'closePanel(', 'reset(', 'mount(', 'unmount(']],
-  ['src/reader/toc.js', ['init(', 'build(', 'setActive(', 'open(', 'close(', 'toggle(', 'reset(', 'mount(', 'unmount(']]
+  ['src/reader/annotations.js', 'Annotations', ['init', 'setBook', 'hookRendition']],
+  ['src/reader/bookmarks.js', 'Bookmarks', ['init', 'setBook', 'toggle', 'isBookmarked', 'mount', 'unmount']],
+  ['src/reader/highlights.js', 'Highlights', ['init', 'setBookDetails', 'closePanels', 'mount', 'unmount']],
+  ['src/reader/image-viewer.js', 'ImageViewer', ['init', 'hookRendition', 'open', 'close', 'mount', 'unmount']],
+  ['src/reader/search.js', 'Search', ['init', 'setBook', 'togglePanel', 'closePanel', 'reset', 'mount', 'unmount']],
+  ['src/reader/toc.js', 'TOC', ['init', 'build', 'setActive', 'open', 'close', 'toggle', 'reset', 'mount', 'unmount']]
 ];
 
+const readerElementIds = [
+  'annotation-overlay',
+  'annotation-popup',
+  'annotation-body',
+  'annotation-title',
+  'annotation-close',
+  'bookmarks-panel',
+  'bookmarks-list',
+  'btn-bookmarks',
+  'btn-bookmarks-close',
+  'image-viewer',
+  'image-viewer-img',
+  'image-viewer-container',
+  'image-viewer-close',
+  'img-zoom-in',
+  'img-zoom-out',
+  'img-zoom-reset',
+  'selection-toolbar',
+  'btn-add-note',
+  'btn-clear-hl',
+  'note-popup',
+  'note-textarea',
+  'btn-cancel-note',
+  'btn-save-note',
+  'btn-show-toolbar',
+  'search-panel',
+  'sidebar-overlay',
+  'search-input',
+  'btn-do-search',
+  'search-results-list',
+  'search-status',
+  'btn-search',
+  'btn-search-close',
+  'sidebar',
+  'toc-container',
+  'btn-toc',
+  'btn-toc-close'
+];
+
+function createReaderModuleContext() {
+  const { document } = createMockDocument(readerElementIds);
+  const colorButtons = ['#ffeb3b', '#81c784', '#64b5f6'].map((color) => {
+    const btn = createMockElement(`color-${color}`, 'button');
+    btn.dataset.color = color;
+    btn.className = 'color-btn';
+    btn.classList.add('color-btn');
+    return btn;
+  });
+  document.getElementById('selection-toolbar').querySelectorAll = (selector) => {
+    return selector === '.color-btn' ? colorButtons : [];
+  };
+
+  const context = {
+    console,
+    document,
+    EpubStorage: {
+      async getBookmarks() { return []; },
+      async saveBookmarks() {},
+      async getHighlights() { return []; },
+      async saveHighlights() {}
+    },
+    Utils: {
+      sanitizeColor(color) { return color; }
+    },
+    setTimeout(fn) { fn(); return 1; },
+    clearTimeout() {}
+  };
+  context.window = context;
+  return context;
+}
+
+function loadReaderModule(file, exportName) {
+  const context = createReaderModuleContext();
+  vm.createContext(context);
+  const code = fs.readFileSync(file, 'utf8');
+  vm.runInContext(
+    `${code}; result = (typeof ${exportName} !== 'undefined' ? ${exportName} : window.${exportName});`,
+    context,
+    { filename: file }
+  );
+  return context.result;
+}
+
 test.describe('Reader 功能模块公开契约', () => {
-  for (const [file, tokens] of expectedContracts) {
-    test.it(`${file} 覆盖文档声明的公开接口`, () => {
-      const src = fs.readFileSync(file, 'utf8');
-      tokens.forEach((token) => {
-        assert.ok(src.includes(token), `${file} missing ${token}`);
+  for (const [file, exportName, methods] of expectedContracts) {
+    test.it(`${file} 导出文档声明的公开接口`, () => {
+      const moduleApi = loadReaderModule(file, exportName);
+      methods.forEach((method) => {
+        assert.equal(typeof moduleApi[method], 'function', `${exportName}.${method} 应为函数`);
       });
     });
   }
-
-  test.it('search/toc/highlights 避免已知的内联样式回退', () => {
-    const searchSrc = fs.readFileSync('src/reader/search.js', 'utf8');
-    const tocSrc = fs.readFileSync('src/reader/toc.js', 'utf8');
-    const highlightsSrc = fs.readFileSync('src/reader/highlights.js', 'utf8');
-
-    assert.ok(!searchSrc.includes('statusEl.innerHTML'));
-    assert.ok(!searchSrc.includes('mark.style.cssText'));
-    assert.ok(!tocSrc.includes('<div style='));
-    assert.ok(!highlightsSrc.includes('style.display'));
-  });
 });

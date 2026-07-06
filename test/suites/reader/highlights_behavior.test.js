@@ -236,4 +236,31 @@ test.describe('Reader Highlights 行为', () => {
 
     assert.equal(elements.get('selection-toolbar').classList.contains('show'), false);
   });
+
+  test.it('更新已有高亮重渲染失败时会记录告警且保留数据保存', async () => {
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
+    const warnCalls = [];
+    const originalWarn = console.warn;
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    annotations[0].cb({
+      stopPropagation() {},
+      target: createElement('rendered-highlight')
+    }, 'epubcfi(/6/2)');
+
+    rendition.annotations.remove = () => {
+      throw new Error('remove failed');
+    };
+    console.warn = (...args) => warnCalls.push(args);
+    elements.get('note-textarea').value = '新的笔记';
+    elements.get('btn-save-note').dispatch('click', {});
+    await Promise.resolve();
+    await Promise.resolve();
+    console.warn = originalWarn;
+
+    assert.equal(stored[0].note, '新的笔记');
+    assert.equal(warnCalls.length, 1);
+    assert.match(String(warnCalls[0][0]), /reRenderHighlight failed/);
+  });
 });

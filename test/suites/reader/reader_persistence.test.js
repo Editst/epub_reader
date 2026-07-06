@@ -805,6 +805,31 @@ test.describe('ReaderPersistence', () => {
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
   });
 
+  test.it('mount 只注册生命周期监听，不提前启动阅读计时器', () => {
+    const { document } = createMockDocument([]);
+    global.document = document;
+    const originalSetInterval = global.setInterval;
+    const intervalCalls = [];
+
+    global.setInterval = (...args) => {
+      intervalCalls.push(args);
+      return 1;
+    };
+
+    const state = { readingTimer: null, posTimer: null };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    persistence.mount();
+    persistence.unmount();
+    global.setInterval = originalSetInterval;
+
+    assert.equal(intervalCalls.length, 0);
+    assert.equal(state.readingTimer, null);
+  });
+
   // ── 架构约束：persistence 层不直接操作 DOM ─────────────────────────────────
 
   test.it('reader-persistence.js 源码不包含直接 DOM 操作（document.getElementById / textContent / classList）', () => {

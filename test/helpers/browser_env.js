@@ -42,7 +42,7 @@ function createClassList(initial = []) {
 }
 
 function createMockElement(id = '', tagName = 'DIV') {
-  return {
+  const el = {
     id,
     tagName: tagName.toUpperCase(),
     textContent: '',
@@ -62,11 +62,19 @@ function createMockElement(id = '', tagName = 'DIV') {
       handlers.forEach((handler) => handler({ target: this, preventDefault() {}, stopImmediatePropagation() {} }));
     },
     appendChild(child) {
+      child.parentNode = this;
       this.children.push(child);
       return child;
     },
     append(...children) {
-      children.forEach((child) => this.children.push(child));
+      children.forEach((child) => {
+        child.parentNode = this;
+        this.children.push(child);
+      });
+    },
+    remove() {
+      if (!this.parentNode || !this.parentNode.children) return;
+      this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
     },
     setAttribute(name, value) {
       this[name] = value;
@@ -92,8 +100,37 @@ function createMockElement(id = '', tagName = 'DIV') {
     },
     closest() {
       return null;
+    },
+    querySelector(selector) {
+      return this.querySelectorAll(selector)[0] || null;
+    },
+    querySelectorAll(selector) {
+      const matches = [];
+      const visit = (node) => {
+        if (!node || !node.children) return;
+        node.children.forEach((child) => {
+          if (matchesSelector(child, selector)) matches.push(child);
+          visit(child);
+        });
+      };
+      visit(this);
+      return matches;
     }
   };
+  return el;
+}
+
+function matchesSelector(el, selector) {
+  if (!el || !selector) return false;
+  if (selector.startsWith('.')) {
+    const className = selector.slice(1);
+    return (el.classList && el.classList.contains(className)) ||
+      String(el.className || '').split(/\s+/).includes(className);
+  }
+  if (selector.startsWith('#')) {
+    return el.id === selector.slice(1);
+  }
+  return el.tagName && el.tagName.toLowerCase() === selector.toLowerCase();
 }
 
 function createMockDocument(elementIds = []) {
@@ -137,6 +174,12 @@ function createMockDocument(elementIds = []) {
     },
     createElementNS(_ns, tag) {
       return createMockElement('', tag);
+    },
+    createTextNode(text) {
+      const node = createMockElement('', '#text');
+      node.nodeType = 3;
+      node.textContent = String(text);
+      return node;
     },
     addEventListener(type, handler) {
       const handlers = listeners.get(type) || [];
