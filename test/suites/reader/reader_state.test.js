@@ -19,6 +19,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.locationsStatus, 'idle');
     assert.equal(state.locationsBreak, null);
     assert.equal(state.locationsError, null);
+    assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
     assert.equal(state.currentStableLocator, null);
     assert.equal(state.prefs.theme, 'light');
@@ -42,6 +43,7 @@ test.describe('ReaderState', () => {
     state.lastPercent = 40;
     state.currentStableCfi = 'epubcfi(/6/2)';
     state.currentStableLocator = { page: 2 };
+    state.isRestoreAnchorProtected = true;
     state.lastPositionSave = Promise.resolve();
     state.hasLocations = true;
     state.locationsStatus = 'ready';
@@ -62,6 +64,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.lastPercent, null);
     assert.equal(state.currentStableCfi, null);
     assert.equal(state.currentStableLocator, null);
+    assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
     assert.equal(state.hasLocations, false);
     assert.equal(state.locationsStatus, 'idle');

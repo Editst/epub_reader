@@ -309,6 +309,132 @@ test.describe('ReaderPersistence', () => {
     ]]);
   });
 
+  test.it('flushPositionSave 在恢复锚点保护期不使用 currentLocation 漂移 CFI 覆盖', async () => {
+    const savedLocator = {
+      strategy: 'epubjs-displayed-page-v1',
+      layout: 'paginated',
+      href: 'chapter.xhtml',
+      index: 3,
+      page: 5,
+      total: 12
+    };
+    const state = {
+      posTimer: 9,
+      currentBookId: 'book-restore-refresh',
+      currentStableCfi: 'epubcfi(/6/10!/4/20)',
+      lastPercent: 42,
+      currentStableLocator: savedLocator,
+      isRestoreAnchorProtected: true,
+      isRestoringPosition: false,
+      isResizing: false,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.38; }
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: {
+              index: 3,
+              cfi: 'epubcfi(/6/8!/4/2)',
+              href: 'chapter.xhtml',
+              displayed: { page: 4, total: 12 }
+            }
+          };
+        }
+      }
+    };
+    const originalClearTimeout = global.clearTimeout;
+    const originalSavePosition = EpubStorage.savePosition;
+    const saves = [];
+
+    global.clearTimeout = () => {};
+    EpubStorage.savePosition = async (...args) => {
+      saves.push(args);
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui: {} });
+    await persistence.flushPositionSave();
+
+    global.clearTimeout = originalClearTimeout;
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/10!/4/20)');
+    assert.equal(state.lastPercent, 42);
+    assert.deepEqual(saves, [[
+      'book-restore-refresh',
+      'epubcfi(/6/10!/4/20)',
+      42,
+      savedLocator
+    ]]);
+  });
+
+  test.it('onRelocated 在恢复锚点保护期只更新 UI，不落盘漂移 CFI', async () => {
+    const { document } = createMockDocument(['chapter-title']);
+    global.document = document;
+    global.Bookmarks = { async isBookmarked() { return false; } };
+
+    const positionCalls = [];
+    const progressCalls = [];
+    const originalSavePosition = EpubStorage.savePosition;
+    EpubStorage.savePosition = async (...args) => { positionCalls.push(args); };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      isRestoreAnchorProtected: true,
+      currentBookId: 'book-restore-relocated',
+      currentStableCfi: 'epubcfi(/6/10!/4/20)',
+      lastPercent: 42,
+      lastProgress: 0.42,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi() { return 0.38; }
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return {
+            start: {
+              cfi: 'epubcfi(/6/8!/4/2)',
+              href: 'chapter.xhtml',
+              displayed: { page: 4, total: 12 }
+            }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress(percent) { progressCalls.push(percent); } }
+    });
+
+    persistence.onRelocated({
+      start: {
+        cfi: 'epubcfi(/6/8!/4/2)',
+        href: 'chapter.xhtml',
+        displayed: { page: 4, total: 12 }
+      }
+    });
+    await Promise.resolve();
+
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.deepEqual(progressCalls, [38]);
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/10!/4/20)');
+    assert.equal(state.lastPercent, 42);
+    assert.deepEqual(positionCalls, []);
+  });
+
   test.it('onRelocated 在 scrolled 模式保存 start.cfi locator 且不依赖 displayed page 校正', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;
@@ -550,8 +676,11 @@ test.describe('ReaderPersistence', () => {
 
     // 应使用 rendition.currentLocation() 的 CFI，而非事件参数的 CFI
     assert.equal(state.currentStableCfi, 'epubcfi(/6/10)');
+    assert.equal(state.currentStableLocator.href, 'ch2.xhtml');
+    assert.equal(state.currentStableLocator.page, null);
     assert.equal(positionCalls.length, 1);
     assert.equal(positionCalls[0][1], 'epubcfi(/6/10)');
+    assert.equal(positionCalls[0][3].href, 'ch2.xhtml');
   });
 
   test.it('CFI 未变时不触发 savePosition', async () => {

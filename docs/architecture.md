@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
 版本：v2.3.3  
-更新：2026-06-24
+更新：2026-07-06
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -388,6 +388,7 @@ state.lastPositionSave: Promise<void> | null
 state.currentStableCfi: string | null
 state.currentStableLocator: object | null
 state.isRestoringPosition: boolean
+state.isRestoreAnchorProtected: boolean
 state.isLayoutStable: boolean
 state.isResizing: boolean
 ```
@@ -400,6 +401,7 @@ state.isResizing: boolean
 - `currentStableLocator` 保存 `displayed-page` 信息（layout/href/index/page/total/prefsSignature），供恢复期有界校正。
 - 恢复期 `relocated.start.cfi` 不得覆盖 `currentStableCfi`。
 - `isRestoringPosition` 用于区分 `openBook()` 恢复显示与用户正常翻页。
+- `isRestoreAnchorProtected` 用于保护刚恢复的分页锚点；用户导航前，locations 就绪和刷新 flush 都不得用 epub.js 页边界 CFI 覆盖它。
 - `isLayoutStable` 在 `openBook()` display 期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；locations 就绪后设为 true。
 - `isResizing` 在窗口 resize 防抖期间为 true，阻止 relocated 事件写入不完整位置。
 - 切书或 `resetReadingSession()` 时，上述字段必须恢复到初始值。
@@ -423,11 +425,12 @@ scheduleLocationsGeneration(task: Function): void
 - 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
+- 分页模式下，`displayCfi` 恢复完成后应设置 `isRestoreAnchorProtected=true`；`next()`/`prev()`/`displayPercentage()` 以及非恢复期的 `rendition.display()` 会解除该保护。
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
-- `_correctRestoredPage` 仅验证 href/index 章节匹配，不做 next/prev 导航。
+- `_correctRestoredPage` 仅在 href/index 匹配、布局签名兼容、页总数一致且页码仅偏移一页时执行一次 next/prev 校正；其他差异只记录 warn，不导航。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
-- locations cache-hit 和 generate-complete 路径中，若 `currentLocation().start.cfi === state.currentStableCfi`，跳过 `persistence.onRelocated` 调用。
+- locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - break 参数采用自适应策略：默认 `1600`，大于 1MB 使用 `3200`，大于 3MB 使用 `4800`。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
@@ -447,10 +450,10 @@ _isPositionMeaningfullyChanged(newCfi: string, oldCfi: string): boolean
 **v2.3.3 行为约束**：
 - `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
 - 连续位置变化仍保留 300ms 防抖，用最终 `start.cfi + locator` 覆盖首个位置。
-- `onRelocated()` 始终从 `rendition.currentLocation()` 重采样 CFI 用于持久化（不使用事件参数的 `start.cfi`），locator 从事件参数构建（displayed.page/total 是事件快照）。事件参数仅用于 UI 更新。
+- `onRelocated()` 的 UI 更新使用事件参数；持久化快照必须自洽：若 `rendition.currentLocation()` 与事件参数 CFI 不一致，则 CFI、percentage、locator 都来自 `currentLocation()`；若一致，可保留事件参数中的 displayed-page 快照。
 - `_isPositionMeaningfullyChanged()` 字符串精确比较新旧 CFI，相同则跳过 `schedulePositionSave`。
-- `flushPositionSave()` 必须清理防抖 timer，刷新/关闭前重新采样 `currentLocation()` 并重建完整 position，然后返回最新保存 Promise。
-- `onRelocated()` 在 `isRestoringPosition=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
+- `flushPositionSave()` 必须清理防抖 timer；若 `isRestoreAnchorProtected=false`，刷新/关闭前重新采样 `currentLocation()` 并重建完整 position；若保护仍为 true，直接保存 `currentStableCfi/currentStableLocator/lastPercent`。
+- `onRelocated()` 在 `isRestoringPosition=true` 或 `isRestoreAnchorProtected=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
 - `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
 - `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时调用 `flushPositionSave()` 兜底。
@@ -668,4 +671,3 @@ Annotations.unmount(): void
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
-

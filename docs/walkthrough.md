@@ -41,12 +41,14 @@
 
 ### v2.3.3 — 位置恢复级联退化修复
 
-- **`onRelocated` 重采样 CFI**：持久化路径始终从 `rendition.currentLocation()` 重采样 CFI，不再直接使用 relocated 事件参数的 `start.cfi`。事件参数仅用于 UI 更新。避免快速翻页/布局重排时事件参数与 epub.js 内部状态不一致。
+- **`onRelocated` 自洽快照**：持久化路径优先使用 `rendition.currentLocation()` 重采样；当它与 relocated 事件参数不一致时，CFI、percentage、locator 必须来自同一个 location 源，避免保存出“当前 CFI + 旧页码/章节”的矛盾位置。
 - **`_isPositionMeaningfullyChanged` 守卫**：写入前字符串精确比较新旧 CFI，相同则跳过 `schedulePositionSave`，避免 locations 加载后用边界 CFI 覆盖正确位置。
-- **locations 加载路径 CFI 守卫**：cache-hit 和 generate-complete 路径中，若 `currentLocation().start.cfi === state.currentStableCfi`，跳过 `persistence.onRelocated`。
+- **恢复锚点保护**：`openBook()` 通过保存 CFI 或 `targetCfi` 恢复分页位置后，`isRestoreAnchorProtected` 会阻止 locations cache-hit/generate-complete 与刷新 flush 把 epub.js 页边界 CFI 覆盖为新位置；用户翻页、进度跳转或目录/书签/搜索/注释跳转后解除。
+- **displayed-page 一页内校正**：恢复后仅在同章节、同布局签名、页总数一致且页码仅偏移一页时执行一次 next/prev；校正期间仍跳过位置写入。
+- **locations 加载路径 CFI 守卫**：cache-hit 和 generate-complete 路径中，保护期使用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；非保护期仅在 CFI 真实变化时转交。
 - **`setLayout()` 恢复保护**：布局切换期间 `isRestoringPosition = true`，await `display()` + 双帧等待后解除。
 - **`_withCfiLock` 恢复保护**：字号/行高/字体切换的 CFI 保护锁同步增加 `isRestoringPosition` 标志。
-- **`beforeunload` 兜底**：`persistence.mount()` 注册 `window.beforeunload`，刷新/关闭前调用 `flushPositionSave()`。
+- **`beforeunload` 兜底**：`persistence.mount()` 注册 `window.beforeunload`，刷新/关闭前调用 `flushPositionSave()`；保护期 flush 保存恢复锚点本身，不重新采样漂移边界。
 - **移除重复 resize 监听器**：`reader-runtime.js` 的 resize 防抖已由 `reader-ui.js:bindResize` 覆盖。
 
 ### v2.3.2 — 位置恢复跳页修复
@@ -233,5 +235,3 @@
 - **基础设施**：集成 Epub.js 核心引擎，支持流式/分页布局切换。
 - **存储方案**：确立 `storage.local` (配置) + `IndexedDB` (大容量文件) 的混合架构。
 - **基础套件**：实现 TOC 提取、全文搜索排队器、主题切换系统。
-
-

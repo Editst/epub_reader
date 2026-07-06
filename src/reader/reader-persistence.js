@@ -84,6 +84,7 @@
 
     function _refreshStablePositionFromRendition() {
       if (state.isRestoringPosition || state.isResizing) return;
+      if (state.isRestoreAnchorProtected) return;
       if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
       const position = _buildPositionFromLocation(state.rendition.currentLocation());
       if (!position.cfi) return;
@@ -175,8 +176,8 @@
 
       updateReadingStats();
 
-      // 从事件参数构建 displayed-page locator（用于保存）
-      const position = _buildPositionFromLocation(location);
+      // 事件参数优先用于 UI；持久化快照稍后按 currentLocation/事件源二选一构建。
+      const eventPosition = _buildPositionFromLocation(location);
 
       // 章节标题 + TOC 高亮（使用事件参数，反映用户可见的最新位置）
       const currentSection = location.start.href;
@@ -193,16 +194,17 @@
       }
 
       // 恢复期间跳过写入，也不替换 currentStableCfi；正常阅读时写入。
-      // CFI 始终从 rendition.currentLocation() 重采样——事件参数的 start.cfi 在快速翻页/
-      // 布局重排时可能与 epub.js 内部状态不一致。locator 仍从事件参数构建，
-      // 因为 displayed.page/total 是事件发生时的快照，currentLocation() 不一定包含。
-      if (!state.isRestoringPosition) {
+      // 持久化快照必须自洽：currentLocation 与事件 CFI 不一致时，整组 position
+      // 都取 currentLocation；一致时保留事件中的 displayed-page 快照。
+      if (!state.isRestoringPosition && !state.isRestoreAnchorProtected) {
         const currentLoc = state.rendition && typeof state.rendition.currentLocation === 'function'
           ? state.rendition.currentLocation()
           : null;
-        const cfi = (currentLoc && currentLoc.start && currentLoc.start.cfi)
-          || position.cfi
-          || location.start.cfi;
+        const currentPosition = _buildPositionFromLocation(currentLoc);
+        const position = currentPosition.cfi && currentPosition.cfi !== eventPosition.cfi
+          ? currentPosition
+          : (eventPosition.cfi ? eventPosition : currentPosition);
+        const cfi = position.cfi || location.start.cfi;
 
         if (_isPositionMeaningfullyChanged(cfi, state.currentStableCfi)) {
           state.currentStableCfi = cfi;
@@ -214,7 +216,7 @@
           if (position.percent !== null) state.lastPercent = position.percent;
           else if (percent !== null) state.lastPercent = percent;
         }
-      } else if (percent !== null) {
+      } else if (state.isRestoringPosition && !state.isRestoreAnchorProtected && percent !== null) {
         state.lastPercent = percent;
       }
 

@@ -69,6 +69,22 @@
         current.spread === (savedSignature.spread || 'auto');
     }
 
+    function _markUserPositionIntent() {
+      state.isRestoreAnchorProtected = false;
+    }
+
+    function _wrapRenditionDisplayForPositionIntent(rendition) {
+      if (!rendition || typeof rendition.display !== 'function' || rendition.__readerDisplayGuarded) return;
+      const originalDisplay = rendition.display.bind(rendition);
+      rendition.display = function (...args) {
+        if (!state.isRestoringPosition && !state.isResizing) {
+          _markUserPositionIntent();
+        }
+        return originalDisplay(...args);
+      };
+      rendition.__readerDisplayGuarded = true;
+    }
+
     async function _waitForRenditionStable() {
       await _nextFrame();
       await _nextFrame();
@@ -99,38 +115,85 @@
       return {
         index: location.start.index != null ? location.start.index : null,
         href: location.start.href || '',
-        page: location.start.displayed.page
+        page: location.start.displayed.page,
+        total: typeof location.start.displayed.total === 'number' ? location.start.displayed.total : null
       };
     }
 
     /**
-     * 位置恢复后验证 CFI 是否落在目标章节。
-     * 不再做 next/prev 页校正——CFI 本身是可靠的 DOM 位置指针，
-     * 页码差异来自字体加载导致的布局偏移，不是位置错误。
+     * 位置恢复后做有界页校正。
+     * 只在同章节、同布局签名、页总数一致且仅偏移一页时导航一次；
+     * 其余差异视为布局不可比，不用 epub.js 边界 CFI 覆盖保存锚点。
      *
-     * @returns {{ matched: boolean }} 章节是否匹配
+     * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过校正
      */
     async function _correctRestoredPage(savedPos) {
       const locator = savedPos && savedPos.locator;
-      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false };
-      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return { matched: false };
-      if (!_isSignatureCompatible(locator.prefsSignature)) return { matched: false };
+      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false, corrected: false };
+      if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') return { matched: false, corrected: false };
+      if (!_isSignatureCompatible(locator.prefsSignature)) return { matched: false, corrected: false };
 
       await _waitForRenditionStable();
-      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return { matched: false };
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') {
+        return { matched: false, corrected: false };
+      }
 
       const currentPage = _getDisplayedPage(state.rendition.currentLocation());
-      if (!currentPage) return { matched: false };
+      if (!currentPage) return { matched: false, corrected: false };
 
-      // 仅验证章节是否一致（href + index），不做页码比较
       const matched = currentPage.index === locator.index && currentPage.href === locator.href;
       if (!matched) {
         console.warn('[Runtime] CFI restore: chapter mismatch', {
           expected: { href: locator.href, index: locator.index },
           actual: { href: currentPage.href, index: currentPage.index }
         });
+        return { matched: false, corrected: false };
       }
-      return { matched };
+
+      if (
+        typeof locator.page !== 'number' ||
+        typeof locator.total !== 'number' ||
+        typeof currentPage.page !== 'number' ||
+        currentPage.total !== locator.total
+      ) {
+        return { matched: true, corrected: false };
+      }
+
+      const pageDelta = locator.page - currentPage.page;
+      if (pageDelta === 0) return { matched: true, corrected: false };
+      if (Math.abs(pageDelta) !== 1) {
+        console.warn('[Runtime] CFI restore: page delta out of correction range', {
+          expected: { page: locator.page, total: locator.total },
+          actual: { page: currentPage.page, total: currentPage.total }
+        });
+        return { matched: true, corrected: false };
+      }
+
+      try {
+        if (pageDelta > 0 && typeof state.rendition.next === 'function') {
+          await state.rendition.next();
+        } else if (pageDelta < 0 && typeof state.rendition.prev === 'function') {
+          await state.rendition.prev();
+        } else {
+          return { matched: true, corrected: false };
+        }
+        await _waitForRenditionStable();
+        const correctedPage = _getDisplayedPage(state.rendition.currentLocation());
+        const corrected = !!correctedPage &&
+          correctedPage.index === locator.index &&
+          correctedPage.href === locator.href &&
+          correctedPage.page === locator.page;
+        if (!corrected) {
+          console.warn('[Runtime] CFI restore: one-page correction did not reach target', {
+            expected: { href: locator.href, index: locator.index, page: locator.page },
+            actual: correctedPage
+          });
+        }
+        return { matched: true, corrected };
+      } catch (e) {
+        console.warn('[Runtime] CFI restore: one-page correction failed', e);
+        return { matched: true, corrected: false };
+      }
     }
 
     // ── Data Normalization ────────────────────────────────────────────────────
@@ -207,6 +270,7 @@
         allowScriptedContent: false,
         gap: state.prefs.layout === 'scrolled' ? 48 : 80
       });
+      _wrapRenditionDisplayForPositionIntent(state.rendition);
 
       state.rendition.hooks.content.register((contents) => {
         ui.injectCustomStyleElement(contents);
@@ -282,6 +346,12 @@
         const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
         state.currentStableCfi = displayCfi;
         state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
+        state.isRestoreAnchorProtected = !!displayCfi && state.prefs.layout !== 'scrolled';
+        if (targetCfi) {
+          state.lastPercent = null;
+        } else if (savedPos && savedPos.percentage !== undefined) {
+          state.lastPercent = savedPos.percentage;
+        }
         if (displayCfi) await state.rendition.display(displayCfi);
         else await state.rendition.display();
         if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
@@ -334,11 +404,17 @@
         // locations 已就绪，立即更新进度 / 速度追踪起点
         const loc = state.rendition.currentLocation();
         if (loc && loc.start) {
-          const p = state.book.locations.percentageFromCfi(loc.start.cfi);
+          const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
+            ? state.currentStableCfi
+            : loc.start.cfi;
+          const p = state.book.locations.percentageFromCfi(progressCfi);
           initSpeedTracking(p);
+          const percent = Math.round(p * 1000) / 10;
+          state.lastPercent = percent;
+          ui.updateProgress(percent);
           // CFI 变化检测：若 currentLocation 返回的 CFI 与已保存的相同，
           // 跳过 onRelocated 以避免用边界 CFI 覆盖正确位置。
-          if (loc.start.cfi !== state.currentStableCfi) {
+          if (!state.isRestoreAnchorProtected && loc.start.cfi !== state.currentStableCfi) {
             persistence.onRelocated(loc);
           }
         }
@@ -378,9 +454,15 @@
 
             const loc = state.rendition.currentLocation();
             if (loc && loc.start) {
-              const p = state.book.locations.percentageFromCfi(loc.start.cfi);
+              const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
+                ? state.currentStableCfi
+                : loc.start.cfi;
+              const p = state.book.locations.percentageFromCfi(progressCfi);
               initSpeedTracking(p);
-              if (loc.start.cfi !== state.currentStableCfi) {
+              const percent = Math.round(p * 1000) / 10;
+              state.lastPercent = percent;
+              ui.updateProgress(percent);
+              if (!state.isRestoreAnchorProtected && loc.start.cfi !== state.currentStableCfi) {
                 persistence.onRelocated(loc);
               }
             }
@@ -435,6 +517,7 @@
 
     function next() {
       if (state.navLock || !state.rendition || !state.isLayoutStable) return;
+      _markUserPositionIntent();
       state.navLock = true;
       state.rendition.next();
       setTimeout(() => { state.navLock = false; }, 150);
@@ -442,6 +525,7 @@
 
     async function prev() {
       if (state.navLock || !state.rendition || !state.isLayoutStable) return;
+      _markUserPositionIntent();
       state.navLock = true;
       const loc = state.rendition.currentLocation();
       if (loc && loc.atStart && state.prefs.layout !== 'scrolled') {
@@ -462,7 +546,10 @@
       if (!state.rendition || !state.book || !state.isLayoutStable) return;
       if (!state.book.locations || !state.book.locations.length()) return;
       const cfi = state.book.locations.cfiFromPercentage(percent / 100);
-      if (cfi) state.rendition.display(cfi);
+      if (cfi) {
+        _markUserPositionIntent();
+        state.rendition.display(cfi);
+      }
     }
 
     // ── Layout Switch ─────────────────────────────────────────────────────────
@@ -495,6 +582,7 @@
         allowScriptedContent: false,
         gap: layout === 'scrolled' ? 48 : 80
       });
+      _wrapRenditionDisplayForPositionIntent(state.rendition);
 
       state.rendition.hooks.content.register((contents) => {
         ui.injectCustomStyleElement(contents);

@@ -4,6 +4,18 @@
 
 ---
 
+## [Unreleased]
+
+### fix
+- **阅读位置恢复锚点保护**：`openBook()` 通过已保存 CFI 或 `targetCfi` 恢复分页位置后，新增 `isRestoreAnchorProtected` 保护期；用户真正翻页、进度跳转、目录/书签/搜索/注释跳转前，locations cache-hit/generate-complete 与刷新 `flushPositionSave()` 不再用 epub.js 回报的页边界 `currentLocation().start.cfi` 覆盖已保存锚点。修复重开阅读器位置不准、刷新后继续跳页的级联根因。
+- **恢复 displayed-page 一页内校正**：`_correctRestoredPage()` 在同章节、同布局签名、页总数一致且仅偏移一页时执行一次 `next()/prev()` 校正；校正全程仍处于恢复保护期，不写入中间态。
+- **位置快照一致性**：`onRelocated()` 持久化时保证 CFI、percentage、locator 来自同一个 location 源；当 `rendition.currentLocation()` 与事件参数不一致时，不再混用“current CFI + 旧事件 locator”，避免保存出章节/页码互相矛盾的位置。
+
+### test
+- 补充恢复锚点保护回归测试，覆盖恢复后 locations 漂移不落盘、刷新前 flush 不重采样漂移 CFI、保护期 relocated 只更新 UI、以及重采样快照一致性。
+
+---
+
 ## [2.3.3] - 2026-06-24
 
 ### fix

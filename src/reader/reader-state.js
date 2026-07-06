@@ -34,6 +34,7 @@
       isResizing:          false,   // 字号/布局重排保护锁（期间忽略 relocated）
       isRestoringPosition: false,   // openBook 位置恢复期间为 true，防止 relocated 覆写已保存进度
       isLayoutStable:      false,   // 字体加载/布局重排完成前为 false，阻止翻页与跳转
+      isRestoreAnchorProtected: false, // 恢复/目标跳转后的锚点保护，用户导航前不被边界 CFI 覆盖
       navLock:             false,   // 翻页防连击锁
 
       // ── 阅读计时 ──────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@
     state.currentStableCfi     = null;
     state.currentStableLocator = null;
     state.isRestoringPosition  = false;
+    state.isRestoreAnchorProtected = false;
     state.lastPositionSave     = null;
     state.hasLocations         = false;
     state.locationsStatus      = 'idle';
