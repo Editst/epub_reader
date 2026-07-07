@@ -8,6 +8,19 @@
 
 ---
 
+## [2.5.2] - 2026-07-08
+
+### fix
+- **首页书卡属性注入边界收敛**：`home.js` 书架卡片不再把书名/文件名/作者拼进 `innerHTML` 模板；书名正文、作者正文和 `title` 悬浮属性改由 DOM `textContent` / `title` 属性赋值，避免 EPUB 元数据中的引号打穿 HTML 属性上下文。
+
+### docs
+- 明确 `Utils.escapeHtml` 只用于元素正文上下文；用户/书籍数据进入 HTML 属性时必须通过 DOM 属性或 `setAttribute` 赋值。
+
+### test
+- 首页 UI 静态契约新增书籍元数据不得出现在卡片 `innerHTML` 模板中的回归约束。
+
+---
+
 ## [2.5.1] - 2026-07-08
 
 ### fix

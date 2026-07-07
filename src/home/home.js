@@ -188,6 +188,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // 从 bookMeta 读取 pos + time（v1.7.0 合并读取，节省一次 storage 访问）
+      const bookLabel = book.title || book.filename || '未知书名';
+      const bookAuthor = book.author || '未知作者';
       const percent = Utils.normalizePercent(meta && meta.pos ? meta.pos.percentage : 0);
       const percentText = percent.toFixed(1);
       const timeInSeconds = (meta && meta.time) ? meta.time : 0;
@@ -196,8 +198,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.innerHTML = `
         <div class="book-cover">${coverHtml}</div>
         <div class="book-info">
-          <div class="book-title" title="${Utils.escapeHtml(book.title || book.filename)}">${Utils.escapeHtml(book.title || book.filename)}</div>
-          <div class="book-author">${Utils.escapeHtml(book.author || '未知作者')}</div>
+          <div class="book-title"></div>
+          <div class="book-author"></div>
           <div class="book-meta">
             <div class="book-time">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -220,6 +222,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         </button>
       `;
 
+      const titleEl = card.querySelector('.book-title');
+      if (titleEl) {
+        titleEl.textContent = bookLabel;
+        titleEl.title = bookLabel;
+      }
+      const authorEl = card.querySelector('.book-author');
+      if (authorEl) authorEl.textContent = bookAuthor;
+
       card.addEventListener('click', (e) => {
         if (e.target.closest('.book-delete')) return;
         window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id);
@@ -236,7 +246,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm(`确定要移除《${book.title || book.filename}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
+        if (confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
           try {
             // v1.7.0: 删除前显式 revoke ObjectURL（不依赖 load/error 事件）
             const savedUrl = card.dataset.coverUrl;

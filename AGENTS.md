@@ -48,7 +48,7 @@
 - Locations generation is non-blocking: first render must proceed without waiting for `book.locations.generate()`.
 
 ## DOM, Security, And Style
-- User/book content inserted into DOM must use `textContent` or `Utils.escapeHtml`; avoid `innerHTML` with unsanitized content.
+- User/book content inserted into DOM must use `textContent` or `Utils.escapeHtml`; avoid `innerHTML` with unsanitized content. `Utils.escapeHtml` is only for element text context; do not use it inside quoted HTML attributes. Attribute values from EPUB/user data must be assigned through DOM properties or `setAttribute` after template construction.
 - Runtime visibility should generally use CSS classes (`is-hidden`, `is-visible`, panel classes), not `style.display`; existing exceptions include dynamic image transforms and popup-specific constraints.
 - Revoke `URL.createObjectURL()` results after cover/image use.
 

@@ -68,6 +68,20 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('--progress-width: ${percent}%'), 'CSS 进度宽度只能使用归一化后的 percent');
   });
 
+  test.it('书架书名和作者不得插入 innerHTML 模板属性上下文', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    const templateStart = js.indexOf('card.innerHTML = `');
+    assert.ok(templateStart !== -1, '书籍卡片模板应存在');
+    const templateEnd = js.indexOf('`;', templateStart);
+    const cardTemplate = js.slice(templateStart, templateEnd);
+
+    assert.ok(!/book\.(title|filename|author)/.test(cardTemplate), '书籍元数据不得出现在卡片 innerHTML 模板中');
+    assert.ok(!cardTemplate.includes('Utils.escapeHtml(book.'), '不得用 escapeHtml 拼接书籍元数据属性');
+    assert.ok(js.includes('titleEl.textContent = bookLabel'), '书名正文应通过 textContent 写入');
+    assert.ok(js.includes('titleEl.title = bookLabel'), '书名 title 应通过 DOM 属性写入');
+    assert.ok(js.includes('authorEl.textContent = bookAuthor'), '作者应通过 textContent 写入');
+  });
+
   test.it('首页偏好保存失败不应产生未处理 Promise 拒绝', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
     const savePreferenceCallCount = (js.match(/EpubStorage\.savePreferences/g) || []).length;

@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.5.2] - 首页 DOM 属性上下文收敛
+
+- `home.js` 书架卡片的书名、文件名和作者不再拼入 `innerHTML` 模板；模板只保留静态结构。
+- 书名与作者正文改用 `textContent` 写入，书名悬浮提示改用 DOM `title` 属性赋值，避免 EPUB 元数据中的引号突破 HTML 属性上下文。
+- 文档和 Agent 约束明确：`Utils.escapeHtml` 只用于元素正文上下文，属性上下文必须通过 DOM 属性或 `setAttribute` 赋值。
+- 首页 UI 静态契约新增卡片模板不得包含 `book.title` / `book.filename` / `book.author` 的回归约束。
+
+---
+
 ## [v2.5.1] - Search 结果上限性能保护
 
 - `search.js` 将搜索最大结果数、UI 让步间隔和面板聚焦延迟提取为模块级常量，避免阈值散落在流程内部。

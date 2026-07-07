@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.5.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.2-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -60,7 +60,8 @@
 
 ## 🛡️ 安全与稳定性 (Security & Reliability)
 
-- **XSS 免疫**：全局内容边界采用 DOM API（`textContent` / `createElement`）构建，书名、作者、报错信息等任何外部输入均不注入 `innerHTML`，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
+- **XSS 免疫**：全局内容边界优先采用 DOM API（`textContent` / `createElement`）构建；确需模板渲染时，外部文本只允许进入已转义的元素正文上下文，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
+- **属性上下文隔离（v2.5.2）**：首页书架卡片的书名与作者不再进入 `innerHTML` 模板；正文走 `textContent`，悬浮标题走 DOM `title` 属性赋值，避免 EPUB 元数据中的引号打穿属性。
 - **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
 - **存储 key 中心化（v2.4.8）**：`EpubStorage` 集中声明 chrome.storage key 与 IndexedDB store 名称，避免 per-book key 字符串散落造成迁移、删除和兼容路径不一致。
