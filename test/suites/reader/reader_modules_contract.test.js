@@ -157,4 +157,17 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(src.includes('annotation-fallback-hint'), 'fallback 提示应使用 CSS class');
     assert.ok(css.includes('.annotation-fallback-hint'), 'reader.css 应定义 fallback 提示样式');
   });
+
+  test.it('Search 性能保护约束', () => {
+    const src = fs.readFileSync('src/reader/search.js', 'utf8');
+
+    assert.match(src, /const _SEARCH_MAX_RESULTS = 1000/, '搜索最大结果数应保持模块级常量');
+    assert.match(src, /const _SEARCH_UI_YIELD_MS = 10/, '搜索 UI 让步间隔应保持模块级常量');
+    assert.match(src, /const _SEARCH_FOCUS_DELAY_MS = 100/, '搜索面板聚焦延迟应保持模块级常量');
+    assert.match(src, /const remaining = _SEARCH_MAX_RESULTS - results\.length/, '每章搜索结果应按剩余额度裁剪');
+    assert.match(src, /const cappedResults = itemResults\.slice\(0, remaining\)/, '单章超量结果不得全部渲染');
+    assert.ok(!src.includes('const MAX_RESULTS = 1000'), '不得在 doSearch 内重新定义结果上限');
+    assert.ok(!src.includes('setTimeout(r, 10)'), '不得散落搜索让步魔法数字');
+    assert.match(src, /}, _SEARCH_FOCUS_DELAY_MS\);/, '搜索聚焦延迟应使用具名常量');
+  });
 });

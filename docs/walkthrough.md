@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.5.1] - Search 结果上限性能保护
+
+- `search.js` 将搜索最大结果数、UI 让步间隔和面板聚焦延迟提取为模块级常量，避免阈值散落在流程内部。
+- `doSearch()` 在每章 `find()` 返回后按 `_SEARCH_MAX_RESULTS - results.length` 裁剪，再合并和渲染；单个章节一次返回 1000 条以上时也不会撑爆结果列表。
+- 章节 `load()` 复用单个 `activeLoad` 绑定，减少循环内重复 `.bind()`。
+- 回归测试覆盖单章节 1005 条命中只渲染前 1000 条，并用静态契约锁住 Search 性能保护常量和裁剪路径。
+
+---
+
 ## [v2.5.0] - Annotations 跨文档拓扑弱负向信号
 
 - `_buildDocContext(doc, contents, book)` 会基于 `contents.sectionIndex` 和 book spine 构建当前 section 与 href/index 映射，单个 iframe 只扫描一次。

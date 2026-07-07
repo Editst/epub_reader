@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.0
-更新：2026-07-07
+版本：v2.5.1
+更新：2026-07-08
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -753,6 +753,7 @@ Search.reset(): void
 // 切换书籍时调用，取消进行中的搜索
 // v2.2.3：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
 // v2.4.13：setBook/closePanel/reset 必须递增 searchId 使旧搜索失效；增量渲染和结果点击必须校验 searchId，旧书慢返回不得写入或驱动新书
+// v2.5.1：搜索结果上限必须在每章结果合并前裁剪，单章超量命中不得越过 _SEARCH_MAX_RESULTS 渲染上限
 
 Search.mount(context): void
 Search.unmount(): void
@@ -856,24 +857,24 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=21"></script>
-<script src="../utils/utils.js?v=21"></script>
-<script src="../utils/storage.js?v=21"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=22"></script>
+<script src="../utils/utils.js?v=22"></script>
+<script src="../utils/storage.js?v=22"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=21"></script>
-<script src="annotations.js?v=21"></script>
-<script src="toc.js?v=21"></script>
-<script src="search.js?v=21"></script>
-<script src="bookmarks.js?v=21"></script>
-<script src="highlights.js?v=21"></script>
+<script src="image-viewer.js?v=22"></script>
+<script src="annotations.js?v=22"></script>
+<script src="toc.js?v=22"></script>
+<script src="search.js?v=22"></script>
+<script src="bookmarks.js?v=22"></script>
+<script src="highlights.js?v=22"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=21"></script>
-<script src="reader-ui.js?v=21"></script>
-<script src="reader-persistence.js?v=21"></script>
-<script src="reader-runtime.js?v=21"></script>
-<script src="reader.js?v=21"></script>
+<script src="reader-state.js?v=22"></script>
+<script src="reader-ui.js?v=22"></script>
+<script src="reader-persistence.js?v=22"></script>
+<script src="reader-runtime.js?v=22"></script>
+<script src="reader.js?v=22"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

@@ -4,6 +4,10 @@
 (function () {
   'use strict';
 
+const _SEARCH_MAX_RESULTS = 1000;
+const _SEARCH_UI_YIELD_MS = 10;
+const _SEARCH_FOCUS_DELAY_MS = 100;
+
 const Search = (function() {
   let book = null;
   let rendition = null;
@@ -104,7 +108,7 @@ const Search = (function() {
         if (searchInput) searchInput.focus();
         // Select all text if exists
         if (searchInput && searchInput.value) searchInput.select();
-      }, 100);
+      }, _SEARCH_FOCUS_DELAY_MS);
     }
   }
 
@@ -154,24 +158,24 @@ const Search = (function() {
     try {
       let results = [];
       const spine = activeBook.spine;
-      const MAX_RESULTS = 1000;
+      const activeLoad = typeof activeBook.load === 'function' ? activeBook.load.bind(activeBook) : undefined;
       
       for (let i = 0; i < spine.length; i++) {
         if (searchId !== currentSearchId || !isSearching) break;
-        if (results.length >= MAX_RESULTS) break;
+        if (results.length >= _SEARCH_MAX_RESULTS) break;
 
         const item = spine.get(i);
         statusEl.textContent = `搜索中... (章节 ${i + 1}/${spine.length})`;
         
         // Yield to browser UI thread to allow status text to render
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise(r => setTimeout(r, _SEARCH_UI_YIELD_MS));
         
         if (searchId !== currentSearchId || !isSearching) break;
 
         let itemResults = [];
         let loaded = false;
         try {
-          await item.load(activeBook.load.bind(activeBook));
+          await item.load(activeLoad);
           loaded = true;
           if (searchId !== currentSearchId || !isSearching) {
             break;
@@ -191,8 +195,10 @@ const Search = (function() {
         }
         
         if (itemResults && itemResults.length > 0) {
-          results = results.concat(itemResults);
-          renderPartialResults(itemResults, query, searchId);
+          const remaining = _SEARCH_MAX_RESULTS - results.length;
+          const cappedResults = itemResults.slice(0, remaining);
+          results = results.concat(cappedResults);
+          renderPartialResults(cappedResults, query, searchId);
         }
       }
 
@@ -200,8 +206,8 @@ const Search = (function() {
         if (results.length === 0) {
           statusEl.textContent = '暂无结果';
           statusEl.classList.add('search-status-empty');
-        } else if (results.length >= MAX_RESULTS) {
-          statusEl.textContent = `找到极多结果，仅显示前 ${MAX_RESULTS} 条以保护性能`;
+        } else if (results.length >= _SEARCH_MAX_RESULTS) {
+          statusEl.textContent = `找到极多结果，仅显示前 ${_SEARCH_MAX_RESULTS} 条以保护性能`;
         } else {
           statusEl.textContent = `搜索完成，共找到 ${results.length} 个结果`;
         }

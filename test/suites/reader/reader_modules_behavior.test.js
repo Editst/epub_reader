@@ -1404,6 +1404,56 @@ test.describe('Reader 模块基础行为', () => {
     assert.match(document.getElementById('search-status').textContent, /共找到 2 个结果/);
   });
 
+  test.it('Search 单章节结果超过上限时只渲染前 1000 条', async () => {
+    const { document } = createMockDocument([
+      'search-panel',
+      'sidebar-overlay',
+      'search-input',
+      'btn-do-search',
+      'search-results-list',
+      'search-status',
+      'btn-search',
+      'btn-search-close',
+      'sidebar',
+      'bookmarks-panel'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      setTimeout(fn) {
+        fn();
+        return 1;
+      }
+    });
+
+    const manyResults = Array.from({ length: 1005 }, (_, index) => ({
+      cfi: `epubcfi(/6/${index + 2})`,
+      excerpt: `第 ${index + 1} 处关键词`
+    }));
+    const item = {
+      async load() {},
+      find() { return manyResults; },
+      unload() {}
+    };
+    const book = {
+      load() {},
+      spine: {
+        length: 1,
+        get() { return item; }
+      }
+    };
+
+    Search.init();
+    Search.setBook(book, { annotations: { remove() {}, highlight() {} }, display() {} });
+    document.getElementById('search-input').value = '关键词';
+    document.getElementById('btn-do-search').click();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const resultsList = document.getElementById('search-results-list');
+    assert.equal(resultsList.children.length, 1000);
+    assert.match(document.getElementById('search-status').textContent, /仅显示前 1000 条/);
+  });
+
   test.it('ReaderUi 本地导入会等待文件缓存落盘后再进入阅读', async () => {
     const { document } = createMockDocument([
       'welcome-screen',

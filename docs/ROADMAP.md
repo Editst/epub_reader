@@ -1,11 +1,12 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-07-07（v2.5.0）
+> 最后更新：2026-07-08（v2.5.1）
 
 ---
 
 ## 当前状态
 
+- **v2.5.1 已完成**（2026-07-08）：Search 结果上限性能保护——每章结果合并前按剩余上限裁剪，单章节超量命中不会越过 1000 条渲染上限；搜索阈值常量化。
 - **v2.5.0 已完成**（2026-07-07）：Annotations 跨文档拓扑——基于 `contents.sectionIndex` 与 book spine href 索引判断跨文件目标是否位于当前 section 之前；该信号只压低 class/fragment 弱阳性，显式语义、上标与明确 footnote 容器强信号保持有效。
 - **v2.4.18 已完成**（2026-07-07）：Annotations FB2 转换格式兼容——识别 `body[name="notes"]` / `body[name="comments"]` 注释容器，注释区内回链排除，正文链接指向该容器时可识别为脚注。
 - **v2.4.17 已完成**（2026-07-07）：Annotations 同文档拓扑弱负向信号——同文档目标位于源链接之前时压低 class/fragment 弱阳性，但不否决显式 noteref、上标或 footnote 容器强信号。
@@ -36,6 +37,7 @@
 
 | 版本 | 主题 | 关键交付 |
 |------|------|---------|
+| v2.5.1 | Search 性能保护 | 单章超量结果裁剪、搜索阈值常量化、1000 条渲染上限回归 |
 | v2.5.0 | Annotations 跨文档拓扑 | spine href/index 映射、跨文件目标前置弱负向信号、相对 href 解析归口 |
 | v2.4.18 | Annotations FB2 兼容 | notes/comments body 容器识别、注释区回链排除、目标容器强信号 |
 | v2.4.17 | Annotations 同文档拓扑 | 目标前置弱负向信号、class/fragment 弱阳性压低、强信号保留 |

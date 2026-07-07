@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.1-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -85,6 +85,7 @@
 - **同文档脚注拓扑收敛（v2.4.17）**：同文档 `#fragment` 目标若位于源链接之前，会压低 class/fragment 弱阳性，减少返回链接误判；显式语义、`<sup>` 与明确 footnote 容器等强信号仍保留。
 - **FB2 转换格式兼容（v2.4.18）**：识别 Calibre/FB2 常见的 `body[name="notes"]` / `body[name="comments"]` 注释区，正文链接指向这些容器时可弹出注释，容器内回链不会被误拦截。
 - **跨文档脚注拓扑收敛（v2.5.0）**：每个 EPUB iframe 会基于 `contents.sectionIndex` 建立 spine href 索引；跨文件目标位于当前 section 之前时，只压低 class/fragment 弱阳性，避免尾注区回链被误拦截，同时保留显式语义和上标强信号。
+- **搜索结果性能保护（v2.5.1）**：全文搜索的 1000 条上限会在每章结果合并前执行，单章超量命中也只渲染前 1000 条，避免大书高频词搜索一次性撑爆结果列表。
 - **脚注切书上下文隔离（v2.4.13）**：EPUB 脚注点击、异步加载和弹窗跳转捕获发起时的 book/rendition；旧 iframe 或旧脚注慢返回不会污染新书。
 - **图片查看切书上下文隔离（v2.4.13）**：EPUB iframe 图片点击捕获当前 rendition；切书或布局重建后，旧 iframe 图片点击不会打开当前书籍页面的图片查看器。
 - **进度值归一化（v2.4.8）**：书架与弹窗展示阅读进度前会把 storage 值裁剪到 0–100，避免损坏数据影响文本或 CSS 进度条。
