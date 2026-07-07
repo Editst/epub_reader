@@ -99,12 +99,44 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual(Object.keys(all).sort(), ['book-a', 'book-orphan']);
   });
 
-  test.it('enforceFileLRU 驱逐旧文件时级联清理 recentBooks 与 bookMeta', async () => {
+  test.it('removeBook 会等待同书 bookMeta 写队列，避免删除后回写孤立 meta', async () => {
+    const id = 'book-delete-queue';
+    const originalSet = EpubStorage._set;
+    let releaseSet;
+    const setStarted = new Promise((resolve) => {
+      EpubStorage._set = async function patchedSet(data) {
+        if (Object.prototype.hasOwnProperty.call(data, 'bookMeta_' + id)) {
+          resolve();
+          await new Promise((release) => { releaseSet = release; });
+        }
+        return originalSet.call(this, data);
+      };
+    });
+
+    try {
+      const writePromise = EpubStorage.savePosition(id, 'epubcfi(/6/2)', 12.5);
+      await setStarted;
+
+      const deletePromise = EpubStorage.removeBook(id);
+      releaseSet();
+      await Promise.all([writePromise, deletePromise]);
+
+      assert.equal(await EpubStorage.getBookMeta(id), null);
+    } finally {
+      EpubStorage._set = originalSet;
+    }
+  });
+
+  test.it('enforceFileLRU 仅淘汰文件缓存并保留阅读数据', async () => {
     const now = Date.now();
     await EpubStorage.addRecentBook({ id: 'newer', title: 'newer' });
     await EpubStorage.addRecentBook({ id: 'older', title: 'older' });
     await EpubStorage.saveBookMeta('newer', { pos: null, time: 20, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
     await EpubStorage.saveBookMeta('older', { pos: null, time: 10, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
+    await EpubStorage.saveHighlights('older', [{ cfi: 'hl-old' }]);
+    await EpubStorage.saveBookmarks('older', [{ cfi: 'bm-old' }]);
+    await EpubStorage.saveCover('older', { type: 'image/jpeg' });
+    await EpubStorage.saveLocations('older', 'locations-old');
 
     await EpubStorage._dbGateway.put('files', { bookId: 'older', filename: 'older.epub', data: new Uint8Array([1]), timestamp: now - 1000 });
     await EpubStorage._dbGateway.put('files', { bookId: 'newer', filename: 'newer.epub', data: new Uint8Array([2]), timestamp: now });
@@ -112,8 +144,15 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.enforceFileLRU(1);
 
     assert.equal(await EpubStorage.getFile('older'), null);
-    assert.equal(await EpubStorage.getBookMeta('older'), null);
-    assert.deepEqual((await EpubStorage.getRecentBooks()).map((book) => book.id), ['newer']);
+    assert.notEqual(await EpubStorage.getFile('newer'), null);
+
+    const oldMeta = await EpubStorage.getBookMeta('older');
+    assert.equal(oldMeta.time, 10);
+    assert.deepEqual(await EpubStorage.getHighlights('older'), [{ cfi: 'hl-old' }]);
+    assert.deepEqual(await EpubStorage.getBookmarks('older'), [{ cfi: 'bm-old' }]);
+    assert.deepEqual(await EpubStorage.getCover('older'), { type: 'image/jpeg' });
+    assert.equal(await EpubStorage.getLocations('older'), 'locations-old');
+    assert.deepEqual((await EpubStorage.getRecentBooks()).map((book) => book.id).sort(), ['newer', 'older']);
   });
 
   test.it('enforceFileLRU 按时间戳从旧到新排序驱逐（LRU 顺序）', async () => {
@@ -135,8 +174,8 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.notEqual(await EpubStorage.getFile('newest'), null, '最新的应保留');
     assert.deepEqual(
       (await EpubStorage.getRecentBooks()).map(b => b.id),
-      ['newest'],
-      'recentBooks 应只剩最新一本'
+      ['newest', 'middle', 'oldest'],
+      'recentBooks 应保留完整书架记录'
     );
   });
 
@@ -150,30 +189,34 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.saveBookMeta('ok-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
     await EpubStorage.saveBookMeta('keep-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
 
-    await EpubStorage._dbGateway.put('files', { bookId: 'fail-book', filename: 'f.epub', data: new Uint8Array([1]), timestamp: now - 3000 });
+    await EpubStorage._dbGateway.put('files', { bookId: 'fail-book', filename: 'f.epub', data: new Uint8Array([1]), timestamp: now - 1000 });
     await EpubStorage._dbGateway.put('files', { bookId: 'ok-book', filename: 'o.epub', data: new Uint8Array([2]), timestamp: now - 2000 });
-    await EpubStorage._dbGateway.put('files', { bookId: 'keep-book', filename: 'k.epub', data: new Uint8Array([3]), timestamp: now - 1000 });
+    await EpubStorage._dbGateway.put('files', { bookId: 'keep-book', filename: 'k.epub', data: new Uint8Array([3]), timestamp: now });
 
-    // 保存原始 removeRecentBook，替换为会在 fail-book 上抛异常的版本
-    const origRemoveRecentBook = EpubStorage.removeRecentBook;
-    EpubStorage.removeRecentBook = async (bookId) => {
-      if (bookId === 'fail-book') throw new Error('simulated removeRecentBook failure');
-      return origRemoveRecentBook.call(EpubStorage, bookId);
+    const origDelete = EpubStorage._dbGateway.delete;
+    EpubStorage._dbGateway.delete = async function patchedDelete(store, bookId) {
+      if (store === 'files' && bookId === 'fail-book') {
+        throw new Error('simulated file delete failure');
+      }
+      return origDelete.call(this, store, bookId);
     };
 
-    // maxCount=1，排序后 newest-first: keep-book(now-1000), ok-book(now-2000), fail-book(now-3000)
-    // slice(1) → [ok-book, fail-book]，应驱逐这两本
-    // fail-book 的 removeRecentBook 会抛异常，但不阻塞 ok-book
-    await EpubStorage.enforceFileLRU(1);
+    try {
+      // maxCount=1，排序后 newest-first: keep-book, fail-book, ok-book。
+      // fail-book 删除失败后，ok-book 仍应继续淘汰。
+      await EpubStorage.enforceFileLRU(1);
+    } finally {
+      EpubStorage._dbGateway.delete = origDelete;
+    }
 
-    EpubStorage.removeRecentBook = origRemoveRecentBook;
-
-    // 关键验证：ok-book 应被成功驱逐（证明错误隔离——fail-book 的失败不阻塞后续淘汰）
     assert.equal(await EpubStorage.getFile('ok-book'), null, 'ok-book 应被成功驱逐（不被 fail-book 的错误阻塞）');
-    // keep-book 应保留（最新，未超限）
     assert.notEqual(await EpubStorage.getFile('keep-book'), null, 'keep-book 应保留（最新）');
-    // fail-book 的 file 被同步删除（_mockDb.delete 是同步的），但 removeRecentBook 失败
-    assert.equal(await EpubStorage.getFile('fail-book'), null, 'fail-book 的 file 应被删除（_mockDb.delete 同步完成）');
+    assert.notEqual(await EpubStorage.getFile('fail-book'), null, 'fail-book 删除失败时应保留文件');
+    assert.deepEqual(
+      (await EpubStorage.getRecentBooks()).map(b => b.id),
+      ['keep-book', 'ok-book', 'fail-book'],
+      'LRU 失败隔离不应改写 recentBooks'
+    );
   });
 
   test.it('enforceFileLRU 文件数未超限时不执行任何淘汰', async () => {
@@ -181,14 +224,20 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.addRecentBook({ id: 'book-a', title: 'A' });
     await EpubStorage._dbGateway.put('files', { bookId: 'book-a', filename: 'a.epub', data: new Uint8Array([1]), timestamp: now });
 
-    const origRemoveRecentBook = EpubStorage.removeRecentBook;
-    let removeCalled = false;
-    EpubStorage.removeRecentBook = async () => { removeCalled = true; };
+    const origDelete = EpubStorage._dbGateway.delete;
+    let deleteCalled = false;
+    EpubStorage._dbGateway.delete = async function patchedDelete(store, bookId) {
+      deleteCalled = true;
+      return origDelete.call(this, store, bookId);
+    };
 
-    await EpubStorage.enforceFileLRU(10); // maxCount=10，只有1本不淘汰
+    try {
+      await EpubStorage.enforceFileLRU(10); // maxCount=10，只有1本不淘汰
+    } finally {
+      EpubStorage._dbGateway.delete = origDelete;
+    }
 
-    EpubStorage.removeRecentBook = origRemoveRecentBook;
-    assert.equal(removeCalled, false, '文件数未超限时不应调用 removeRecentBook');
+    assert.equal(deleteCalled, false, '文件数未超限时不应删除文件');
     assert.notEqual(await EpubStorage.getFile('book-a'), null, '文件应保留');
   });
 
@@ -204,19 +253,22 @@ test.describe('EpubStorage 行为覆盖', () => {
       await EpubStorage._dbGateway.put('files', { bookId: id, filename: `${i}.epub`, data: new Uint8Array([i]), timestamp: now - (3 - i) * 1000 });
     }
 
-    // 保留最新1本（serial-2），驱逐 serial-0 和 serial-1
-    // 替换 removeRecentBook 以记录每个 bookId 的 start/end 事件
-    const origRemoveRecentBook = EpubStorage.removeRecentBook;
-    EpubStorage.removeRecentBook = async (bookId) => {
+    // 保留最新1本（serial-2），驱逐 serial-1 和 serial-0
+    // 替换文件删除以记录每个 bookId 的 start/end 事件
+    const origDelete = EpubStorage._dbGateway.delete;
+    EpubStorage._dbGateway.delete = async function patchedDelete(store, bookId) {
+      if (store !== 'files') return origDelete.call(this, store, bookId);
       executionLog.push({ op: 'start', bookId });
       await new Promise(r => setImmediate(r));
       executionLog.push({ op: 'end', bookId });
-      return origRemoveRecentBook.call(EpubStorage, bookId);
+      return origDelete.call(this, store, bookId);
     };
 
-    await EpubStorage.enforceFileLRU(1);
-
-    EpubStorage.removeRecentBook = origRemoveRecentBook;
+    try {
+      await EpubStorage.enforceFileLRU(1);
+    } finally {
+      EpubStorage._dbGateway.delete = origDelete;
+    }
 
     // 核心验证：不同 bookId 的操作不能交错。
     // 如果串行，日志应为：[start-0, end-0, start-1, end-1]（无交错）

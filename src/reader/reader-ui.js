@@ -657,9 +657,7 @@
         const arrayBuffer = await file.arrayBuffer();
         const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
         // storeFile 参数顺序：(filename, data, bookId) — 对齐 reader-full.js
-        EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId).catch(e => {
-          console.warn('[ReaderUi] Failed to store book in IndexedDB:', e);
-        });
+        await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
         await runtime.openBook(arrayBuffer, bookId, file.name);
       } catch (err) {
         console.error('[ReaderUi] failed to open local file:', err);

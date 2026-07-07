@@ -34,6 +34,7 @@
 - All app persistence goes through `EpubStorage` in `src/utils/storage.js`; do not call `chrome.storage.local` or IndexedDB directly from page or reader modules.
 - Binary EPUB files, covers, and locations live in IndexedDB via `DbGateway`; preferences, recent books, highlights, bookmarks, and `bookMeta_<bookId>` live in `chrome.storage.local`.
 - `bookMeta_<bookId>` merges `pos`, `time`, and `speed`; same-book writes are serialized by `_enqueueBookMetaWrite` to avoid read-modify-write races.
+- Automatic LRU cleanup (`enforceFileLRU`) must only evict IndexedDB `files` EPUB cache; preserve `recentBooks`, `bookMeta`, highlights, bookmarks, covers, and locations so re-importing the same book can recover reading progress and annotations. Explicit `removeBook()` remains the full cascade delete path.
 - Book IDs are content-derived (`SHA-256(filename + first 64KB)`), not filename-only.
 
 ## Reading Position Gotchas
@@ -50,5 +51,5 @@
 ## Release And Docs
 - Extension version is in `src/manifest.json`; version tests in `test/suites/system/sys_manifest.test.js` must match.
 - 修改代码后同步更新扩展版本号（`src/manifest.json`），并按需同步版本测试和发布文档。
-- Update `CHANGELOG.md`, `README.md`, `docs/architecture.md`, and `docs/modules.md` for behavior or version changes.
+- Update `CHANGELOG.md`, `README.md`, `docs/architecture.md` for behavior or version changes.
 - Comments and docs in this repo commonly use Chinese; keep that style when adding explanatory comments near existing Chinese documentation.

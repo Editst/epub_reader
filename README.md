@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.6-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.7-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -63,9 +63,14 @@
 - **XSS 免疫**：全局内容边界采用 DOM API（`textContent` / `createElement`）构建，书名、作者、报错信息等任何外部输入均不注入 `innerHTML`，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
 - **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
+- **书架顺序稳定（v2.4.7）**：书籍卡片流式渲染时按 recentBooks 原始索引替换对应骨架，封面或元数据返回速度不同也不会打乱最近阅读顺序。
 - **数据库版本一致性**：所有 IndexedDB 读写路径统一通过 DbGateway（DB v4）管理，消除新用户首次访问时读到空数据库的边缘场景。
 - **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
 - **阅读位置实时保存**：翻页/滚动后的首个稳定 CFI 会立即启动持久化，连续变化时再用 300ms 防抖保存最终位置，减少关闭页面时回到旧位置的风险。
+- **切书前会话收口（v2.4.7）**：在阅读器内打开另一本文本前，会先落盘旧书位置、阅读时长和速度采样，再卸载模块并销毁旧 rendition，避免 iframe 与事件绑定跨书残留。
+- **导入缓存完整性（v2.4.7）**：Reader 页本地导入会等待 EPUB 文件写入 IndexedDB 后再进入阅读，确保关闭后可从书架或弹窗重新打开。
+- **主动删除与 LRU 分层清理（v2.4.7）**：用户主动删除书籍会清理 recentBooks、bookMeta、封面、locations、高亮、书签和文件；自动 LRU 只淘汰 EPUB 文件缓存，保留阅读进度、书签和标注，重新导入同一本书后可继续使用。
+- **注释弹窗内容清洗（v2.4.7）**：EPUB 脚注/尾注 HTML 进入扩展宿主页前逐属性移除事件处理器、`srcdoc` 与 `javascript:` URL，覆盖未加引号和空白混淆写法。
 - **恢复锚点保护**：分页模式重新打开书籍后，用户真正导航前不会把 epub.js 回报的页边界 CFI 覆盖为新位置，避免刷新或重开时连续跳页。
 - **重开定位无翻页校正（v2.4.6）**：恢复时要求 `locator.restoreCfi` 明确绑定当前 `pos.cfi`；若 fresh rendition 首次 `display(restoreCfi)` 后短暂停在同章节旧页，只在 loading 期间重放一次同一个 CFI，不调用 `next()/prev()`，避免重开时快速翻动。
 - **分裂位置快照自愈（v2.4.5）**：若缓存 locations 发现 `pos.cfi` 与已保存百分比明显不一致，则用百分比回推 CFI，避免“右下角进度是新的、页面仍是老的”。

@@ -22,11 +22,12 @@
  *   [CONSOLIDATE] pos_<bookId> + time_<bookId> 合并为 bookMeta_<bookId>
  *   [NEW]         speed 字段：per-session 采样，修复中途开书/跳章的 ETA 偏差
  *   [REMOVE]      highlightKeys 索引（有不一致风险），改用 recentBooks 遍历
- *   [FIX]         enforceFileLRU 级联清理 recentBooks + bookMeta，消除孤立条目
+ *   [DESIGN]      enforceFileLRU 仅淘汰 EPUB 文件缓存，保留进度、书签和标注
  *   [MIGRATION]   getBookMeta lazy migration：自动迁移 v1.6.0 pos_/time_ 旧 key
  */
 const EpubStorage = {
   _bookMetaQueue: new Map(),
+  _deletingBookIds: new Set(),
 
   // ── Preferences ────────────────────────────────────────────────────────────
 
@@ -203,7 +204,14 @@ const EpubStorage = {
 
   async removeBookMeta(bookId) {
     if (!bookId) return;
-    await this._remove(['bookMeta_' + bookId, 'pos_' + bookId, 'time_' + bookId]);
+    const hadDeleteGuard = this._deletingBookIds.has(bookId);
+    if (!hadDeleteGuard) this._deletingBookIds.add(bookId);
+    try {
+      await this._drainBookMetaQueue(bookId);
+      await this._remove(['bookMeta_' + bookId, 'pos_' + bookId, 'time_' + bookId]);
+    } finally {
+      if (!hadDeleteGuard) this._deletingBookIds.delete(bookId);
+    }
   },
 
   // ── Highlights ───────────────────────────────────────────────────────────
@@ -320,8 +328,10 @@ const EpubStorage = {
   /**
    * LRU：保留最近 maxCount 本书的文件缓存，驱逐其余。
    *
-   * v1.7.0 修复：驱逐时级联清理 recentBooks + bookMeta，消除书架孤立条目。
-   * v2.4.0 修复：改为串行执行，避免并发 removeRecentBook 的读改写竞态。
+   * 设计约束：自动淘汰只删除占空间最大的 EPUB 文件缓存。
+   * recentBooks、bookMeta、highlights、bookmarks、covers、locations 均保留，
+   * 以便用户重新导入同一书籍后继续使用阅读进度、书签和标注。
+   * v2.4.0 修复：改为串行执行并逐项隔离失败，避免单本淘汰失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
     const meta = await DbGateway.getAllMeta('files', ['timestamp']);
@@ -330,13 +340,9 @@ const EpubStorage = {
     const toRemove = meta.slice(maxCount);
     for (const m of toRemove) {
       try {
-        await Promise.all([
-          DbGateway.delete('files', m.bookId),
-          this.removeRecentBook(m.bookId),
-          this.removeBookMeta(m.bookId)
-        ]);
+        await DbGateway.delete('files', m.bookId);
       } catch (e) {
-        console.warn('[Storage] enforceFileLRU: failed to remove book', m.bookId, e);
+        console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
       }
     }
   },
@@ -349,15 +355,21 @@ const EpubStorage = {
    */
   async removeBook(bookId) {
     if (!bookId) return;
-    await Promise.all([
-      this.removeRecentBook(bookId),
-      this.removeBookMeta(bookId),
-      this.removeCover(bookId),
-      this.removeHighlights(bookId),
-      this.removeLocations(bookId),
-      this.removeBookmarks(bookId),
-      this.removeFile(bookId)
-    ]);
+    this._deletingBookIds.add(bookId);
+    try {
+      await this._drainBookMetaQueue(bookId);
+      await Promise.all([
+        this.removeRecentBook(bookId),
+        this.removeBookMeta(bookId),
+        this.removeCover(bookId),
+        this.removeHighlights(bookId),
+        this.removeLocations(bookId),
+        this.removeBookmarks(bookId),
+        this.removeFile(bookId)
+      ]);
+    } finally {
+      this._deletingBookIds.delete(bookId);
+    }
   },
 
   // ── BookId Generation ─────────────────────────────────────────────────────
@@ -416,15 +428,18 @@ const EpubStorage = {
   },
 
   async _enqueueBookMetaWrite(bookId, mutator) {
+    if (this._deletingBookIds.has(bookId)) return Promise.resolve();
     const prev = this._bookMetaQueue.get(bookId) || Promise.resolve();
     const next = prev
       .catch(() => {})
       .then(async () => {
+        if (this._deletingBookIds.has(bookId)) return;
         const current = (await this._get('bookMeta_' + bookId)) || {
           pos: null,
           time: 0,
           speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
         };
+        if (this._deletingBookIds.has(bookId)) return;
         const updated = mutator(current) || current;
         await this._set({ ['bookMeta_' + bookId]: updated });
       });
@@ -433,5 +448,13 @@ const EpubStorage = {
     });
     this._bookMetaQueue.set(bookId, queued);
     return next;
+  },
+
+  async _drainBookMetaQueue(bookId) {
+    const pending = this._bookMetaQueue.get(bookId);
+    if (!pending) return;
+    try {
+      await pending;
+    } catch (_) {}
   }
 };

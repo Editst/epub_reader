@@ -90,6 +90,45 @@ const _FN_STYLE_CSS = `
 const _hookedRenditions = new WeakSet();
 const _hookedContentDocuments = new WeakSet();
 
+function _isUnsafeUrl(value) {
+  return String(value || '')
+    .replace(/[\u0000-\u001F\u007F\s]+/g, '')
+    .toLowerCase()
+    .startsWith('javascript:');
+}
+
+function _sanitizePopupHtml(html) {
+  const stripped = String(html || '')
+    .replace(_RE.cleanBackref, '')
+    .replace(_RE.cleanFnref, '');
+
+  const template = document.createElement('template');
+  if (!template || !('innerHTML' in template)) {
+    return stripped
+      .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
+      .replace(/\s+(href|src|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*))/gi, (m, attr, dq, sq, bare) => {
+        const value = dq ?? sq ?? bare ?? '';
+        return _isUnsafeUrl(value) ? ` ${attr}="#"` : m;
+      });
+  }
+
+  template.innerHTML = stripped;
+  const root = template.content || template;
+  root.querySelectorAll('*').forEach((el) => {
+    Array.from(el.attributes || []).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      if (name.startsWith('on') || name === 'srcdoc') {
+        el.removeAttribute(attr.name);
+        return;
+      }
+      if ((name === 'href' || name === 'src' || name === 'xlink:href') && _isUnsafeUrl(attr.value)) {
+        el.setAttribute(attr.name, '#');
+      }
+    });
+  });
+  return template.innerHTML;
+}
+
 // ── Click handler factory ─────────────────────────────────────────────────────
 // One function instance per section load, shared across all footnote links.
 // Links are identified by their data attribute — zero false positives.
@@ -628,16 +667,8 @@ const Annotations = {
    * @param {string} href  -- navigation target (CFI or path#fragment)
    */
   _displayContent(html, href) {
-    // S-2 / P0-ANNOTATIONS-1: Strip inline event handlers and javascript: hrefs
-    // before assigning to innerHTML.  EPUB content may embed on* attributes
-    // (onclick, onmouseover, …) which execute in chrome-extension:// context
-    // despite script-src 'self' CSP (inline handlers bypass script-src).
-    const sanitized = html
-      .replace(_RE.cleanBackref, '')
-      .replace(_RE.cleanFnref,   '')
-      .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
-      .replace(/ href\s*=\s*(?:"[^"]*"|'[^']*')/gi, m => /javascript:/i.test(m) ? ' href="#"' : m);
-    this.body.innerHTML = sanitized;
+    // EPUB 注释内容来自书籍包内，进入宿主扩展页前必须逐属性清洗。
+    this.body.innerHTML = _sanitizePopupHtml(html);
 
     this.titleEl.textContent = '注释';
 

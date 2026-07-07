@@ -140,8 +140,8 @@ function resetAll() {
   chrome.storage.local._reset();
   _mockDb._reset();
   EpubStorage._dbGateway = _mockDb;
-  // Ensure speed cache is fresh
-  EpubStorage._cachedSpeed = {};
+  EpubStorage._bookMetaQueue = new Map();
+  EpubStorage._deletingBookIds = new Set();
 }
 global.resetAll = resetAll;
 
@@ -155,19 +155,15 @@ EpubStorage.saveLocations= async (id, j) => { await _mockDb.put('locations',{boo
 EpubStorage.getLocations = async (id) => { const r=await _mockDb.get('locations',id); return r?r.json:null; };
 EpubStorage.removeLocations= async (id)=> _mockDb.delete('locations',id);
 EpubStorage.enforceFileLRU = async (max=10) => {
-  const meta = await _mockDb.getAllMeta('files');
+  const meta = await EpubStorage._dbGateway.getAllMeta('files');
   if (meta.length <= max) return;
   meta.sort((a,b)=>b.timestamp - a.timestamp);
   const toRemove = meta.slice(max);
   for (const m of toRemove) {
     try {
-      await Promise.all([
-        _mockDb.delete('files', m.bookId),
-        EpubStorage.removeRecentBook(m.bookId),
-        EpubStorage.removeBookMeta(m.bookId)
-      ]);
+      await EpubStorage._dbGateway.delete('files', m.bookId);
     } catch (e) {
-      console.warn('[Storage] enforceFileLRU: failed to remove book', m.bookId, e);
+      console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
     }
   }
 };

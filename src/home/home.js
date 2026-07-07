@@ -112,9 +112,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     shelfEmpty.classList.remove('show');
     btnClearAll.classList.remove('is-hidden');
     booksContainer.innerHTML = '';
-    renderBookshelfSkeleton(Math.min(6, books.length));
+    renderBookshelfSkeleton(books.length);
 
-    const tasks = books.map((book) => streamRenderBookCard(book));
+    const tasks = books.map((book, index) => streamRenderBookCard(book, index));
     await Promise.all(tasks);
   }
 
@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (let i = 0; i < count; i++) {
       const skeleton = document.createElement('div');
       skeleton.className = 'book-card skeleton-card';
+      skeleton.dataset.skeletonIndex = String(i);
       skeleton.innerHTML = `
         <div class="book-cover skeleton-block"></div>
         <div class="book-info">
@@ -135,14 +136,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function streamRenderBookCard(book) {
+  async function streamRenderBookCard(book, index) {
     const [coverBlob, meta] = await Promise.all([
       EpubStorage.getCover(book.id),
       EpubStorage.getBookMeta(book.id)
     ]);
-
-    const firstSkeleton = booksContainer.querySelector('.skeleton-card');
-    if (firstSkeleton) firstSkeleton.remove();
 
     {
       const card = document.createElement('div');
@@ -217,7 +215,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      booksContainer.appendChild(card);
+      const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
+      if (skeleton) skeleton.replaceWith(card);
+      else booksContainer.appendChild(card);
     }
   }
 

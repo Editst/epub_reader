@@ -152,6 +152,73 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(callbacks.length, 1);
   });
 
+  test.it('Annotations 注释弹窗会清理事件属性与未加引号 javascript 链接', () => {
+    const { document } = createMockDocument([
+      'annotation-overlay',
+      'annotation-popup',
+      'annotation-body',
+      'annotation-title',
+      'annotation-close'
+    ]);
+
+    const originalCreateElement = document.createElement;
+    document.createElement = (tag) => {
+      if (String(tag).toLowerCase() !== 'template') return originalCreateElement(tag);
+
+      let raw = '';
+      const elements = [];
+      const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const attrPattern = /\s+([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*)))?/g;
+
+      function syncElements() {
+        elements.splice(0);
+        raw.replace(/<([a-z0-9:-]+)([^>]*)>/gi, (_tagMatch, _tagName, attrsText) => {
+          const attrs = [];
+          attrsText.replace(attrPattern, (_attrMatch, name, dq, sq, bare) => {
+            attrs.push({ name, value: dq ?? sq ?? bare ?? '' });
+            return '';
+          });
+          elements.push({
+            attributes: attrs,
+            removeAttribute(name) {
+              const attrRe = new RegExp(`\\s+${escapeRegExp(name)}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]*))?`, 'gi');
+              raw = raw.replace(attrRe, '');
+            },
+            setAttribute(name, value) {
+              const attrRe = new RegExp(`(\\s+${escapeRegExp(name)}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>]*)`, 'i');
+              raw = raw.replace(attrRe, `$1"${value}"`);
+            }
+          });
+          return '';
+        });
+      }
+
+      return {
+        content: {
+          querySelectorAll() {
+            syncElements();
+            return elements;
+          }
+        },
+        set innerHTML(value) { raw = value; },
+        get innerHTML() { return raw; }
+      };
+    };
+
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations', { document });
+    Annotations.init();
+    Annotations._displayContent(
+      '<a href=javascript:alert(1) onclick=alert(2)>危险</a><img src="java\nscript:alert(3)" onerror="alert(4)">',
+      'chapter.xhtml#note'
+    );
+
+    const html = document.getElementById('annotation-body').innerHTML;
+    assert.doesNotMatch(html, /javascript:/i);
+    assert.doesNotMatch(html, /\son(?:click|error)\s*=/i);
+    assert.match(html, /href="#"/);
+    assert.match(html, /src="#"/);
+  });
+
   test.it('ImageViewer 同一个 rendition 不重复注册 hook，且补绑定当前 iframe 图片', () => {
     const ImageViewer = loadIsolatedConst('src/reader/image-viewer.js', 'ImageViewer');
     const callbacks = [];
@@ -334,5 +401,103 @@ test.describe('Reader 模块基础行为', () => {
     const resultsList = document.getElementById('search-results-list');
     assert.equal(resultsList.children.length, 2);
     assert.match(document.getElementById('search-status').textContent, /共找到 2 个结果/);
+  });
+
+  test.it('ReaderUi 本地导入会等待文件缓存落盘后再进入阅读', async () => {
+    const { document } = createMockDocument([
+      'welcome-screen',
+      'loading-overlay',
+      'loading-text',
+      'reader-main',
+      'bottom-bar',
+      'toolbar',
+      'file-input',
+      'book-title',
+      'chapter-title',
+      'progress-slider',
+      'progress-current',
+      'progress-location',
+      'progress-time',
+      'font-size-slider',
+      'font-size-value',
+      'line-height-slider',
+      'line-height-value',
+      'font-family-select',
+      'settings-panel',
+      'custom-theme-options',
+      'custom-bg-color',
+      'custom-text-color',
+      'drag-overlay',
+      'welcome-open-btn',
+      'btn-open',
+      'btn-home',
+      'btn-prev',
+      'btn-next',
+      'btn-settings',
+      'btn-settings-close',
+      'btn-bookmark'
+    ]);
+
+    let releaseStore;
+    let changePromise;
+    const calls = [];
+    const storeStarted = new Promise((resolve) => {
+      releaseStore = () => {};
+      const context = {
+        document,
+        window: {
+          focus() {},
+          addEventListener() {}
+        },
+        chrome: {
+          runtime: { getURL: (p) => 'chrome-extension://test/' + p },
+          tabs: { create() {} }
+        },
+        EpubStorage: {
+          async generateBookId() { return 'book-ui-import'; },
+          async storeFile() {
+            calls.push('store-start');
+            resolve();
+            await new Promise((release) => { releaseStore = release; });
+            calls.push('store-end');
+          },
+          async savePreferences() {}
+        },
+        TOC: { close() {} },
+        Bookmarks: { closePanel() {}, isBookmarked: async () => false, toggle: async () => {} },
+        Search: { closePanel() {} },
+        Highlights: { closePanels() {} },
+        setTimeout: global.setTimeout,
+        requestAnimationFrame: (fn) => fn()
+      };
+      context.window.document = document;
+      const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+      const ui = ReaderUi.createReaderUi({ state: { prefs: {}, isBookLoaded: false } });
+      ui.bindRuntime({
+        async openBook() { calls.push('open-book'); },
+        next() {},
+        prev() {},
+        setLayout() {},
+        displayPercentage() {}
+      }, {});
+
+      const fileInput = document.getElementById('file-input');
+      fileInput.files = [{
+        name: 'sample.epub',
+        async arrayBuffer() {
+          return new Uint8Array([1, 2, 3]).buffer;
+        }
+      }];
+      const changeHandler = fileInput.listeners.get('change')[0];
+      changePromise = changeHandler({ target: fileInput });
+    });
+
+    await storeStarted;
+    assert.deepEqual(calls, ['store-start']);
+
+    releaseStore();
+    await changePromise;
+
+    assert.deepEqual(calls, ['store-start', 'store-end', 'open-book']);
   });
 });

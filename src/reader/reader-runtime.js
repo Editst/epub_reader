@@ -341,6 +341,48 @@
       return data;
     }
 
+    async function _teardownActiveBookForReplacement() {
+      if (!state.book && !state.rendition) {
+        state.isBookLoaded = false;
+        state.isLayoutStable = false;
+        state.navLock = false;
+        return;
+      }
+
+      const oldBookId = state.currentBookId;
+      const shouldFlushSession = !!(oldBookId && state.isBookLoaded);
+
+      if (shouldFlushSession) {
+        try {
+          await persistence.flushPositionSave();
+          await EpubStorage.saveReadingTime(oldBookId, state.activeReadingSeconds);
+          await persistence.flushSpeedSession(null);
+        } catch (e) {
+          console.warn('[Runtime] teardown flush failed:', e);
+        }
+      }
+
+      try {
+        moduleLifecycle.unmount();
+      } catch (e) {
+        console.warn('[Runtime] module unmount failed:', e);
+      }
+
+      if (state.rendition && typeof state.rendition.destroy === 'function') {
+        try { state.rendition.destroy(); } catch (e) { console.warn('[Runtime] rendition destroy failed:', e); }
+      }
+      if (state.book && typeof state.book.destroy === 'function') {
+        try { state.book.destroy(); } catch (e) { console.warn('[Runtime] book destroy failed:', e); }
+      }
+
+      state.book = null;
+      state.rendition = null;
+      state.isBookLoaded = false;
+      state.isLayoutStable = false;
+      state.navLock = false;
+      ReaderState.resetReadingSession(state);
+    }
+
     // ── Open Book ─────────────────────────────────────────────────────────────
 
     /**
@@ -355,20 +397,16 @@
       const openStartedAt = Date.now();
 
       // ── 清理旧书 ────────────────────────────────────────────────────────────
-      if (state.book) {
-        state.book.destroy();
-        if (typeof TOC !== 'undefined' && TOC.reset) TOC.reset();
-        if (typeof Bookmarks !== 'undefined' && Bookmarks.reset) Bookmarks.reset();
-        if (typeof Search !== 'undefined' && Search.reset) Search.reset();
-        moduleLifecycle.unmount();
-        ReaderState.resetReadingSession(state);
-      }
+      await _teardownActiveBookForReplacement();
 
       ui.setReaderVisible(true);
       ui.clearReaderError();
 
       state.currentBookId   = bookId;
       state.currentFileName = fileName || '';
+      state.isBookLoaded = false;
+      state.isLayoutStable = false;
+      state.navLock = false;
 
       // ── 加载 meta & prefs ───────────────────────────────────────────────────
       const prefs = await EpubStorage.getPreferences();
@@ -599,7 +637,7 @@
           state.currentBookId   = bookId;
           state.currentFileName = record.filename || '';
           try {
-            await openBook(record.data.buffer || record.data, bookId, state.currentFileName, targetCfi);
+            await openBook(record.data, bookId, state.currentFileName, targetCfi);
           } catch (err) {
             console.error('[Runtime] loadFileByBookId: openBook failed', err);
             ui.showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);

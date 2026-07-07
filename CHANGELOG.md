@@ -8,6 +8,24 @@
 
 ---
 
+## [2.4.7] - 2026-07-07
+
+### fix
+- **切书生命周期闭合**：在阅读器内打开另一本文本前，先 flush 旧书位置、阅读时长与速度 session，再卸载功能模块并显式销毁旧 `rendition` / `book`，避免旧 iframe、事件绑定和未落盘进度污染新书。
+- **导入后可重开保障**：Reader 页本地导入 EPUB 时改为等待 `storeFile()` 完整落盘后再进入阅读，避免快速关闭后 recentBooks 已有记录但 IndexedDB 文件缓存缺失。
+- **缓存重开二进制边界修复**：`loadFileByBookId()` 不再手动传入 `TypedArray.buffer`，统一交给 `normalizeBookData()` 裁剪视图边界，避免非零 offset 的缓存视图带入多余字节导致解析失败。
+- **主动删除与自动 LRU 分层清理**：`removeBook()` 会等待同书 `bookMeta` 写队列收尾并在删除期间跳过新写入，防止主动删除后回写孤立 meta；`enforceFileLRU()` 恢复既定设计，仅淘汰占空间的 EPUB 文件缓存，保留 recentBooks、bookMeta、封面、locations、高亮和书签，方便重新导入后继续使用阅读进度与标注。
+- **书架顺序稳定**：首页流式渲染书籍卡片时按 `recentBooks` 原始索引替换对应骨架，避免两本及以上 EPUB 因封面/元数据异步返回顺序不同导致书架排序跳动。
+- **注释弹窗 HTML 清洗增强**：EPUB 内联注释内容进入宿主扩展页前改为 template DOM 解析后逐属性清洗，移除 `on*` / `srcdoc`，并拦截未加引号或空白混淆的 `javascript:` URL。
+
+### sample
+- 使用根目录两本样本 EPUB 校验导入指纹与包结构：`九故事 - J.D.塞林格.epub` → `book_974cdedfeff479ff4aaf6edaf15ebe96`，`鱼不存在 - 露露·米勒.epub` → `book_339786574b00222a503c3f7d71e83f60`。
+
+### test
+- 新增 6 个生命周期/安全回归测试，覆盖 Reader 导入等待缓存、缓存视图边界、切书前落盘并销毁旧 rendition、删除时等待 bookMeta 队列、LRU 仅淘汰文件并保留用户数据、注释弹窗 HTML 清洗与书架流式渲染顺序。全量 145 个测试通过。
+
+---
+
 ## [2.4.6] - 2026-07-07
 
 ### fix
