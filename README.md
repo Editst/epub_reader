@@ -1,119 +1,68 @@
-# 📖 EPUB Reader 浏览器扩展
+# EPUB Reader
 
-> 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
+Chrome MV3 EPUB 阅读器扩展。无框架、无构建步骤，直接加载 `src/` 作为 unpacked extension；电子书文件、阅读进度、标注和偏好均保存在浏览器本地。
 
-[![Version](https://img.shields.io/badge/version-2.5.4-blue.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-2.5.5-blue.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## ✨ 特性 (Features)
+## 核心功能
 
-- **📚 本地书架 (Local Bookshelf)**
-  - 自动管理您的阅读历史、阅读时间与书籍封面。
-  - 支持直接拖拽或点击上传本地 `.epub` 文件。
-  - 基于 IndexedDB 打造的超大文件级存储引擎，百兆书籍也能毫秒级重载。
+- 本地书架：导入 `.epub`，管理最近阅读、封面、阅读时间和进度。
+- 阅读体验：分页/滚动布局、目录、书签、全文搜索、主题、字号、行距和字体设置。
+- 标注笔记：多色高亮、纯笔记、全局标注管理和 Markdown 导出。
+- 注释与图片：EPUB 脚注/尾注弹窗、图片放大查看。
+- 进度恢复：基于 CFI、displayed-page locator 和 IndexedDB locations 缓存恢复阅读位置。
 
-- **📝 极致标注体验 (Premium Annotations)**
-  - 支持**多色高亮 (`Highlight`)** 与 **纯文本笔记 (`Note`)** 灵活混用。
-  - 精心调教的“悬空长虚线”标识，不破坏任何书籍底层原生排版。
-  - 拥有严格控制的触碰物理引擎与空间感知（碰撞翻转算法），多列表格或双栏排版均能准确交互定点，弹窗永不溢出。
-  - 首创“时间全局罗盘”，支持打破书籍界限，对您的所有灵感笔记进行时间轴的正/降序贯通回溯。
+## 安装
 
-- **⏱️ 进度毫秒级同步 (Progress Sync)**
-  - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
-  - 阅读位置恢复采用 `pos.cfi + locator.restoreCfi + 同 CFI 直接重放 + 恢复锚点保护` 策略，解决分页边界、重开错页与刷新跳页问题。
-  - ETA 升级为会话加权模型（指数衰减 β=0.8），智能识别跳读；locations 生成引入 Idle 调度与进度文案。
-  - Reader 内核完成四层解耦（`reader-state.js` / `reader-runtime.js` / `reader-persistence.js` / `reader-ui.js`），由 Orchestrator 统一调度并落地 `mount/unmount` 生命周期契约。
-  - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固。
-
-- **🔍 智能检索与注释 (Search & Footnotes)**
-  - 支持侧边栏全书级别的关键词匹配，即用即走，全屏标记自动清洗消除污染。
-  - 采用独家启发式算法解析原生书籍内的“脚注 / 尾注 / 参考文献”链接，不仅能自动抓取注释原文，更能为您优雅弹出原位展示框，极大地免去了频繁前后跳页的痛苦。
-
-- **🎨 定制化阅读界面 (Customizable UI)**
-  - 内置深色/浅色沉浸式护眼模式，悬浮菜单带有精美的毛玻璃（Glassmorphism）高斯模糊。
-  - 支持自定义字体、字号、行距、边缘间距。随心所欲，所见即所得。
-
-## 🚀 安装指南 (Installation)
-
-1. 选择一个您喜欢的位置并克隆本仓库：
+1. 克隆仓库。
    ```bash
    git clone https://github.com/your-username/epub-reader-extension.git
    ```
-2. 打开 Chrome / Edge 等基于 Chromium 的浏览器，访问扩展管理页面：`chrome://extensions/` 
-3. 在页面右上角开启 **"开发者模式" (Developer mode)**
-4. 点击左上角的 **"加载已解压的扩展程序" (Load unpacked)**
-5. 选择下载源码目录下的 `src` 文件夹（即包含 `manifest.json` 的文件夹）
-6. 扩展程序即刻安装完毕！建议点击浏览器右上角的拼图图标，将其固定（Pin）到工具栏，一键开启阅读时光。
+2. 打开 `chrome://extensions/` 或 Edge 扩展管理页。
+3. 开启“开发者模式”。
+4. 点击“加载已解压的扩展程序”，选择仓库中的 `src/` 目录。
 
-## 🏗️ 架构与技术栈 (Tech Stack)
+## 开发
 
-* **核心渲染器**：[Epub.js](https://github.com/futurepress/epub.js/) (v0.3.93) 提供最硬核的底层解包与 CFI 解析支持。
-* **数据存储矩阵**：
-   * `IndexedDB` 统配了 `files`, `covers`, `locations` 三驾重型马车，支持无限容量。
-   * `chrome.storage.local` 提供轻量级首选项（Preference）的无感持久化。
-* **零框架前端（Vanilla JS/CSS）**：追求极致速度与最原生的 DOM 控制体验，未接入任何沉重的现代 JS 框架，彻底规避生命周期延迟。
-* **合规性**：完美适配 MV3 (Manifest V3) 高安全扩展标准规范。
+本项目没有 package manager manifest、打包、lint 或 typecheck。
 
-## 🛡️ 隐私声明 (Privacy & Security)
+```bash
+node test/run_tests.js
+node --test-name-pattern="ReaderPersistence" test/run_tests.js
+```
 
-**Local First / 本地唯一**：您的所有操作——小到一次翻页、大到存储所有的电子书实体文件以及您的私密笔记——**均 100% 绝对隔离存储在您的浏览器本地空间内**。本应用从架构上主动切断了任何上传服务器的回传请求，真正的您的数据归属于您！
+关键入口：
 
-## 🛡️ 安全与稳定性 (Security & Reliability)
+- `src/manifest.json`
+- `src/reader/reader.html`
+- `src/home/home.html`
+- `src/popup/popup.html`
 
-- **XSS 免疫**：全局内容边界优先采用 DOM API（`textContent` / `createElement`）构建；确需模板渲染时，外部文本只允许进入已转义的元素正文上下文，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
-- **属性上下文隔离（v2.5.2）**：首页书架卡片的书名与作者不再进入 `innerHTML` 模板；正文走 `textContent`，悬浮标题走 DOM `title` 属性赋值，避免 EPUB 元数据中的引号打穿属性。
-- **样式上下文归一化（v2.5.3）**：高亮/标注颜色只接受 CSS 有效 hex 长度（3/4/6/8 位）或 `transparent`；首页标注颜色先经过白名单与默认色回退，再用于 `color-mix()` 背景生成。
-- **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
-- **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
-- **存储 key 中心化（v2.4.8）**：`EpubStorage` 集中声明 chrome.storage key 与 IndexedDB store 名称，避免 per-book key 字符串散落造成迁移、删除和兼容路径不一致。
-- **偏好写入串行化（v2.4.10）**：主题、布局、字号和首页视图等偏好保存通过队列串行合并，避免多个入口并发保存时互相覆盖。
-- **书架列表写入串行化（v2.4.11）**：`recentBooks` 的导入与移除通过队列串行合并，避免并发导入/删除时最后一次写入覆盖另一本文档。
-- **bookMeta 整体覆写串行化（v2.4.11）**：`saveBookMeta()` 与位置、时长、速度 patch 共享同书队列，批量覆写和阅读中保存不会互相回滚。
-- **bookMeta 清除路径串行化（v2.4.11）**：清除位置或阅读时长也进入同书写队列，避免与正在保存的进度、时长或速度互相回滚字段。
-- **bookMeta 迁移路径串行化（v2.4.11）**：旧版 `pos_/time_` lazy migration 与首次保存共享同书队列，新位置不会被旧快照回写覆盖，旧阅读时长也不会在首次 patch 时丢失。
-- **bookMeta 队列失败收敛（v2.4.10）**：同书位置/时长/速度写入仍会把真实失败返回给调用方，但内部串行队列不会派生未处理 Promise 拒绝，失败后后续写入可继续。
-- **Reader UI 绑定幂等（v2.4.8）**：阅读器顶层事件监听只注册一次，重复绑定会切换到最新 runtime 引用但不会叠加键盘、按钮或拖拽处理器。
-- **功能模块初始化幂等（v2.4.8）**：注释、书签、目录、搜索、图片查看和高亮模块重复 `init()` 不会叠加顶层事件监听。
-- **Reader 模块导出一致性（v2.4.9）**：搜索模块补齐 `window.Search` IIFE 导出契约，公开接口测试会防止功能模块再次漂移为顶层 `const`。
-- **入口异步错误隔离（v2.4.10）**：首页主题/视图偏好、书架/标注刷新、删除和导出路径，以及弹窗最近阅读加载/移除路径失败时只记录告警，不产生未处理 Promise 拒绝，也不阻断核心交互绑定。
-- **首页单本卡片降级（v2.5.4）**：书架流式渲染中单本封面或 `bookMeta` 读取失败时仅当前卡片回退为无封面/无进度，整轮书架不会失败或留下骨架占位。
-- **ReaderRuntime 旧事件隔离（v2.4.13）**：切书或布局重建后，旧 rendition 的迟到 `relocated/displayed`、iframe 用户事件和旧 `display()` 调用不会写入当前书位置、抢焦点或解除恢复锚点保护。
-- **异步刷新代次隔离（v2.4.12）**：首页书架/标注刷新与 Reader 书签、高亮加载会忽略过期请求，旧书、旧页或旧筛选结果返回后不会覆盖新 UI，也不会把旧书书签/高亮保存或渲染到新书记录；书签和高亮加载/保存失败只记录告警，不留下未处理拒绝。
-- **搜索切书生命周期隔离（v2.4.13）**：切换书籍会取消旧搜索任务并先清理旧 rendition 上的搜索高亮；旧搜索慢返回不会把结果追加到新书面板，旧结果项也不能再驱动新书跳转。
-- **脚注模块技术债收敛（v2.4.14）**：脚注 `sup` 判断、href 解析、块标签集合和分页补偿等待时间均集中为模块级辅助函数/常量；fallback 提示改用 CSS class，减少重复和 inline style 漂移。
-- **脚注识别算法补强（v2.4.14）**：支持 `vertical-align: super/sub/top/bottom` 上标式脚注引用，并排除父段落中占比过高的孤立长链接，降低扁平 TOC 误判。
-- **脚注内容安全阀（v2.4.14）**：空锚点尾注会沿后续 sibling 收集到明确边界，超长注释正文会在 2000 字处截断并提示跳转原文，避免整章误入弹窗。
-- **跨文档脚注缓存（v2.4.15）**：跨章节/尾注文件的已解析内容树在当前书生命周期内以 50 项 LRU 缓存复用，二次点击不重复加载同一 section；切书或卸载时立即清空，避免旧书内容污染新书。
-- **四位年份误判收敛（v2.4.16）**：纯数字脚注 marker 默认只接受 1-3 位，`1984`、`2023` 等正文年份链接不再被 fragment/class 启发式误判；显式 `epub:type="noteref"` 的四位数字仍可识别。
-- **同文档脚注拓扑收敛（v2.4.17）**：同文档 `#fragment` 目标若位于源链接之前，会压低 class/fragment 弱阳性，减少返回链接误判；显式语义、`<sup>` 与明确 footnote 容器等强信号仍保留。
-- **FB2 转换格式兼容（v2.4.18）**：识别 Calibre/FB2 常见的 `body[name="notes"]` / `body[name="comments"]` 注释区，正文链接指向这些容器时可弹出注释，容器内回链不会被误拦截。
-- **跨文档脚注拓扑收敛（v2.5.0）**：每个 EPUB iframe 会基于 `contents.sectionIndex` 建立 spine href 索引；跨文件目标位于当前 section 之前时，只压低 class/fragment 弱阳性，避免尾注区回链被误拦截，同时保留显式语义和上标强信号。
-- **搜索结果性能保护（v2.5.1）**：全文搜索的 1000 条上限会在每章结果合并前执行，单章超量命中也只渲染前 1000 条，避免大书高频词搜索一次性撑爆结果列表。
-- **脚注切书上下文隔离（v2.4.13）**：EPUB 脚注点击、异步加载和弹窗跳转捕获发起时的 book/rendition；旧 iframe 或旧脚注慢返回不会污染新书。
-- **图片查看切书上下文隔离（v2.4.13）**：EPUB iframe 图片点击捕获当前 rendition；切书或布局重建后，旧 iframe 图片点击不会打开当前书籍页面的图片查看器。
-- **进度值归一化（v2.4.8）**：书架与弹窗展示阅读进度前会把 storage 值裁剪到 0–100，避免损坏数据影响文本或 CSS 进度条。
-- **书架顺序稳定（v2.4.7）**：书籍卡片流式渲染时按 recentBooks 原始索引替换对应骨架，封面或元数据返回速度不同也不会打乱最近阅读顺序。
-- **数据库版本一致性**：所有 IndexedDB 读写路径统一通过 DbGateway（DB v4）管理，消除新用户首次访问时读到空数据库的边缘场景。
-- **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
-- **阅读位置实时保存**：翻页/滚动后的首个稳定 CFI 会立即启动持久化，连续变化时再用 300ms 防抖保存最终位置，减少关闭页面时回到旧位置的风险。
-- **切书前会话收口（v2.4.7）**：在阅读器内打开另一本文本前，会先落盘旧书位置、阅读时长和速度采样，再卸载模块并销毁旧 rendition，避免 iframe 与事件绑定跨书残留。
-- **导入缓存完整性（v2.4.7）**：Reader 页本地导入会等待 EPUB 文件写入 IndexedDB 后再进入阅读，确保关闭后可从书架或弹窗重新打开。
-- **主动删除与 LRU 分层清理（v2.4.7）**：用户主动删除书籍会清理 recentBooks、bookMeta、封面、locations、高亮、书签和文件；自动 LRU 只淘汰 EPUB 文件缓存，保留阅读进度、书签和标注，重新导入同一本书后可继续使用。
-- **注释弹窗内容清洗（v2.4.7）**：EPUB 脚注/尾注 HTML 进入扩展宿主页前逐属性移除事件处理器、`srcdoc` 与 `javascript:` URL，覆盖未加引号和空白混淆写法。
-- **恢复锚点保护**：分页模式重新打开书籍后，用户真正导航前不会把 epub.js 回报的页边界 CFI 覆盖为新位置，避免刷新或重开时连续跳页。
-- **重开定位无翻页校正（v2.4.6）**：恢复时要求 `locator.restoreCfi` 明确绑定当前 `pos.cfi`；若 fresh rendition 首次 `display(restoreCfi)` 后短暂停在同章节旧页，只在 loading 期间重放一次同一个 CFI，不调用 `next()/prev()`，避免重开时快速翻动。
-- **分裂位置快照自愈（v2.4.5）**：若缓存 locations 发现 `pos.cfi` 与已保存百分比明显不一致，则用百分比回推 CFI，避免“右下角进度是新的、页面仍是老的”。
-- **iframe 用户翻页保护释放（v2.4.5）**：恢复后在 EPUB iframe 内滚轮、触摸、鼠标或键盘翻页会解除恢复锚点保护，确保新页立即保存。
-- **关闭前待写入保护（v2.4.5）**：若翻页后的防抖保存尚未执行，关闭/刷新会直接保存最新 relocated 快照，不再用可能滞后的 `currentLocation()` 覆盖回旧页；损坏的 locations 缓存会自动降级为后台重建。
-- **翻页位置即时落盘（v2.4.4）**：`relocated` 事件优先作为本次翻页的新位置保存，避免同一 tick 内滞后的 `currentLocation()` 把恢复锚点回滚到旧页；CFI 相同但 locator/百分比变化时也会刷新存储。
-- **分页恢复锚点保存（v2.4.3）**：分页模式在 `locator.restoreCfi` 中保存从页起点向页内轻微前移的恢复锚点，关闭/刷新前会重新生成该 locator，避免重开书籍时被边界归属到上一页。
-- **恢复 locator 失效自愈（v2.4.2）**：旧版或不可比的页码快照会自动失效，恢复时保留可靠 CFI 锚点；v2.4.6 起 locator 只允许触发同 CFI 直接重放，不驱动翻页导航。
-- **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
-- **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过有效 hex 长度（3/4/6/8 位）或 `transparent` 白名单过滤；缺失/损坏颜色回退默认高亮色，防止 CSS 注入和不可见高亮。
-- **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。
-- **文件淘汰串行化（v2.4.0）**：`enforceFileLRU` 改为逐项串行淘汰 + per-item try/catch，避免并发读改写竞态导致书籍记录丢失。
-- **架构约束强制化（v2.4.0）**：Reader 各层严格遵守职责边界——persistence 层不持有 DOM 引用，runtime 层不直接操作视图，UI 辅助函数作为唯一 DOM 入口。
+脚本由 HTML 直接加载，顺序即依赖边界；入口本地脚本不使用 `?v=` 查询串刷新缓存。
 
-## 📄 开源协议 (License)
+## 架构概览
 
-本项目遵循 [MIT License](LICENSE) 协议开源。欢迎每一位同样热爱纯净阅读的开发者提交 Issue 与 Pull Request 共同改进打磨。
+- 渲染：`epub.js` + `JSZip`
+- 存储：IndexedDB（EPUB 文件、封面、locations）+ `chrome.storage.local`（偏好、最近书籍、进度、标注、书签）
+- Reader 分层：`reader-state` / `reader-runtime` / `reader-persistence` / `reader-ui`
+- 存储入口：业务代码统一通过 `EpubStorage`，不直接访问 `chrome.storage.local` 或 IndexedDB
+
+更多实现细节见 [docs/architecture.md](docs/architecture.md)。
+
+## 隐私与安全
+
+- Local First：不上传书籍、标注或阅读记录。
+- EPUB/用户内容进入页面优先使用 DOM API 和 `textContent`。
+- 颜色、属性、脚注 HTML 和 Blob URL 生命周期均有边界处理。
+- 自动 LRU 只淘汰 EPUB 文件缓存；主动删除书籍才级联清理进度、标注、书签等数据。
+
+## 文档
+
+- [CHANGELOG.md](CHANGELOG.md)：历史版本和已完成变更。
+- [docs/ROADMAP.md](docs/ROADMAP.md)：未来计划和活跃技术债。
+- [AGENTS.md](AGENTS.md)：维护约束和协作规则。
+
+## License
+
+[MIT](LICENSE)

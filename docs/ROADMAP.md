@@ -1,226 +1,39 @@
-# EPUB Reader — 项目路线图
+# EPUB Reader — Roadmap
 
-> 最后更新：2026-07-08（v2.5.4）
+> 更新：2026-07-08（v2.5.5）
 
----
-
-## 当前状态
-
-- **v2.5.4 已完成**（2026-07-08）：首页书架单本读取降级——单本封面或 `bookMeta` 读取失败只影响当前卡片，整轮流式渲染不会失败或留下骨架；home 入口脚本 cache-buster 已刷新。
-- **v2.5.3 已完成**（2026-07-08）：共享颜色白名单严格化——`Utils.sanitizeColor()` 只接受 CSS 有效 hex 长度（3/4/6/8 位）或 `transparent`；缺失/损坏高亮颜色回退默认可见高亮色；Reader、home、popup 入口脚本 cache-buster 已刷新。
-- **v2.5.2 已完成**（2026-07-08）：首页 DOM 属性上下文收敛——书架卡片的书名、文件名和作者不再进入 `innerHTML` 模板，统一通过 `textContent` 与 DOM 属性赋值。
-- **v2.5.1 已完成**（2026-07-08）：Search 结果上限性能保护——每章结果合并前按剩余上限裁剪，单章节超量命中不会越过 1000 条渲染上限；搜索阈值常量化。
-- **v2.5.0 已完成**（2026-07-07）：Annotations 跨文档拓扑——基于 `contents.sectionIndex` 与 book spine href 索引判断跨文件目标是否位于当前 section 之前；该信号只压低 class/fragment 弱阳性，显式语义、上标与明确 footnote 容器强信号保持有效。
-- **v2.4.18 已完成**（2026-07-07）：Annotations FB2 转换格式兼容——识别 `body[name="notes"]` / `body[name="comments"]` 注释容器，注释区内回链排除，正文链接指向该容器时可识别为脚注。
-- **v2.4.17 已完成**（2026-07-07）：Annotations 同文档拓扑弱负向信号——同文档目标位于源链接之前时压低 class/fragment 弱阳性，但不否决显式 noteref、上标或 footnote 容器强信号。
-- **v2.4.16 已完成**（2026-07-07）：Annotations 四位年份误判收敛——纯数字脚注 marker 收窄到 1-3 位，`1984`/`2023` 等正文年份链接不再被 note-like fragment 误判；显式 `epub:type="noteref"` 仍可覆盖。
-- **v2.4.15 已完成**（2026-07-07）：Annotations 跨文档注释 LRU 缓存——同一尾注文件二次点击复用已解析内容树，容量 50，切书/卸载清空；Reader 脚本 cache-buster 升级至 `?v=17`。
-- **v2.4.14 已完成**（2026-07-07）：Annotations 算法与代码质量项收敛——CSS `vertical-align` 上标识别、孤立长链接排除、内容安全阀、空锚点 sibling 收集、`_hasSup()`、`_parseHref()`、`_BLOCK_TAGS`、`_PAGINATION_SETTLE_MS`、fallback CSS class 与跨章节加载绑定复用均已落地。
-- **v2.4.13 已完成**（2026-07-07）：Reader 异步上下文隔离——旧 `rendition` 迟到事件、旧搜索任务、旧脚注加载和旧 iframe 图片点击不会污染当前书籍；Reader 脚本 cache-buster 升级至 `?v=15`。
-- **v2.4.12 已完成**（2026-07-07）：首页刷新、书签、高亮加载与保存加入代次/上下文守卫，旧请求慢返回不会覆盖新 UI 或新书数据。
-- **v2.4.11 已完成**（2026-07-07）：`recentBooks`、`bookMeta` 整体覆写、清除与 lazy migration 全部串行化，消除读改写竞态。
-- **v2.4.10 已完成**（2026-07-07）：首页、弹窗和偏好保存加入异步错误隔离；偏好写入串行化。
-- **v2.4.9 已完成**（2026-07-07）：Reader 模块导出契约一致化，Search 补齐 IIFE/`window.Search`；TOC href 匹配精确化。
-- **v2.4.8 已完成**（2026-07-07）：存储 key 中心化、Reader UI 与功能模块初始化幂等、展示进度归一化。
-- **v2.4.7 已完成**（2026-07-07）：切书前会话收口、导入后可重开、缓存二进制边界、主动删除与自动 LRU 分层清理、书架顺序稳定和注释弹窗清洗增强。
-- **v2.4.6 已完成**（2026-07-07）：重开定位无快速翻页——同章节旧页短暂回报时重放同一个 `displayCfi`，彻底移除恢复期 `next()/prev()` 校正；用户 EPUB 连续重开 3 次验证不回退、不覆盖 storage。
-- **v2.4.5 已完成**（2026-07-07）：分裂位置快照与重开错页修复——restoreCfi 绑定 sourceCfi，iframe 手势解除恢复保护，pos.cfi 与 percentage 不一致时用百分比兜底恢复，pending flush 不回滚，损坏 locations 缓存降级重建；其 `next()/prev()` 有限页校正已被 v2.4.6 替换为同 CFI 直接重放。
-- **v2.4.4 已完成**（2026-07-07）：翻页后保存位置不回滚——onRelocated 优先使用 relocated 事件位置，CFI 相同但 locator/百分比变化也会落盘。
-- **v2.4.3 已完成**（2026-07-06）：分页模式保存恢复锚点——pos.cfi 保持 start.cfi，locator.restoreCfi 保存页内恢复锚点，避免重开书籍时页边界 CFI 被归属到上一页。
-- **v2.4.2 已完成**（2026-07-06）：恢复期不再自动翻页——locator 只校验，不执行 next/prev；v2.4.6 最终确认该原则，仅允许同 CFI 直接重放。
-- **v2.3.3 已完成**（2026-06-24）：位置恢复级联退化修复——onRelocated 重采样 CFI、CFI 变化守卫、setLayout/_withCfiLock 恢复保护、beforeunload 兜底。
-- **v2.3.2 已完成**（2026-06-24）：位置恢复跳页修复——移除页校正导航、isLayoutStable 门控、resize 防抖。
-- **v2.3.1 已完成**（2026-06-24）：iframe hook 幂等性 + 生命周期收敛。
-- **v2.3.0 已完成**（2026-06-24）：阅读位置恢复重写（start.cfi + displayed-page locator）。
-- **下一步**：继续全局质量巡检，优先评估阅读体验增强与大文件性能候选项。
+本文件只记录未来方向和仍需评估的工作。已完成版本、修复细节与历史演进统一归档到 `CHANGELOG.md`；架构约束与设计决策统一维护在 `docs/architecture.md`。
 
 ---
 
-## 已完成里程碑
+## 维护原则
 
-| 版本 | 主题 | 关键交付 |
-|------|------|---------|
-| v2.5.4 | 首页书架单本读取降级 | 封面/bookMeta 局部 catch、无封面/无进度回退、home cache-buster |
-| v2.5.3 | 颜色白名单严格化 | CSS 有效 hex 长度校验、损坏高亮颜色默认可见、首页标注背景 color-mix、三入口 cache-buster |
-| v2.5.2 | 首页 DOM 属性安全 | 书籍元数据脱离 innerHTML 模板、title 属性 DOM 赋值、属性上下文契约 |
-| v2.5.1 | Search 性能保护 | 单章超量结果裁剪、搜索阈值常量化、1000 条渲染上限回归 |
-| v2.5.0 | Annotations 跨文档拓扑 | spine href/index 映射、跨文件目标前置弱负向信号、相对 href 解析归口 |
-| v2.4.18 | Annotations FB2 兼容 | notes/comments body 容器识别、注释区回链排除、目标容器强信号 |
-| v2.4.17 | Annotations 同文档拓扑 | 目标前置弱负向信号、class/fragment 弱阳性压低、强信号保留 |
-| v2.4.16 | Annotations 数字 marker 收敛 | 四位年份误判排除、`epub:type=noteref` 白名单、数字 marker 1-3 位约束 |
-| v2.4.15 | Annotations 跨文档缓存 | 尾注 section 内容树 LRU 缓存、切书清空、统一 section 加载辅助 |
-| v2.4.14 | Annotations 算法与技术债收敛 | CSS 上标识别、孤立长链接排除、内容安全阀、sup/href 公共辅助、模块级常量、fallback CSS class、绑定复用 |
-| v2.4.13 | Reader 异步上下文隔离 | 旧 rendition 事件隔离、搜索切书守卫、脚注/图片上下文捕获 |
-| v2.4.12 | 异步刷新代次隔离 | 首页刷新、书签、高亮旧请求防回写与失败隔离 |
-| v2.4.11 | 存储并发串行化 | recentBooks 队列、bookMeta 覆写/清除/migration 同书队列 |
-| v2.4.10 | 入口错误隔离 | 首页/弹窗异步失败收敛、偏好写入串行化 |
-| v2.4.9 | 模块契约一致化 | Search IIFE 导出、TOC 精确匹配、Reader cache-buster 对齐 |
-| v2.4.8 | 契约与幂等治理 | 存储 key 中心化、UI/模块 init 幂等、进度归一化 |
-| v2.4.7 | 生命周期闭合 | 切书会话收口、导入缓存完整性、主动删除与自动 LRU 分层 |
-| v2.4.6 | 重开定位无快速翻页 | 同 CFI 直接重放一次、恢复期禁止 next/prev、连续重开不回退 |
-| v2.4.5 | 分裂位置快照与重开错页修复 | restoreCfi 绑定 sourceCfi、iframe 手势解除恢复保护、百分比兜底恢复、pending flush 保护、损坏 locations 缓存降级 |
-| v2.4.4 | 翻页保存不回滚 | relocated 事件优先、CFI 相同但 locator/百分比变化仍保存 |
-| v2.4.3 | 分页恢复锚点保存 | pos.cfi 保持 start.cfi、locator.restoreCfi 保存页内恢复锚点 |
-| v2.4.2 | 恢复期不自动翻页 | locator 只校验，页码差异清空 locator；v2.4.6 确认为禁止 next/prev |
-| v2.3.3 | 位置恢复级联退化修复 | onRelocated 重采样 CFI、CFI 变化守卫、setLayout 恢复保护、beforeunload |
-| v2.3.2 | 位置恢复跳页修复 | 移除页校正导航、isLayoutStable 门控、resize 防抖 |
-| v2.3.1 | iframe hook 幂等性 | WeakSet guard、补绑定当前 contents、openBook 直调收敛 |
-| v2.3.0 | 位置恢复重写 | start.cfi + displayed-page locator + 有界页校正、flushPositionSave 重建 |
-| v2.2.x | 位置恢复迭代 | 实时位置保存、end.cfi 尝试（已被 v2.3.0 替代）、CFI 恢复期保护 |
-| v2.1.x | Reader 内核解耦 | 四层拆分（runtime/state/persistence/ui）、mount/unmount 生命周期 |
-| v2.0.0 | 数据与性能治理 | 会话加权 ETA、locations idle 调度、书架流式渲染 |
-| v1.9.x | 1.x 收尾 | CSP 收敛、storage 错误语义、bookMeta 串行化、BUG-B 修复 |
-| v1.7.0 | 存储合并 | bookMeta 聚合、全并发加载、防抖写入、LRU 设计后续更正 |
-| v1.5.0 | Schema 重构 | DB v4（bookId 主键）、SHA-256 指纹、安全落盘语义 |
-| v1.0.0 | 基石 | epub.js 集成、IndexedDB 存储、TOC/搜索/主题 |
-
-> 详细开发演进记录见 `walkthrough.md`。
+- 路线图只保留未完成、待评估或需要产品取舍的事项。
+- 已完成事项发布后移出本文件，并补入 `CHANGELOG.md`；涉及长期架构约束时同步 `docs/architecture.md` / `AGENTS.md`。
+- 优先级以真实用户痛点、数据安全、阅读位置可靠性和大文件性能为先。
+- 无明确收益的维护负担不进入路线图；例如入口本地脚本不再使用手动查询串刷新缓存。
 
 ---
 
-## 路线规划
+## v2.6 — 阅读体验增强（待评估）
 
-### 后续 — Annotations 算法深度对齐 + 代码质量专项（计划 5～7 工作日）
-
-> 基于 Calibre/KOReader 注释识别算法逆向分析，对 `annotations.js` 进行算法专项与代码质量专项双线治理。
-
-#### 算法专项（AN-1 ～ AN-5）
-
-> v2.4.14 已完成 AN-1、AN-2 与 AN-4；v2.4.15 已完成 AN-5；v2.4.16 已完成 AN-7；v2.4.17 已完成 AN-3a；v2.4.18 已完成 AN-6 基础容器识别；v2.5.0 已完成 AN-3b。
-
-**AN-1: computedStyle 垂直对齐检测（D-2026-11）**
-- 目标：补全 CSS `vertical-align: super` 替代 `<sup>` 标签的漏判场景。
-- 位置：`isFootnoteLink` Stage 3 末尾。
-- 实现：当 href 在前三阶段未得确定结论时，通过 `link.ownerDocument.defaultView.getComputedStyle(link)` 读取 `verticalAlign`；值为 `super/sub/top/bottom` 视为强正向信号；同时检测 `link.firstElementChild` 的 computedStyle 覆盖子节点继承场景。
-- 约束：`getComputedStyle` 为同步调用，O(1)，仅在前三阶段未命中时触发。
-- 验收：CSS `vertical-align:super` 场景识别率 ≥ 95%（原 0%）。
-
-**AN-2: 源节点孤立性检查（D-2026-12）**
-- 目标：排除扁平 `<p>` 单链接（TOC 变体）被误判为注释。
-- 位置：`isFootnoteLink` Stage 2 `_isTocList` 之后，作为加强型 Definitive NO。
-- 条件：链接文本长度 > 6 且构成父块 `textContent` 的 > 80%。
-- 验收：扁平 `<p>` 单链接误判率降至 0（回归测试覆盖 10 种 TOC 变体）。
-
-**AN-3a: 同文档位置前后关系（D-2026-11 关联）**
-- 目标：同文档 `href.startsWith('#')` 情形下，用 `compareDocumentPosition` 判断目标节点与源节点顺序。
-- 信号强度：弱负向信号（目标在源之前 → 倾向为返回链接，单独不否决）。
-- 状态：v2.4.17 已落地；同文档目标前置会压低 class/fragment 弱阳性，但保留显式 noteref、上标与 footnote 容器强信号。
-
-**AN-4: 注释内容提取边界安全阀（D-2026-13）**
-- 目标：防止空锚点场景返回超长非注释内容。
-- 实现两步：
-  1. `_extractContent` 末尾对纯文本提取后检查字符长度，超 `MAX_FOOTNOTE_TEXT = 2000` 时截断并追加"… [内容过长，请点击原文]"提示。
-  2. 空锚点场景改为沿 nextSibling 遍历收集内容，遇 `<hr>` / `H1-H6` / 另一含 `id` 的 `<a>` / 累计 > 2000 字符时停止。
-- 验收：空锚点弹窗不展示超过 2000 字符的内容；测试用例全部通过。
-
-**AN-5: 跨文档注释 LRU 缓存（D-2026-14）**
-- 目标：同一尾注文件第二次点击 P90 响应 < 15ms。
-- 实现：`Map` 为底层的简易 LRU（容量 50），key = `sectionHref`，value = 已解析内容树；TTL = book 生命周期（`unmount()` 时清空）。
-- 约束：缓存大小须满足合理内存边界（50 × 平均 2KB ≈ 100KB）。
-- 状态：v2.4.15 已落地；自动回归覆盖缓存命中不重复 `section.load()` 与切书清空，真实 P90 仍保留为手动性能验证项。
-
-#### 代码质量专项（AN-C1 ～ AN-C8）
-
-> v2.4.14 已完成 AN-C1、AN-C2、AN-C3、AN-C4、AN-C5、AN-C7、AN-C8；AN-C6 已在 v2.1.1 前置完成。后续 Annotations 专项只保留算法与兼容性增强。
-
-**AN-C1: 提取 `_hasSup()` 公共方法（D-2026-17）**
-- 消除 `isBackLink` / `isFootnoteLink` 中重复的 `closest('sup')` + `querySelector('sup')` 组合。
-- 签名：`_hasSup(link: Element): boolean`
-
-**AN-C2: `_BLOCK_TAGS` 升为模块级 `Set`（D-2026-18）**
-- `_extractContent` 内 `const BLOCK = [...]` 局部数组每次调用重建，升为模块级 `const _BLOCK_TAGS = new Set([...])`。
-
-**AN-C3: last-resort 降级路径 inline style 迁移（D-2026-19）**
-- `showFootnote` last-resort 降级路径含 inline style 字符串，违反 style.* 约束。
-- 迁移为 CSS class `.annotation-fallback-hint`（reader.css v2.2.0 已预留）。
-
-**AN-C4: 提取 `_PAGINATION_SETTLE_MS` 具名常量（D-2026-20）**
-- `_compensatePaginationOffset` 中 100ms 等待提取为 `const _PAGINATION_SETTLE_MS = 100`。
-
-**AN-C5: 提取 `_parseHref()` 统一 href 片段解析（D-2026-21）**
-- `showFootnote` / `_loadFromBook` / `_compensatePaginationOffset` 三处 href 解析逻辑碎片化，统一提取为 `_parseHref(href): { sectionHref, fragmentId }`。
-- 验收：`split('#')` 出现次数 ≤ 1（仅在 `_parseHref` 内部）。
-
-**AN-C7: `bind` 提取至循环外 + targetId 早退（D-2026-23）**
-- `_loadFromBook` Method 4 循环内重复 `.bind(this)`，提取至循环外。
-- 无 targetId 时提前退出，避免无效迭代。
-
-**AN-C8: `_isTocList` 阈值与 `_RE` 正则词汇来源注释（D-2026-24）**
-- `_isTocList` 阈值（如 `>= 3`）与 `_RE` 正则词汇（如 `back|return|返回`）补充来源注释，说明来自 Calibre/KOReader 算法参考。
-
-**验收标准（Annotations 专项整体）**：
-- `getComputedStyle` 检测：CSS `vertical-align:super` 场景识别率 ≥ 95%。
-- 孤立性检查：10 种 TOC 变体误判率 = 0。
-- 内容安全阀：空锚点弹窗 ≤ 2000 字符。
-- 缓存命中：同文档第二次点击 P90 < 15ms（手动验证）。
-- AN-C1～C8 全部重构完成，无回归。
-
-### v2.5.0 — Annotations 跨文档拓扑与 FB2 兼容（已完成）
-
-> v2.4.0 的延伸，处理更复杂的跨文档场景与历史格式兼容。
-
-- [x] **AN-3b**：spine index 跨文档位置比对（AN-3 Step B）。`_buildDocContext()` 基于 `contents.sectionIndex` 和 book spine 构建 href/index 映射；跨文件目标位于当前 section 之前时只压低 class/id 与 fragment 弱阳性，强语义和上标信号不被否决。（v2.5.0）
-- [x] **AN-6**：FB2 转换格式兼容（对应 Calibre 掩码 0x0008）。识别 `body[name="notes"]` / `body[name="comments"]` 下的 `section` 结构，将其链接视为注释容器高置信度；在 `_buildDocContext` 中扫描并加入 `footnoteSectionNodes`。（v2.4.18 基础容器识别已落地）
-- [x] **AN-7**：数字标记上限收窄至 3 位（过滤年份误判），白名单保留 `epub:type="noteref"` 覆盖 4 位数字场景。（v2.4.16）
-
-**验收标准**：
-- FB2 转换书籍（测试集 5 本）注释识别率 ≥ 90%。
-- 正文中 "1984"、"2023" 等年份数字链接误判率 = 0（v2.4.16 已用回归测试覆盖基础链路）。
-- 跨文档目标前置弱负向、目标后置保留弱阳性、上标强信号保留、spine 索引上下文构建已用自动回归覆盖。
-
-### v2.6.0 — 阅读体验增强（待评估）
-
-> 以下为候选方向，需根据用户反馈和使用数据确定优先级。
-
-- [ ] EPUB 3 Media Overlays 支持（SMIL 同步朗读）。
+- [ ] EPUB 3 Media Overlays（SMIL 同步朗读）支持。
 - [ ] RTL（从右到左）文字方向布局适配。
-- [ ] 键盘快捷键体系增强（章节跳转、标注操作、搜索导航）。
-- [ ] 标注导出格式扩展（PDF 批注、Anki 卡片）。
+- [ ] 键盘快捷键体系增强：章节跳转、标注操作、搜索导航。
+- [ ] 标注导出格式扩展：PDF 批注、Anki 卡片。
 
-### v2.7.0 — 性能与大文件优化（待评估）
+## v2.7 — 性能与大文件优化（待评估）
 
 - [ ] 超大 EPUB（>50MB）分片加载与内存优化。
-- [ ] Locations 生成 Web Worker 化，彻底释放主线程。
-- [ ] 标注数据分页加载（单书 >500 条标注场景）。
+- [ ] Locations 生成 Web Worker 化，进一步降低主线程占用。
+- [ ] 标注数据分页加载，覆盖单书 >500 条标注场景。
 
----
+## 持续巡检
 
-## 关键设计决策（ADR）
+- [ ] 继续关注阅读位置恢复链路：重开、刷新、切书、布局切换和 locations 损坏降级。
+- [ ] 继续审计 EPUB 内容进入 DOM、属性和样式上下文的边界。
+- [ ] 保持存储写入队列、异步代次守卫和模块生命周期契约的回归覆盖。
 
-### ADR-001：基于内容的 bookId
-解决同名不同内容进度覆盖问题。使用 `SHA-256(filename + content[:64KB])` 生成。
+## 活跃技术债
 
-### ADR-002：两级存储分层
-Binary 走 IndexedDB，轻量 Metadata 走 Chrome Storage (10MB 限额)。
-
-### ADR-003：Key 分离原则
-按写频率分组（pos/time/speed 各自独立 patch），规避合并对象引起的写放大问题。
-
-### ADR-004：锚点对齐 start.cfi (v1.8.0)
-解决字号变大时由于单屏字数变少导致的重排偏移。
-
-### ADR-005：废弃 highlightKeys 索引 (v1.7.0)
-消除索引同步 Bug，改为遍历 `recentBooks` 并行读取。
-
-### ADR-006：阅读位置保存实时化 (v2.2.2)
-首个稳定 CFI 立即启动持久化，防抖仅用于连续翻页/滚动后的最终位置收敛。
-
-### ADR-007：恢复期 CFI 不落盘 (v2.2.5)
-`display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
-
-### ADR-008：分页边界 CFI 不作为唯一恢复真相 (v2.3.0 / v2.4.6)
-`start.cfi` 可前跳、`end.cfi` 可后跳；分页模式保留 `pos.cfi = start.cfi` 作为兼容主锚点，并在 displayed-page locator 中记录 `sourceCfi + restoreCfi` 作为实际 display 恢复锚点。`restoreCfi` 只有与当前 `pos.cfi` 同源才可信，生成失败或来源不匹配时降级为 `pos.cfi`；若 fresh rendition 首次 `display(restoreCfi)` 后 `currentLocation()` 短暂回报同章节旧页，只重放一次同一个 `displayCfi`，不得执行 `next()/prev()`；若 `pos.cfi` 与 `percentage` 分裂则用百分比兜底恢复。
-
-### ADR-009：Reader 子模块 hook 必须幂等 (v2.3.1)
-`openBook()`、`setLayout()` 与 epub.js contents 生命周期可能多次触达同一模块；模块需用 rendition/document 级 guard 防止重复监听，并在 display 后挂载时补绑定当前 iframe。
-
-### ADR-010：enforceFileLRU 不删除标注与书签
-自动 LRU 淘汰只删除 IndexedDB `files` 中的 EPUB 文件缓存；`recentBooks`、`bookMeta`、封面、locations、高亮和书签都必须保留。用户高亮笔记、书签、阅读进度以及封面/locations 缓存仅在主动 `removeBook()` 时级联删除。再次导入同一 bookId 时，阅读进度与标注应自动恢复。
-
----
-
-## 技术债务索引（仅活跃项）
-
-当前无活跃项。
-
-> 已修复的历史债务（D-2026-01～D-2026-26）全部清零，详见 git 历史。
+当前无已确认活跃技术债。新增债务应记录清楚触发条件、影响范围、验收标准和预计释放版本。

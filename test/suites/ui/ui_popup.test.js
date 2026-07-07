@@ -61,16 +61,17 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
   });
 
-  test.it('popup.html 弹窗脚本 cache-buster 保持一致', () => {
+  test.it('popup.html 弹窗脚本使用裸路径并保持加载顺序', () => {
     const html = fs.readFileSync('src/popup/popup.html', 'utf8');
     const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
-    const versions = scripts
-      .filter((src) => src.includes('.js?v='))
-      .map((src) => src.match(/\?v=(\d+)$/)?.[1])
-      .filter(Boolean);
 
-    assert.ok(versions.length > 0);
-    assert.equal(new Set(versions).size, 1, '弹窗本地脚本应使用同一个 cache-buster');
+    assert.deepEqual(scripts, [
+      '../utils/db-gateway.js',
+      '../utils/utils.js',
+      '../utils/storage.js',
+      'popup.js',
+    ]);
+    assert.ok(scripts.every((src) => !src.includes('?')), '弹窗本地脚本不应使用手动查询串刷新缓存');
   });
 
   test.it('popup.js 最近书籍加载不应阻塞核心事件绑定', () => {

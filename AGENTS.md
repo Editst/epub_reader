@@ -1,62 +1,75 @@
 # AGENTS.md
 
-## What This Repo Is
-- Chrome MV3 extension, no framework and no build step; load `src/` as the unpacked extension.
-- Runtime entrypoints are `src/manifest.json`, `src/reader/reader.html`, `src/home/home.html`, and `src/popup/popup.html`.
-- Scripts are loaded directly by HTML, so script order is a dependency boundary; do not assume bundling, imports, or tree shaking.
+## 协作原则
 
-## Commands
-- Run all tests: `node test/run_tests.js`
-- Run focused tests: `node --test-name-pattern="ReaderPersistence" test/run_tests.js`
-- There is no package manager manifest, lint, formatter, typecheck, or CI workflow in this repo; use tests plus manual review.
+- 中文回复，言简意赅；问题复杂时先给短计划，简单改动直接完成。
+- 如无必要，勿增实体：优先沿用现有模块、数据结构、工具函数和测试风格。
+- 这是 Chrome MV3 扩展，无框架、无构建步骤；直接加载 `src/` 作为 unpacked extension。
+- HTML 直接按顺序加载脚本，加载顺序就是依赖边界；不要假设存在 bundling、imports 或 tree shaking。
 
-## Test Harness Notes
-- `test/run_tests.js` is the single test entry and auto-discovers nested `test/suites/**/*.test.js` files.
-- The harness mocks `chrome.storage.local`, IndexedDB, minimal DOM, and wires `global.Utils`, `global.DbGateway`, and `global.EpubStorage`.
-- Use `resetAll()` in tests that touch storage or mocked DB state.
-- Browser-like module tests load files with `loadWindowScript()` from `test/helpers/browser_env.js`.
+## 常用命令
 
-## Reader Architecture
-- `src/reader/reader.js` is only the orchestrator; put behavior in the four layers it wires together: `reader-state.js`, `reader-runtime.js`, `reader-persistence.js`, `reader-ui.js`.
-- `reader-runtime.js` owns epub.js lifecycle, `openBook()`, file loading, navigation, layout switching, and locations generation.
-- `reader-persistence.js` owns reading position, time, speed, `relocated`, `visibilitychange`, and flush behavior.
-- Feature modules (`annotations`, `toc`, `search`, `bookmarks`, `highlights`, `image-viewer`) are mounted by lifecycle context; add new reader modules to `reader.html` and `reader.js` lifecycle wiring.
-- All reader modules use IIFE wrappers: `(function () { 'use strict'; ... window.XXX = XXX; })();`
-- Module-level magic numbers should be extracted as named constants at the top of the IIFE.
-- Shared helpers between `openBook` and `setLayout` live in `reader-runtime.js` as private functions (`_createRendition`, `_hookRenditionEvents`).
-- Shared utilities between reader modules live in `reader-state.js` (`findTocItem`, `buildPrefsSignature`).
-- In `annotations.js`, keep sup detection in `_hasSup()`, href fragment parsing in `_parseHref()`, block tags/timing thresholds as module-level constants, and fallback hint styling in `.annotation-fallback-hint`; do not reintroduce scattered `split('#')` parsing or inline fallback styles. CSS `vertical-align: super/sub/top/bottom` is a footnote signal only after cheap gates pass, isolated long links that dominate their parent block must remain excluded to avoid flat TOC false positives, and `_extractContent()` must keep the 2000-character safety valve plus empty-anchor sibling boundary scan. Cross-document footnote content caching must remain book-lifetime scoped, capped by `_FOOTNOTE_SECTION_CACHE_LIMIT`, and cleared on `setBook()` book changes and `unmount()`. Pure numeric note markers are limited to 1-3 digits; four-digit numbers are treated as year-like false-positive risks unless explicit EPUB semantics such as `epub:type="noteref"` already accepted them. Same-document and cross-document target-before-source checks must stay weak negative signals: use them to suppress class/fragment weak positives, not to override explicit semantics, superscript signals, or confirmed footnote containers. Cross-document topology must be derived from `contents.sectionIndex` plus book spine href indexes when available; missing spine context must fall back to old behavior. FB2/Calibre `body[name="notes"]` and `body[name="comments"]` must remain recognized as footnote containers for both section-link exclusion and same-document target analysis.
-- In `search.js`, keep search result limits and timing thresholds as module-level constants. `_SEARCH_MAX_RESULTS` must cap results before each chapter batch is merged/rendered; a single chapter returning more than the limit must not render beyond the limit.
+- 全量测试：`node test/run_tests.js`
+- 聚焦测试：`node --test-name-pattern="ReaderPersistence" test/run_tests.js`
+- 本仓库没有 package manager manifest、lint、formatter、typecheck 或 CI；依赖测试和人工审查验证。
 
-## Critical Loading Order
-- In `reader.html`: libraries first (`jszip`, `epub`), then utils (`db-gateway`, `utils`, `storage`), then feature modules, then `reader-state`, `reader-ui`, `reader-persistence`, `reader-runtime`, and finally `reader.js`.
-- `storage.js` depends on `db-gateway.js`; `reader.js` depends on all reader layers and feature module globals.
+## 入口与加载顺序
 
-## Storage Rules
-- All app persistence goes through `EpubStorage` in `src/utils/storage.js`; do not call `chrome.storage.local` or IndexedDB directly from page or reader modules.
-- Binary EPUB files, covers, and locations live in IndexedDB via `DbGateway`; preferences, recent books, highlights, bookmarks, and `bookMeta_<bookId>` live in `chrome.storage.local`.
-- `preferences` and `recentBooks` read-modify-write paths must use their internal queues; do not reintroduce naked `_get` → mutate → `_set` sequences for these shared keys.
-- `bookMeta_<bookId>` merges `pos`, `time`, and `speed`; same-book full overwrite/patch/clear paths are serialized by the internal bookMeta queue to avoid read-modify-write races.
-- `getBookMeta()` lazy migration from legacy `pos_` / `time_` keys must also run inside the same bookMeta queue; first-time patch creation should absorb legacy fields before applying the new patch.
-- Automatic LRU cleanup (`enforceFileLRU`) must only evict IndexedDB `files` EPUB cache; preserve `recentBooks`, `bookMeta`, highlights, bookmarks, covers, and locations so re-importing the same book can recover reading progress and annotations. Explicit `removeBook()` remains the full cascade delete path.
-- Book IDs are content-derived (`SHA-256(filename + first 64KB)`), not filename-only.
+- Runtime 入口：`src/manifest.json`、`src/reader/reader.html`、`src/home/home.html`、`src/popup/popup.html`。
+- `reader.html` 加载顺序必须保持：库（`jszip`、`epub`）→ utils（`db-gateway`、`utils`、`storage`）→ 功能模块 → `reader-state`、`reader-ui`、`reader-persistence`、`reader-runtime` → `reader.js`。
+- `storage.js` 依赖 `db-gateway.js`；`reader.js` 依赖所有 reader 层和功能模块全局导出。
+- 本地脚本不使用 `?v=` 等手动查询串刷新缓存；Chrome 扩展更新/开发者模式 reload 会刷新扩展资源。
 
-## Reading Position Gotchas
-- v2.3 stores `pos.cfi` as a coarse `location.start.cfi` plus `pos.locator` (`epubjs-displayed-page-v1`) for displayed-page correction; do not revert to using `location.end.cfi` as the main restore anchor.
-- During `openBook()` restore, `state.isRestoringPosition` must stay true until CFI display, font/render stabilization, and any one-page correction complete; intermediate `relocated` events must not write storage.
-- `flushPositionSave()` should resample `rendition.currentLocation()` before saving so refresh/close does not persist stale in-memory CFI/locator.
-- Locations generation is non-blocking: first render must proceed without waiting for `book.locations.generate()`.
+## Reader 架构
 
-## DOM, Security, And Style
-- User/book content inserted into DOM must use `textContent` or `Utils.escapeHtml`; avoid `innerHTML` with unsanitized content. `Utils.escapeHtml` is only for element text context; do not use it inside quoted HTML attributes. Attribute values from EPUB/user data must be assigned through DOM properties or `setAttribute` after template construction.
-- User/book colors entering inline style or CSS custom properties must be normalized first; only CSS-valid hex lengths (3/4/6/8 digits) or `transparent` are allowed, and alpha colors must not be built by appending string suffixes to arbitrary hex input.
-- In `highlights.js`, only explicit `color === 'transparent'` is note-only; missing or invalid highlight colors must fall back to the default visible highlight color.
-- In `home.js`, bookshelf card cover and `bookMeta` reads must be isolated per book; a single damaged cover/meta record should degrade that card to no cover/no progress, not fail the whole streaming bookshelf render or leave skeletons behind.
-- Runtime visibility should generally use CSS classes (`is-hidden`, `is-visible`, panel classes), not `style.display`; existing exceptions include dynamic image transforms and popup-specific constraints.
-- Revoke `URL.createObjectURL()` results after cover/image use.
+- `src/reader/reader.js` 只做 orchestrator；行为放在四层：`reader-state.js`、`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js`。
+- `reader-runtime.js` 负责 epub.js 生命周期、`openBook()`、文件加载、导航、布局切换和 locations 生成。
+- `reader-persistence.js` 负责阅读位置、阅读时长、速度统计、`relocated`、`visibilitychange` 和 flush。
+- `reader-ui.js` 是 Reader DOM 操作入口；persistence 层不得直接持有 DOM 引用。
+- 功能模块（`annotations`、`toc`、`search`、`bookmarks`、`highlights`、`image-viewer`）通过 lifecycle context 挂载；新增模块必须同步 `reader.html` 和 `reader.js` 生命周期 wiring。
+- Reader 模块统一 IIFE：`(function () { 'use strict'; ... window.XXX = XXX; })();`
+- 模块级魔法数字提取为顶部命名常量；`openBook`/`setLayout` 共享逻辑放在 `reader-runtime.js` 私有函数；跨 reader 模块共享 helper 放在 `reader-state.js`。
 
-## Release And Docs
-- Extension version is in `src/manifest.json`; version tests in `test/suites/system/sys_manifest.test.js` must match.
-- 修改代码后同步更新扩展版本号（`src/manifest.json`），并按需同步版本测试和发布文档。
-- Update `CHANGELOG.md`, `README.md`, `docs/architecture.md` for behavior or version changes.
-- Comments and docs in this repo commonly use Chinese; keep that style when adding explanatory comments near existing Chinese documentation.
+## 存储规则
+
+- 所有 app 持久化走 `EpubStorage`；页面和 reader 模块不要直接调用 `chrome.storage.local` 或 IndexedDB。
+- EPUB 文件、封面、locations 存 IndexedDB（`DbGateway`）；preferences、recentBooks、highlights、bookmarks、`bookMeta_<bookId>` 存 `chrome.storage.local`。
+- `preferences`、`recentBooks`、同书 `bookMeta` 的读改写必须走内部队列，禁止裸 `_get` → mutate → `_set`。
+- `getBookMeta()` 的旧 `pos_` / `time_` lazy migration 必须进入同书队列；首次 patch 应先吸收 legacy 字段。
+- 自动 `enforceFileLRU` 只淘汰 IndexedDB `files` EPUB 缓存；阅读进度、标注、书签、封面和 locations 只能在主动 `removeBook()` 时级联删除。
+- Book ID 使用 `SHA-256(filename + first 64KB)`，不要退回文件名或弱哈希。
+
+## 阅读位置约束
+
+- v2.3+ 的主锚点是 `pos.cfi = location.start.cfi`，分页恢复依赖 `pos.locator`（`epubjs-displayed-page-v1`）；不要恢复为 `location.end.cfi` 主锚点。
+- `openBook()` 恢复期间，`state.isRestoringPosition` 必须覆盖 CFI display、字体/布局稳定和必要的一次同 CFI 重放；中间 `relocated` 不得写 storage。
+- 恢复期不得执行 `next()` / `prev()` 页校正；fresh rendition 短暂回报旧页时只允许同一个 `displayCfi` 直接重放一次。
+- `flushPositionSave()` 保存前应按当前状态重建位置；有 pending 防抖写入时不得用滞后的 `rendition.currentLocation()` 覆盖刚翻到的新页。
+- locations 生成是后台能力；首屏渲染不得等待 `book.locations.generate()`。
+
+## 功能模块重点
+
+- `annotations.js`：保留 `_hasSup()`、`_parseHref()`、模块级 block tags/timing/cache 常量和 `.annotation-fallback-hint`；不要重新散落 `split('#')` 或 inline fallback style。
+- 脚注识别中，CSS `vertical-align: super/sub/top/bottom` 只能在便宜 gate 后作为强信号；孤立长链接、四位年份、同文档/跨文档目标前置等只作为误判抑制，不得覆盖显式 EPUB 语义、上标或明确 footnote 容器。
+- 跨文档注释缓存只在 book 生命周期内有效，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT` 控制，切书和 `unmount()` 必须清空。
+- FB2/Calibre `body[name="notes"]` / `body[name="comments"]` 必须继续被识别为注释容器。
+- `search.js` 的结果上限和 timing 阈值保持模块级常量；每章结果合并前必须按 `_SEARCH_MAX_RESULTS` 裁剪。
+- `home.js` 书架卡片封面或 `bookMeta` 单本读取失败只能降级当前卡片，不得让整轮流式渲染失败或留下骨架。
+
+## DOM、安全与样式
+
+- 用户/书籍内容进 DOM 优先用 `textContent` 或 DOM 属性赋值；避免用 `innerHTML` 拼接未清洗内容。
+- `Utils.escapeHtml` 只用于元素正文上下文，不能用于带引号 HTML 属性；属性值用 DOM property 或 `setAttribute`。
+- 进入 inline style 或 CSS custom property 的颜色必须先归一化；只允许 CSS 有效 hex 长度（3/4/6/8）或 `transparent`。
+- `highlights.js` 中只有显式 `color === 'transparent'` 是纯笔记；缺失或非法颜色必须回退默认可见高亮色。
+- 运行时显隐优先用 CSS class（`is-hidden`、`is-visible`、panel class）；已知例外包括图片 transform、popup 小入口和必要的动态定位。
+- `URL.createObjectURL()` 结果使用后及时 revoke。
+
+## 测试与发布文档
+
+- 测试入口是 `test/run_tests.js`，会自动发现 `test/suites/**/*.test.js`。
+- 测试环境 mock 了 `chrome.storage.local`、IndexedDB、最小 DOM，并挂载 `global.Utils`、`global.DbGateway`、`global.EpubStorage`。
+- 触碰 storage 或 mocked DB 的测试使用 `resetAll()`；浏览器式模块用 `loadWindowScript()`。
+- 修改代码或行为后同步版本号：`src/manifest.json`、`test/suites/system/sys_manifest.test.js`、README badge、`CHANGELOG.md`，并按需更新 `docs/architecture.md` / `docs/ROADMAP.md`。
+- `CHANGELOG.md` 是唯一历史演进记录；不要再新增或维护独立 walkthrough。
+- README 只保留项目入口级信息：是什么、怎么安装/开发、核心能力和关键文档链接；版本流水、细节修复和长约束放到 `CHANGELOG.md` / `docs/architecture.md`。

@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.4
+版本：v2.5.5
 更新：2026-07-08
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -120,9 +120,10 @@ epub_reader/
 │       ├── icon48.png
 │       └── icon128.png
 ├── docs/                          # 开发文档
+│   ├── architecture.md
+│   └── ROADMAP.md
 ├── CHANGELOG.md
-├── README.md
-└── ROADMAP.md
+└── README.md
 ```
 
 ---
@@ -860,27 +861,27 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=23"></script>
-<script src="../utils/utils.js?v=23"></script>
-<script src="../utils/storage.js?v=23"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js"></script>
+<script src="../utils/utils.js"></script>
+<script src="../utils/storage.js"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=23"></script>
-<script src="annotations.js?v=23"></script>
-<script src="toc.js?v=23"></script>
-<script src="search.js?v=23"></script>
-<script src="bookmarks.js?v=23"></script>
-<script src="highlights.js?v=23"></script>
+<script src="image-viewer.js"></script>
+<script src="annotations.js"></script>
+<script src="toc.js"></script>
+<script src="search.js"></script>
+<script src="bookmarks.js"></script>
+<script src="highlights.js"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=23"></script>
-<script src="reader-ui.js?v=23"></script>
-<script src="reader-persistence.js?v=23"></script>
-<script src="reader-runtime.js?v=23"></script>
-<script src="reader.js?v=23"></script>
+<script src="reader-state.js"></script>
+<script src="reader-ui.js"></script>
+<script src="reader-persistence.js"></script>
+<script src="reader-runtime.js"></script>
+<script src="reader.js"></script>
 ```
 
-**约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
+**约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。入口本地脚本不使用手动查询串刷新缓存；Chrome 扩展更新/重新加载会刷新扩展资源，保留查询串只会增加 HTML、测试和文档同步成本。
 
 **v2.4.9 IIFE 规范**：全部 11 个 reader 模块统一使用 `(function () { 'use strict'; ... window.XXX = XXX; })();` 封装，避免全局变量污染。功能模块（annotations、bookmarks、toc、search、highlights、image-viewer）与四层架构模块（reader-state、reader-runtime、reader-persistence、reader-ui）均遵循此规范，公开契约测试会校验功能模块挂载到 `window.XXX`。
 

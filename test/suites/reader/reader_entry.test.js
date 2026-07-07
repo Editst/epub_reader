@@ -42,17 +42,27 @@ test.describe('Reader 入口与装配契约', () => {
     assert.ok(html.includes('loading-overlay is-hidden') || html.includes('is-hidden" id="loading-overlay'));
   });
 
-  test.it('reader.html 脚本 cache-buster 与架构文档保持一致', () => {
+  test.it('reader.html 本地脚本使用裸路径并保持加载顺序', () => {
     const html = fs.readFileSync('src/reader/reader.html', 'utf8');
-    const architecture = fs.readFileSync('docs/architecture.md', 'utf8');
-    const documentedVersion = architecture.match(/\.js\?v=(\d+)/)?.[1];
     const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
-    const localScripts = scripts.filter((src) => !src.startsWith('../lib/') && (src.endsWith('.js') || src.includes('.js?v=')));
+    const localScripts = scripts.filter((src) => !src.startsWith('../lib/'));
 
-    assert.ok(documentedVersion);
-    assert.ok(localScripts.length > 0);
-    localScripts.forEach((src) => {
-      assert.match(src, new RegExp(`\\?v=${documentedVersion}$`), `${src} 应使用架构文档声明的 cache-buster`);
-    });
+    assert.deepEqual(localScripts, [
+      '../utils/db-gateway.js',
+      '../utils/utils.js',
+      '../utils/storage.js',
+      'image-viewer.js',
+      'annotations.js',
+      'toc.js',
+      'search.js',
+      'bookmarks.js',
+      'highlights.js',
+      'reader-state.js',
+      'reader-ui.js',
+      'reader-persistence.js',
+      'reader-runtime.js',
+      'reader.js',
+    ]);
+    assert.ok(localScripts.every((src) => !src.includes('?')), '本地脚本不应使用手动查询串刷新缓存');
   });
 });

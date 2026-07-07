@@ -18,16 +18,17 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('streamRenderBookCard'));
   });
 
-  test.it('home.html 首页脚本 cache-buster 保持一致', () => {
+  test.it('home.html 首页脚本使用裸路径并保持加载顺序', () => {
     const html = fs.readFileSync('src/home/home.html', 'utf8');
     const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
-    const versions = scripts
-      .filter((src) => src.includes('.js?v='))
-      .map((src) => src.match(/\?v=(\d+)$/)?.[1])
-      .filter(Boolean);
 
-    assert.ok(versions.length > 0);
-    assert.equal(new Set(versions).size, 1, '首页本地脚本应使用同一个 cache-buster');
+    assert.deepEqual(scripts, [
+      '../utils/db-gateway.js',
+      '../utils/utils.js',
+      '../utils/storage.js',
+      'home.js',
+    ]);
+    assert.ok(scripts.every((src) => !src.includes('?')), '首页本地脚本不应使用手动查询串刷新缓存');
   });
 
   test.it('书架流式渲染按 recentBooks 顺序替换对应骨架', () => {

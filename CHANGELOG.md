@@ -6,13 +6,28 @@
 
 ## [Unreleased]
 
+### docs
+- 精简 README 为项目入口文档，仅保留核心功能、安装、开发、架构概览、隐私安全与文档索引；细节修复和历史流水继续归档到 changelog / architecture。
+
+---
+
+## [2.5.5] - 2026-07-08
+
+### refactor
+- 移除 Reader、home、popup 入口本地脚本的手动 `?v=` 查询串；Chrome 扩展更新或开发者模式重新加载会刷新扩展资源，保留查询串收益低且增加 HTML、测试和文档同步成本。
+- 入口静态回归改为验证本地脚本裸路径与加载顺序，避免再次把无业务价值的查询串版本号作为契约。
+
+### docs
+- `docs/ROADMAP.md` 收敛为只记录未来方向、巡检项和活跃技术债；已完成内容改由 `CHANGELOG.md` 和架构文档归档。
+- `docs/walkthrough.md` 的独有历史摘要合并进 changelog，后续不再单独维护 walkthrough。
+- `AGENTS.md` 重整为更清晰的项目协作、架构、存储、安全、测试和发布约束。
+
 ---
 
 ## [2.5.4] - 2026-07-08
 
 ### fix
 - **首页书架单本读取降级**：`home.js` 将书架卡片的封面与 `bookMeta` 读取集中到 `loadBookCardData()`，单本封面或阅读元数据损坏/读取失败时只记录告警并回退为无封面/无进度，不再让整轮书架流式渲染失败或留下骨架占位。
-- **入口脚本缓存刷新**：home 页本地脚本 cache-buster 升级为 `?v=15`，确保首页书架降级逻辑被加载。
 
 ### test
 - 首页 UI 静态契约新增单本封面与 `bookMeta` 读取失败必须局部捕获的回归约束。
@@ -25,7 +40,6 @@
 - **共享颜色白名单严格化**：`Utils.sanitizeColor()` 现在只接受 CSS 有效 hex 长度（3/4/6/8 位）或 `transparent`，拒绝旧正则误放行的 `#12345`、`#1234567` 等无效颜色，避免高亮渲染和首页标注样式进入无效 CSS 状态。
 - **Reader 高亮颜色缺省兜底**：`Highlights.renderHighlight()` 只有显式 `transparent` 才按纯笔记处理；缺失或损坏颜色会回退默认高亮色，避免历史/损坏数据渲染出不可见高亮。
 - **首页标注颜色样式健壮性**：标注管理列表不再通过 `${color}33` 拼接透明背景色；颜色会先经共享白名单归一化，badge 背景改用 `color-mix()` 生成有效 CSS。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=23`，home 升级为 `?v=14`，popup 升级为 `?v=12`，确保共享颜色白名单变更被三个入口加载。
 
 ### test
 - Utils 测试新增 3/4/6/8 位合法 hex 与 5/7 位非法 hex 覆盖；Highlights 行为测试新增缺失/损坏颜色回退默认高亮色与显式 `transparent` 保持纯笔记的回归；首页 UI 静态契约新增标注颜色不得通过 hex alpha 字符串拼接构造背景色的约束。
@@ -52,7 +66,6 @@
 
 ### refactor
 - **Search 阈值常量化**：搜索最大结果数、UI 让步间隔与面板聚焦延迟提取为模块级常量；章节 `load()` 复用单个 `activeLoad` 绑定，减少循环内重复绑定。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=22`，确保 Search 性能保护逻辑被加载。
 
 ### test
 - Reader 模块行为测试新增单章节 1005 条命中只渲染前 1000 条的回归；Reader 功能模块契约测试新增 Search 结果上限、UI 让步和聚焦延迟常量约束。
@@ -64,7 +77,6 @@
 ### fix
 - **跨文档脚注拓扑弱负向信号**：`Annotations._buildDocContext()` 现在基于 `contents.sectionIndex` 和 book spine 构建 href/index 映射；`isFootnoteLink()` 对跨文件目标位于当前 section 之前的链接，只压低 class/id 与 fragment 弱阳性，减少尾注区回链误拦截。
 - **跨文档相对 href 解析归口**：新增统一的 section href 规范化与相对路径解析辅助，`_loadFromBook()` 的相对 section 查找也复用同一路径，避免 `../` 场景解析漂移。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=21`，确保跨文档拓扑逻辑被加载。
 
 ### test
 - Reader 模块行为测试新增 spine 索引上下文构建、跨文档目标前置压低弱阳性、目标在后方保留弱阳性、上标强信号保留回归；Reader 功能模块契约测试新增跨文档拓扑辅助、spine 索引和相对 href 解析静态约束。
@@ -76,7 +88,6 @@
 ### fix
 - **FB2 转换格式注释容器识别**：`Annotations._buildDocContext()` 现在会把 `body[name="notes"]` / `body[name="comments"]` 及其 `section` 下的链接纳入 `footnoteSectionNodes`，避免注释区内回链被误拦截为正文脚注。
 - **FB2 同文档目标识别**：`isFootnoteLink()` 的 target analysis 会把目标落在 `body[name="notes"]` / `body[name="comments"]` 内视为注释容器强信号，提升 Calibre FB2 转换书籍的脚注识别率。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=20`，确保 FB2 兼容逻辑被加载。
 
 ### test
 - Reader 模块行为测试新增 FB2 notes body 内回链排除、正文链接指向 FB2 notes body 目标识别回归；Reader 功能模块契约测试新增 `body[name="notes"]` / `body[name="comments"]` 静态约束。
@@ -88,7 +99,6 @@
 ### fix
 - **同文档脚注拓扑弱负向信号**：`isFootnoteLink()` 对 `href="#..."` 目标复用同一次 `_findTarget()`，并通过 `compareDocumentPosition()` 判断目标是否位于源链接之前；若目标前置，只压低 class/fragment 这类弱阳性，减少返回链接或双向链接图谱误判。
 - **强信号保留**：`epub:type="noteref"`、role 语义、真实 `<sup>` / 上标样式和明确 footnote 容器仍可覆盖目标前置信号，避免把弱负向误用成强否决。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=19`，确保 Annotations 拓扑修复被加载。
 
 ### test
 - Reader 模块行为测试新增同文档目标前置压低 class/fragment 弱阳性、但不否决 `epub:type="noteref"` 强信号的回归；Reader 功能模块契约测试新增 DOM 顺序判断辅助与弱阳性门控静态约束。
@@ -100,7 +110,6 @@
 ### fix
 - **四位年份链接误判收敛**：`noteTextMarker` 的纯数字脚注 marker 从 1-4 位收窄到 1-3 位，并新增四位数字 marker 排除；正文里的 `1984`、`2023` 等年份链接即使 href/fragment 形似 `note*` 也不会弹脚注。
 - **语义白名单保留**：带 `epub:type="noteref"` 或等价 role 的四位数字引用仍按 EPUB 语义识别为脚注，避免破坏显式标记书籍。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=18`，确保 Annotations 年份误判修复被加载。
 
 ### test
 - Reader 模块行为测试新增四位年份链接排除与 `epub:type="noteref"` 四位数字保留回归；Reader 功能模块契约测试约束 `noteTextMarker` 纯数字上限不得回退为 4 位。
@@ -111,7 +120,6 @@
 
 ### perf
 - **跨文档注释 LRU 缓存**：`Annotations._loadFromBook()` 现在对跨章节/尾注文件的已解析内容树做 book 生命周期内缓存，容量上限 50；同一尾注文件二次点击不再重复 `section.load()`，切书或卸载时清空缓存。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=17`，确保 Annotations 缓存实现被加载。
 
 ### test
 - Reader 模块行为测试新增跨文档注释缓存命中与切书清空回归；Reader 功能模块契约测试新增缓存容量、LRU 读写辅助和统一 section 加载路径静态约束。
@@ -124,7 +132,6 @@
 - **Annotations 低风险技术债收敛**：`annotations.js` 集中提取 `_hasSup()`、`_parseHref()`、`_BLOCK_TAGS` 与 `_PAGINATION_SETTLE_MS`，消除重复 `sup` 查询、散落的 `href.split('#')`、局部块标签数组和分页补偿魔法数字。
 - **Annotations fallback 样式归口**：脚注 last-resort 提示改用 `.annotation-fallback-hint` CSS class，不再在模块里拼接 inline style 字符串。
 - **Annotations 加载路径微收敛**：跨章节注释加载复用同一个 `activeBook.load` 绑定函数，避免 brute-force 扫描时反复 `.bind()`。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=16`，确保 Annotations 重构被加载。
 
 ### fix
 - **CSS 上标脚注识别**：`isFootnoteLink()` 在便宜的字符串/DOM gate 之后补充 `computedStyle.verticalAlign` 检测，能识别使用 `vertical-align: super/sub/top/bottom` 而非真实 `<sup>` 的脚注引用。
@@ -145,7 +152,6 @@
 - **Search 章节资源收口**：章节 `load()` 成功后统一在 `finally` 中 `unload()`，即使 `find()` 抛错或切书中断也会释放章节资源。
 - **Annotations 切书上下文隔离**：脚注 hook、点击处理、异步内容加载和弹窗跳转均捕获发起时的 `book/rendition` 上下文；切书或布局重建后，旧 iframe 点击和旧脚注慢返回不会显示到新书，也不会驱动新 `rendition` 跳转。
 - **ImageViewer 切书上下文隔离**：图片 hook 和 iframe 图片点击捕获当前 `rendition` 上下文；切书或布局重建后，旧 iframe 的图片点击不会再打开当前书籍页面的图片查看器。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=15`，确保 Search 生命周期修复被加载。
 
 ### test
 - ReaderRuntime 测试新增旧 `rendition` 迟到事件隔离回归；Reader 模块行为测试新增 Search、Annotations 与 ImageViewer 切书竞态回归，覆盖旧搜索慢返回不回写新书结果、切书时必须清理旧 `rendition` 上的搜索高亮、旧脚注异步加载结果不得显示到新书，以及旧 iframe 图片点击不得打开新书页面的图片查看器。
@@ -160,7 +166,6 @@
 - **书签按钮状态防回滚**：`ReaderPersistence` 查询当前页是否已加书签时加入序列守卫，快速翻页下上一页的慢查询返回后不会把当前页按钮状态改错。
 - **书签异步错误隔离**：书签列表自动加载、面板刷新、删除按钮和 Reader 工具栏书签按钮失败时只记录告警，不再留下未处理 Promise 拒绝。
 - **高亮切书竞态隔离**：`Highlights.setBookDetails()` 加入上下文序列守卫，切书后旧书高亮列表慢返回不会渲染到新书；高亮列表读取失败时记录告警并按空列表继续绑定，不阻断 Reader 打开；高亮保存失败也只记录告警，不留下未处理 Promise。
-- **入口脚本缓存刷新**：home 页本地脚本 cache-buster 升级为 `?v=12`，Reader 本地脚本 cache-buster 升级为 `?v=14`，确保首页与书签异步刷新防护被加载。
 
 ### test
 - 首页 UI 静态回归补充书架与标注刷新代次约束；Reader 模块行为测试补充 Bookmarks 切书竞态与书签失败隔离回归；ReaderPersistence 测试补充书签按钮状态防回滚；Highlights 测试补充旧书高亮加载慢返回、旧选择保存、加载失败降级和保存失败隔离，确保旧书加载、旧 toggle、旧页查询、旧高亮列表、旧选择和失败写入都不会污染新书或当前页。
@@ -174,7 +179,6 @@
 - **bookMeta 整体覆写串行化**：`saveBookMeta()` 改为进入同书 `_bookMetaQueue`，与位置、时长、速度 patch 保持调用顺序，避免批量覆写和阅读中保存并发时被旧快照回滚。
 - **bookMeta 清除路径串行化**：`removePosition()` 与 `removeReadingTime()` 改为进入同书 `_bookMetaQueue`，并在无现存 `bookMeta` 时不创建空记录，避免清位置/清时长与保存位置/时长并发时互相回滚字段。
 - **bookMeta 迁移路径串行化**：`getBookMeta()` 的 v1.6 `pos_/time_` lazy migration 改为进入同书队列；首次 `savePosition()` / `saveReadingTime()` 创建 `bookMeta` 时会吸收旧版字段，避免迁移回写旧位置或丢失旧阅读时长。
-- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=13`，home/popup 本地脚本 cache-buster 升级为 `?v=11`，确保存储层行为变更被三个入口页加载。
 
 ### test
 - 存储层测试新增 `addRecentBook`、`bookMeta` lazy migration、`saveBookMeta`、`removePosition`、`removeReadingTime` 并发写入回归，并在测试重置流程中复位 `_recentBooksQueue`，确保并发新增书籍、旧版迁移、整体覆写和同书 meta patch 不会互相覆盖。
@@ -188,10 +192,9 @@
 - **弹窗异步错误隔离**：`popup.js` 中打开文件、进入书架和 file input 事件绑定前置到最近阅读加载之前；最近阅读加载与移除书籍路径均通过局部 catch 记录告警，避免 storage 抖动造成核心按钮不可用或未处理 Promise 拒绝。
 - **偏好写入串行化**：`EpubStorage.savePreferences()` 改为通过 `_preferencesQueue` 串行执行增量合并，避免首页主题/视图、Reader 布局/主题等并发保存时读到同一旧值而互相覆盖。
 - **bookMeta 队列失败收敛**：`EpubStorage._enqueueBookMetaWrite()` 继续向调用方返回真实写入失败，但内部排队 Promise 会吞掉该失败后清理队列，避免 `finally()` 派生出额外未处理 Promise 拒绝，并保证同书后续写入可继续。
-- **入口脚本缓存刷新**：`home.html` 与 `popup.html` 本地脚本 cache-buster 统一升级为 `?v=10`，避免入口脚本变更后仍命中旧缓存。
 
 ### test
-- 首页与弹窗 UI 静态测试新增异步错误隔离与脚本 cache-buster 约束，确保主题和视图保存、书架/标注刷新、删除、导出和弹窗最近阅读路径都有安全失败处理，且入口本地脚本版本保持一致；存储层测试新增偏好并发写入与 bookMeta 队列失败回归，确保增量保存不互相覆盖，内部队列 Promise 不派生未处理拒绝。
+- 首页与弹窗 UI 静态测试新增异步错误隔离约束，确保主题和视图保存、书架/标注刷新、删除、导出和弹窗最近阅读路径都有安全失败处理；存储层测试新增偏好并发写入与 bookMeta 队列失败回归，确保增量保存不互相覆盖，内部队列 Promise 不派生未处理拒绝。
 
 ---
 
@@ -199,7 +202,6 @@
 
 ### refactor
 - **Search 模块导出一致化**：`search.js` 补齐外层 IIFE 与 `window.Search` 导出，和其他 Reader 功能模块保持同一公开契约，避免顶层 `const` 与文档/加载顺序约束漂移。
-- **Reader 脚本 cache-buster 对齐**：`reader.html` 中工具层、功能模块和四层架构脚本统一升级为 `?v=12`，与架构文档加载顺序示例保持一致。
 
 ### fix
 - **章节标题匹配精确化**：`ReaderState.findTocItem()` 改为去除 fragment 后按路径边界匹配，避免 `ch10` 误命中短 href `ch1` 导致章节标题显示错误。
@@ -209,7 +211,7 @@
 - **阅读持久化错误隔离**：位置保存和阅读时长保存失败时统一记录告警，不再让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入留下未处理 Promise 拒绝。
 
 ### test
-- Reader 功能模块公开契约测试改为直接验证 `window.XXX` 导出，并新增统一导出断言；Reader 入口测试新增脚本 cache-buster 一致性检查；ReaderState 测试补充 TOC href 边界匹配回归；ReaderRuntime 测试覆盖 layout 偏好保存失败不阻断布局切换与重建失败释放恢复锁；ReaderUi 测试覆盖偏好保存失败不阻断主题更新；ReaderPersistence 测试覆盖位置与阅读时长保存失败隔离。
+- Reader 功能模块公开契约测试改为直接验证 `window.XXX` 导出，并新增统一导出断言；Reader 入口测试新增脚本加载顺序检查；ReaderState 测试补充 TOC href 边界匹配回归；ReaderRuntime 测试覆盖 layout 偏好保存失败不阻断布局切换与重建失败释放恢复锁；ReaderUi 测试覆盖偏好保存失败不阻断主题更新；ReaderPersistence 测试覆盖位置与阅读时长保存失败隔离。
 
 ---
 
@@ -553,3 +555,117 @@
 
 ### test
 - F-5：补充故障注入 + 并发写 + 数据覆盖 + style.* 静态回归测试套件。
+
+---
+
+## [1.9.2] - 历史归档
+
+### fix
+- `storage.js` `_get/_set/_remove` 接入 `chrome.runtime.lastError` reject，统一 storage 错误语义。
+- `bookMeta` 写入引入串行队列，降低阅读位置、时长和速度并发写互相覆盖的风险。
+- `getAllHighlights()` 从仅遍历 recentBooks 扩展为 recentBooks + `highlights_*` key 扫描补全。
+- home、popup、image-viewer 显隐控制继续迁移为 class 切换，保留必要的 popup 特例。
+
+### docs
+- 旧审计报告收敛到统一开发文档，删除过时报告文件。
+
+---
+
+## [1.9.0] - 历史归档
+
+### fix
+- Reader 错误提示、翻页过渡、搜索结果、高亮、目录空状态等 UI 路径迁移到 CSS class 与 DOM API，减少内联样式和字符串拼接。
+- `manifest.json` 的 `style-src` 当时暂保留 `'unsafe-inline'`，作为后续 CSP 收敛的过渡状态。
+
+### test
+- 新增 CSP 收敛相关静态回归，覆盖 Reader、Search、TOC 等模块的样式迁移点。
+
+---
+
+## [1.8.0] - 历史归档
+
+### fix
+- Popup 文件拾取链路引入 `showOpenFilePicker` 首选路径并保留 `<input type="file">` 降级，缓解系统文件对话框导致 popup 失焦卸载的问题；后续版本根据 Chrome popup 激活限制重新收敛为可靠的 input click 路径。
+- Resize 与重排锚点从 `loc.end.cfi` 调整为 `loc.start.cfi`，并通过 CFI 锁保护字号、行高、字体切换期间的位置恢复。
+- 阅读速率采样在页面从后台恢复时重置会话锚点，避免挂机时间污染 ETA；实时速率激活阈值下调到更短阅读周期。
+- Popup 样式、主题变量、页面 color-scheme、拖拽遮罩结构和工具库复用继续收敛，减少全局状态和重复 helper。
+
+### perf
+- Popup 最近书籍列表改为并行加载封面与元数据，降低首屏等待时间。
+
+---
+
+## [1.7.0] - 历史归档
+
+### feat
+- 将阅读位置、阅读时长和速度数据合并到 `bookMeta_<bookId>`，降低高频写入放大，并通过 lazy migration 兼容旧 `pos_` / `time_` key。
+- 引入 session 级阅读速率采样，识别连续阅读、轻度跳读和明显跳读，替代简单的“总时长 / 总进度”估算。
+
+### perf
+- 书架加载、清空和相关 I/O 路径从串行读取改为并发执行；位置保存加入防抖，页面隐藏时强制 flush。
+
+### fix
+- 自动 LRU 最终明确为只淘汰 IndexedDB `files` EPUB 文件缓存；阅读进度、封面、locations、标注和书签只在主动删除书籍时级联清理。
+- 废弃 `highlightKeys` 风险索引，改由 recentBooks 和高亮 key 扫描读取，提升标注面板数据一致性。
+
+---
+
+## [1.5.0 - 1.6.0] - 历史归档
+
+### feat
+- IndexedDB 升级到 DB v4，`files`、`covers`、`locations` 主键从 filename 迁移为内容派生 bookId。
+- `generateBookId()` 改为 `SHA-256(filename + 前 64KB 内容)`，解决同名书籍覆盖与数据孤岛问题。
+- `DbGateway` 统一 IndexedDB 连接、版本升级和事务完成信号，`put/delete` 等待 `tx.oncomplete` 后才视为落盘。
+
+### fix
+- 滚动布局恢复原生纵向滚动；Bookmarks 等模块统一走 `EpubStorage`，清退分散 IndexedDB 入口。
+- 注释 HTML 进入宿主页前开始执行安全过滤，防止 EPUB 内容携带事件属性或恶意协议。
+
+---
+
+## [1.4.1] - 历史归档
+
+### fix
+- 移除 `home.js` 中绕过存储抽象的数据库调用，进一步收敛持久化入口。
+- 书架封面渲染链路在加载完成或失败后回收 Blob URL，减少长期会话内存泄漏。
+- 搜索高亮改用 TextNode + `mark` DOM 构建，降低搜索结果注入风险。
+
+---
+
+## [1.3.0 - 1.4.0] - 历史归档
+
+### feat
+- 引入 `utils/db-gateway.js` 存储网关，单例化 IndexedDB 连接与升级逻辑。
+
+### fix
+- 高亮颜色加入白名单校验；外部文本进入 UI 前统一转义或通过 DOM API 写入。
+- 双栏分页间距和字体栈继续修正，补充 `font-display: swap`。
+
+---
+
+## [1.2.0 - 1.2.7] - 历史归档
+
+### feat
+- Locations 缓存从 localStorage 迁移到 IndexedDB，支持大体积 EPUB 的快速重开与精确进度恢复。
+- 阅读计时通过 `visibilitychange` 在标签页切换或关闭时立即 flush。
+
+### fix
+- 高亮、注释弹窗、侧边栏遮罩和 iframe 点击监听的交互状态机重构，修复面板残留、点击穿透和竞态问题。
+- 搜索高亮在章节切换或面板关闭时清理，减少阅读页污染。
+
+---
+
+## [1.1.0 - 1.1.6] - 历史归档
+
+### fix
+- 标注弹窗增加空间感知，靠近顶部时自动翻转，降低弹窗溢出。
+- 翻页后 iframe 重载导致高亮丢失的问题通过 `reRenderHighlight` 同步钩子修复。
+- 高亮渲染从方框模型调整为下划线模型，并用 mask/clip-path 处理视觉残留。
+
+---
+
+## [1.0.0] - 历史归档
+
+### feat
+- 集成 Epub.js，建立离线 EPUB 阅读器基础能力，支持分页/滚动布局、目录、全文搜索和主题切换。
+- 确立 `chrome.storage.local` 存轻量配置、IndexedDB 存 EPUB 文件与大容量数据的本地优先存储架构。
