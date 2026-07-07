@@ -1,11 +1,12 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-07-07（v2.4.17）
+> 最后更新：2026-07-07（v2.4.18）
 
 ---
 
 ## 当前状态
 
+- **v2.4.18 已完成**（2026-07-07）：Annotations FB2 转换格式兼容——识别 `body[name="notes"]` / `body[name="comments"]` 注释容器，注释区内回链排除，正文链接指向该容器时可识别为脚注。
 - **v2.4.17 已完成**（2026-07-07）：Annotations 同文档拓扑弱负向信号——同文档目标位于源链接之前时压低 class/fragment 弱阳性，但不否决显式 noteref、上标或 footnote 容器强信号。
 - **v2.4.16 已完成**（2026-07-07）：Annotations 四位年份误判收敛——纯数字脚注 marker 收窄到 1-3 位，`1984`/`2023` 等正文年份链接不再被 note-like fragment 误判；显式 `epub:type="noteref"` 仍可覆盖。
 - **v2.4.15 已完成**（2026-07-07）：Annotations 跨文档注释 LRU 缓存——同一尾注文件二次点击复用已解析内容树，容量 50，切书/卸载清空；Reader 脚本 cache-buster 升级至 `?v=17`。
@@ -34,6 +35,7 @@
 
 | 版本 | 主题 | 关键交付 |
 |------|------|---------|
+| v2.4.18 | Annotations FB2 兼容 | notes/comments body 容器识别、注释区回链排除、目标容器强信号 |
 | v2.4.17 | Annotations 同文档拓扑 | 目标前置弱负向信号、class/fragment 弱阳性压低、强信号保留 |
 | v2.4.16 | Annotations 数字 marker 收敛 | 四位年份误判排除、`epub:type=noteref` 白名单、数字 marker 1-3 位约束 |
 | v2.4.15 | Annotations 跨文档缓存 | 尾注 section 内容树 LRU 缓存、切书清空、统一 section 加载辅助 |
@@ -74,7 +76,7 @@
 
 #### 算法专项（AN-1 ～ AN-5）
 
-> v2.4.14 已完成 AN-1、AN-2 与 AN-4；v2.4.15 已完成 AN-5；v2.4.16 已完成 AN-7；v2.4.17 已完成 AN-3a；后续保留跨文档 spine 拓扑与 FB2 兼容。
+> v2.4.14 已完成 AN-1、AN-2 与 AN-4；v2.4.15 已完成 AN-5；v2.4.16 已完成 AN-7；v2.4.17 已完成 AN-3a；v2.4.18 已完成 AN-6 基础容器识别；后续保留跨文档 spine 拓扑。
 
 **AN-1: computedStyle 垂直对齐检测（D-2026-11）**
 - 目标：补全 CSS `vertical-align: super` 替代 `<sup>` 标签的漏判场景。
@@ -148,7 +150,7 @@
 > v2.4.0 的延伸，处理更复杂的跨文档场景与历史格式兼容。
 
 - [ ] **AN-3b**：spine index 跨文档位置比对（AN-3 Step B），提升跨文件返回链接的识别精度。
-- [ ] **AN-6**：FB2 转换格式兼容（对应 Calibre 掩码 0x0008）。识别 `body[name="notes"]` / `body[name="comments"]` 下的 `section` 结构，将其链接视为注释容器高置信度；在 `_buildDocContext` 中扫描并加入 `footnoteSectionNodes`。
+- [x] **AN-6**：FB2 转换格式兼容（对应 Calibre 掩码 0x0008）。识别 `body[name="notes"]` / `body[name="comments"]` 下的 `section` 结构，将其链接视为注释容器高置信度；在 `_buildDocContext` 中扫描并加入 `footnoteSectionNodes`。（v2.4.18 基础容器识别已落地）
 - [x] **AN-7**：数字标记上限收窄至 3 位（过滤年份误判），白名单保留 `epub:type="noteref"` 覆盖 4 位数字场景。（v2.4.16）
 
 **验收标准**：
@@ -210,6 +212,6 @@ Binary 走 IndexedDB，轻量 Metadata 走 Chrome Storage (10MB 限额)。
 
 | 优先级 | ID | 描述 | 目标版本 | 状态 |
 |---|---|---|---|---|
-| 🔵 P3 | D-2026-15 | FB2 转换格式注释容器未识别 | v2.5.0 | 📋 已规划 |
+| 🔵 P3 | D-2026-26 | 跨文档 spine index 位置比对未完成 | v2.5.0 | 📋 已规划 |
 
-> 已修复的历史债务（D-2026-01～D-2026-14, D-2026-16～D-2026-25）全部清零，详见 git 历史。
+> 已修复的历史债务（D-2026-01～D-2026-25）全部清零，详见 git 历史。

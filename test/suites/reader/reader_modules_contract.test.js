@@ -129,6 +129,8 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.match(src, /const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set/, '空锚点收集边界应保持模块级 Set');
     assert.match(src, /const _FOOTNOTE_SECTION_CACHE_LIMIT = 50/, '跨文档注释缓存容量应保持显式上限');
     assert.match(src, /const _DOCUMENT_POSITION_PRECEDING = 2/, '同文档目标顺序判断应使用具名 DOM bit 常量');
+    assert.ok(src.includes('body[name="notes"]'), 'FB2 notes body 应纳入注释容器识别');
+    assert.ok(src.includes('body[name="comments"]'), 'FB2 comments body 应纳入注释容器识别');
     assert.match(src, /_sectionDocCache: new Map\(\)/, '跨文档注释缓存应挂在模块生命周期内');
     assert.match(src, /function _hasSup\(link\)/, 'sup 判断应集中到 _hasSup');
     assert.match(src, /function _parseHref\(href\)/, 'href 片段解析应集中到 _parseHref');

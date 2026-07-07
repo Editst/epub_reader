@@ -8,6 +8,18 @@
 
 ---
 
+## [2.4.18] - 2026-07-07
+
+### fix
+- **FB2 转换格式注释容器识别**：`Annotations._buildDocContext()` 现在会把 `body[name="notes"]` / `body[name="comments"]` 及其 `section` 下的链接纳入 `footnoteSectionNodes`，避免注释区内回链被误拦截为正文脚注。
+- **FB2 同文档目标识别**：`isFootnoteLink()` 的 target analysis 会把目标落在 `body[name="notes"]` / `body[name="comments"]` 内视为注释容器强信号，提升 Calibre FB2 转换书籍的脚注识别率。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=20`，确保 FB2 兼容逻辑被加载。
+
+### test
+- Reader 模块行为测试新增 FB2 notes body 内回链排除、正文链接指向 FB2 notes body 目标识别回归；Reader 功能模块契约测试新增 `body[name="notes"]` / `body[name="comments"]` 静态约束。
+
+---
+
 ## [2.4.17] - 2026-07-07
 
 ### fix

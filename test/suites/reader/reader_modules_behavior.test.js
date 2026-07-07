@@ -608,6 +608,90 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(Annotations.isFootnoteLink(link, ctx), true);
   });
 
+  test.it('Annotations 将 FB2 notes body 内链接纳入注释区排除', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const noteBackLink = {
+      textContent: 'back',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'P', textContent: 'back to text' },
+      firstElementChild: null,
+      getAttribute(name) {
+        if (name === 'href') return '#src1';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const fb2Body = {
+      querySelectorAll(selector) {
+        return selector === 'a[href]' ? [noteBackLink] : [];
+      }
+    };
+    const doc = {
+      body: { id: '', className: '' },
+      querySelector() {
+        return null;
+      },
+      querySelectorAll(selector) {
+        if (selector === 'ol, ul') return [];
+        if (selector.includes('body[name="notes"]')) return [fb2Body];
+        return [];
+      }
+    };
+
+    const ctx = Annotations._buildDocContext(doc);
+
+    assert.equal(ctx.hasFootnoteSections, true);
+    assert.equal(Annotations.isFootnoteLink(noteBackLink, ctx), false);
+  });
+
+  test.it('Annotations 识别指向 FB2 notes body 内目标的同文档链接', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const doc = {};
+    const target = {
+      tagName: 'SECTION',
+      className: '',
+      ownerDocument: doc,
+      getAttribute() { return ''; },
+      getAttributeNS() { return ''; },
+      closest(selector) {
+        return selector.includes('body[name="notes"]') ? { tagName: 'BODY' } : null;
+      }
+    };
+    doc.getElementById = () => target;
+    const link = {
+      textContent: 'note',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: doc,
+      getAttribute(name) {
+        if (name === 'href') return '#fb2note';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; },
+      compareDocumentPosition() {
+        return 4;
+      }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
   test.it('Annotations 空锚点注释沿后续 sibling 收集且遇边界停止', () => {
     const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
     const boundary = {

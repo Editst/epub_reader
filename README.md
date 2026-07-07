@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.17-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.18-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -83,6 +83,7 @@
 - **跨文档脚注缓存（v2.4.15）**：跨章节/尾注文件的已解析内容树在当前书生命周期内以 50 项 LRU 缓存复用，二次点击不重复加载同一 section；切书或卸载时立即清空，避免旧书内容污染新书。
 - **四位年份误判收敛（v2.4.16）**：纯数字脚注 marker 默认只接受 1-3 位，`1984`、`2023` 等正文年份链接不再被 fragment/class 启发式误判；显式 `epub:type="noteref"` 的四位数字仍可识别。
 - **同文档脚注拓扑收敛（v2.4.17）**：同文档 `#fragment` 目标若位于源链接之前，会压低 class/fragment 弱阳性，减少返回链接误判；显式语义、`<sup>` 与明确 footnote 容器等强信号仍保留。
+- **FB2 转换格式兼容（v2.4.18）**：识别 Calibre/FB2 常见的 `body[name="notes"]` / `body[name="comments"]` 注释区，正文链接指向这些容器时可弹出注释，容器内回链不会被误拦截。
 - **脚注切书上下文隔离（v2.4.13）**：EPUB 脚注点击、异步加载和弹窗跳转捕获发起时的 book/rendition；旧 iframe 或旧脚注慢返回不会污染新书。
 - **图片查看切书上下文隔离（v2.4.13）**：EPUB iframe 图片点击捕获当前 rendition；切书或布局重建后，旧 iframe 图片点击不会打开当前书籍页面的图片查看器。
 - **进度值归一化（v2.4.8）**：书架与弹窗展示阅读进度前会把 storage 值裁剪到 0–100，避免损坏数据影响文本或 CSS 进度条。

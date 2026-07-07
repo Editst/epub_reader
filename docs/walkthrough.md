@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.4.18] - Annotations FB2 转换格式兼容
+
+- `_buildDocContext()` 将 Calibre/FB2 常见的 `body[name="notes"]` / `body[name="comments"]` 及其 `section` 纳入注释容器扫描。
+- 注释容器内的 `a[href]` 会进入 `footnoteSectionNodes`，因此不会再被 `isFootnoteLink()` 当作正文脚注引用拦截。
+- 同文档 target analysis 新增 FB2 容器判断：正文链接指向这些 notes/comments body 内目标时，可作为明确注释容器信号。
+- 回归测试覆盖 FB2 notes body 内回链排除、正文链接指向 FB2 notes body 目标识别，并用静态契约锁住 `body[name="notes"]` / `body[name="comments"]` 选择器。
+
+---
+
 ## [v2.4.17] - Annotations 同文档拓扑弱负向信号
 
 - `isFootnoteLink()` 对同文档 `href="#fragment"` 目标只查找一次，并在弱阳性判断与 target analysis 中复用，避免重复 DOM 查询。

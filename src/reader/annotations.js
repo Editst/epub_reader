@@ -467,7 +467,9 @@ const Annotations = {
     try {
       const fnSections = doc.querySelectorAll(
         '[epub\\:type~="footnotes"], [epub\\:type~="endnotes"], ' +
-        '.footnotes, .endnotes, aside[epub\\:type~="footnote"]'
+        '.footnotes, .endnotes, aside[epub\\:type~="footnote"], ' +
+        'body[name="notes"], body[name="comments"], ' +
+        'body[name="notes"] section, body[name="comments"] section'
       );
       for (let i = 0; i < fnSections.length; i++) {
         const anchors = fnSections[i].querySelectorAll('a[href]');
@@ -656,7 +658,8 @@ const Annotations = {
         if (_RE.noteContainer.test(tType))                                return true;
         if (_RE.noteCls.test(targetEl.className || ''))                   return true;
         if (targetEl.closest?.(
-          '.footnotes, .endnotes, [epub\\:type~="footnotes"], [epub\\:type~="endnotes"]'
+          '.footnotes, .endnotes, [epub\\:type~="footnotes"], [epub\\:type~="endnotes"], ' +
+          'body[name="notes"], body[name="comments"]'
         ))                                                                return true;
       }
     }

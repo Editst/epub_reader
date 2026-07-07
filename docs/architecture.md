@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.17
+版本：v2.4.18
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -828,6 +828,11 @@ Annotations.unmount(): void
 - `_isSameDocumentTargetBeforeSource()` 使用 `compareDocumentPosition()` 判断目标是否位于源链接之前；断连节点或跨 document 节点不得参与负向判断。
 - 目标前置只作为弱负向信号：它只能抑制 `class/id` 或 fragment 形态带来的弱阳性，不得覆盖 `epub:type="noteref"`、role 语义、`<sup>` / CSS 上标或明确 footnote 容器。
 
+**v2.4.18 FB2 兼容约束**：
+- `_buildDocContext()` 必须把 `body[name="notes"]`、`body[name="comments"]` 及其 `section` 下的链接加入 `footnoteSectionNodes`，避免 FB2 注释区内回链被当作正文脚注引用。
+- 同文档 target analysis 必须把目标位于 `body[name="notes"]` / `body[name="comments"]` 内视为明确 footnote 容器信号。
+- FB2 容器识别只能增强注释区/目标容器判断，不得绕过现有全局 TOC、孤立长链接、四位年份和上下文生命周期守卫。
+
 **v2.4.15 性能约束**：
 - 跨文档注释加载必须经过 `_loadSectionDocument()`，优先命中 `_sectionDocCache`，未命中时再调用 `section.load()`。
 - `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 50` 控制；缓存读命中必须刷新 LRU 顺序。
@@ -846,24 +851,24 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=19"></script>
-<script src="../utils/utils.js?v=19"></script>
-<script src="../utils/storage.js?v=19"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=20"></script>
+<script src="../utils/utils.js?v=20"></script>
+<script src="../utils/storage.js?v=20"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=19"></script>
-<script src="annotations.js?v=19"></script>
-<script src="toc.js?v=19"></script>
-<script src="search.js?v=19"></script>
-<script src="bookmarks.js?v=19"></script>
-<script src="highlights.js?v=19"></script>
+<script src="image-viewer.js?v=20"></script>
+<script src="annotations.js?v=20"></script>
+<script src="toc.js?v=20"></script>
+<script src="search.js?v=20"></script>
+<script src="bookmarks.js?v=20"></script>
+<script src="highlights.js?v=20"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=19"></script>
-<script src="reader-ui.js?v=19"></script>
-<script src="reader-persistence.js?v=19"></script>
-<script src="reader-runtime.js?v=19"></script>
-<script src="reader.js?v=19"></script>
+<script src="reader-state.js?v=20"></script>
+<script src="reader-ui.js?v=20"></script>
+<script src="reader-persistence.js?v=20"></script>
+<script src="reader-runtime.js?v=20"></script>
+<script src="reader.js?v=20"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
