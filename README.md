@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.9-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.10-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -64,9 +64,12 @@
 - **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
 - **存储 key 中心化（v2.4.8）**：`EpubStorage` 集中声明 chrome.storage key 与 IndexedDB store 名称，避免 per-book key 字符串散落造成迁移、删除和兼容路径不一致。
+- **偏好写入串行化（v2.4.10）**：主题、布局、字号和首页视图等偏好保存通过队列串行合并，避免多个入口并发保存时互相覆盖。
+- **bookMeta 队列失败收敛（v2.4.10）**：同书位置/时长/速度写入仍会把真实失败返回给调用方，但内部串行队列不会派生未处理 Promise 拒绝，失败后后续写入可继续。
 - **Reader UI 绑定幂等（v2.4.8）**：阅读器顶层事件监听只注册一次，重复绑定会切换到最新 runtime 引用但不会叠加键盘、按钮或拖拽处理器。
 - **功能模块初始化幂等（v2.4.8）**：注释、书签、目录、搜索、图片查看和高亮模块重复 `init()` 不会叠加顶层事件监听。
 - **Reader 模块导出一致性（v2.4.9）**：搜索模块补齐 `window.Search` IIFE 导出契约，公开接口测试会防止功能模块再次漂移为顶层 `const`。
+- **入口异步错误隔离（v2.4.10）**：首页主题/视图偏好、书架/标注刷新、删除和导出路径，以及弹窗最近阅读加载/移除路径失败时只记录告警，不产生未处理 Promise 拒绝，也不阻断核心交互绑定。
 - **进度值归一化（v2.4.8）**：书架与弹窗展示阅读进度前会把 storage 值裁剪到 0–100，避免损坏数据影响文本或 CSS 进度条。
 - **书架顺序稳定（v2.4.7）**：书籍卡片流式渲染时按 recentBooks 原始索引替换对应骨架，封面或元数据返回速度不同也不会打乱最近阅读顺序。
 - **数据库版本一致性**：所有 IndexedDB 读写路径统一通过 DbGateway（DB v4）管理，消除新用户首次访问时读到空数据库的边缘场景。

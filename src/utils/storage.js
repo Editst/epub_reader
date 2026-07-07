@@ -47,14 +47,15 @@ const STORES = Object.freeze({
 });
 
 const EpubStorage = {
+  _preferencesQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
   _deletingBookIds: new Set(),
 
   // ── Preferences ────────────────────────────────────────────────────────────
 
   async savePreferences(prefs) {
-    const current = (await this._get(KEYS.preferences)) || {};
-    await this._set({ [KEYS.preferences]: { ...current, ...prefs } });
+    if (!prefs) return;
+    return this._enqueuePreferencesWrite((current) => ({ ...current, ...prefs }));
   },
 
   async getPreferences() {
@@ -448,6 +449,19 @@ const EpubStorage = {
     });
   },
 
+  async _enqueuePreferencesWrite(mutator) {
+    const prev = this._preferencesQueue || Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(async () => {
+        const current = (await this._get(KEYS.preferences)) || {};
+        const updated = mutator(current) || current;
+        await this._set({ [KEYS.preferences]: updated });
+      });
+    this._preferencesQueue = next.catch(() => {});
+    return next;
+  },
+
   async _enqueueBookMetaWrite(bookId, mutator) {
     if (this._deletingBookIds.has(bookId)) return Promise.resolve();
     const prev = this._bookMetaQueue.get(bookId) || Promise.resolve();
@@ -464,9 +478,11 @@ const EpubStorage = {
         const updated = mutator(current) || current;
         await this._set({ [KEYS.bookMeta(bookId)]: updated });
       });
-    const queued = next.finally(() => {
-      if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);
-    });
+    const queued = next
+      .catch(() => {})
+      .finally(() => {
+        if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);
+      });
     this._bookMetaQueue.set(bookId, queued);
     return next;
   },

@@ -42,9 +42,10 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(code.includes('fileInput.click()'), 'openBtn 应直接调用 fileInput.click()');
   });
 
-  test.it('P-5: popup.js loadRecentBooks 有顶层 try/catch 保护', () => {
+  test.it('P-5: popup.js loadRecentBooks 通过安全辅助函数保护', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    assert.ok(js.includes('try {\n    await loadRecentBooks()'), 'try 块应直接包裹 await loadRecentBooks()');
+    assert.ok(js.includes('function loadRecentBooksSafely()'), '应通过安全辅助函数加载最近阅读');
+    assert.ok(js.includes('return loadRecentBooks().catch((e) => {'), 'loadRecentBooksSafely 应捕获加载失败');
     assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应 have fallback');
   });
 
@@ -58,6 +59,40 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     const html = fs.readFileSync('src/popup/popup.html', 'utf8');
     assert.ok(!html.includes('rel="preconnect"'), 'popup.html 不应有 preconnect');
     assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
+  });
+
+  test.it('popup.html 弹窗脚本 cache-buster 保持一致', () => {
+    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
+    const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
+    const versions = scripts
+      .filter((src) => src.includes('.js?v='))
+      .map((src) => src.match(/\?v=(\d+)$/)?.[1])
+      .filter(Boolean);
+
+    assert.ok(versions.length > 0);
+    assert.equal(new Set(versions).size, 1, '弹窗本地脚本应使用同一个 cache-buster');
+  });
+
+  test.it('popup.js 最近书籍加载不应阻塞核心事件绑定', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    const openBindIndex = js.indexOf("openBtn.addEventListener('click'");
+    const homeBindIndex = js.indexOf("homeBtn.addEventListener('click'");
+    const fileBindIndex = js.indexOf("fileInput.addEventListener('change'");
+    const loadIndex = js.indexOf('loadRecentBooksSafely();');
+
+    assert.ok(openBindIndex !== -1 && homeBindIndex !== -1 && fileBindIndex !== -1 && loadIndex !== -1);
+    assert.ok(openBindIndex < loadIndex, '打开文件按钮绑定应早于最近书籍加载');
+    assert.ok(homeBindIndex < loadIndex, '书架管理按钮绑定应早于最近书籍加载');
+    assert.ok(fileBindIndex < loadIndex, 'file input change 绑定应早于最近书籍加载');
+    assert.ok(js.includes('function loadRecentBooksSafely()'), '最近书籍加载应集中到安全辅助函数');
+    assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed:'"), '最近书籍加载失败应记录告警');
+  });
+
+  test.it('popup.js 移除最近书籍失败不应产生未处理 Promise 拒绝', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+
+    assert.ok(js.includes("console.warn('[Popup] remove recent book failed:'"), '移除失败应被捕获并告警');
+    assert.ok(js.includes('if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);'), '移除成功时应释放封面 ObjectURL');
   });
 
 });

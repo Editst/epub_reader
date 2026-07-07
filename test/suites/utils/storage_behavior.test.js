@@ -19,6 +19,36 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(after.theme, 'light');
   });
 
+  test.it('savePreferences 并发增量写入不会互相覆盖', async () => {
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const memory = {
+      preferences: { theme: 'light' }
+    };
+
+    EpubStorage._get = async function patchedGet(key) {
+      await new Promise((resolve) => setImmediate(resolve));
+      return memory[key] ? { ...memory[key] } : undefined;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      await new Promise((resolve) => setImmediate(resolve));
+      Object.assign(memory, data);
+    };
+
+    try {
+      await Promise.all([
+        EpubStorage.savePreferences({ theme: 'dark' }),
+        EpubStorage.savePreferences({ homeView: 'list' })
+      ]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+    }
+
+    assert.equal(memory.preferences.theme, 'dark');
+    assert.equal(memory.preferences.homeView, 'list');
+  });
+
   test.it('bookMeta lazy migration 产出完整 speed 默认结构', async () => {
     await new Promise((resolve) => chrome.storage.local.set({
       pos_book_meta_migrate: { cfi: 'epubcfi(/6/2)', percentage: 12.3, timestamp: 1 },
@@ -136,6 +166,46 @@ test.describe('EpubStorage 行为覆盖', () => {
       assert.equal(await EpubStorage.getBookMeta(id), null);
     } finally {
       EpubStorage._set = originalSet;
+    }
+  });
+
+  test.it('bookMeta 写入失败不会让内部队列 Promise 继续 reject', async () => {
+    const id = 'book-queue-fail';
+    const originalSet = EpubStorage._set;
+    const originalQueueSet = EpubStorage._bookMetaQueue.set;
+    let queuedPromise = null;
+    let shouldFail = true;
+
+    EpubStorage._bookMetaQueue.set = function patchedQueueSet(bookId, promise) {
+      if (bookId === id) queuedPromise = promise;
+      return originalQueueSet.call(this, bookId, promise);
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      if (shouldFail && Object.prototype.hasOwnProperty.call(data, 'bookMeta_' + id)) {
+        shouldFail = false;
+        throw new Error('simulated bookMeta write failure');
+      }
+      return originalSet.call(this, data);
+    };
+
+    try {
+      await assert.rejects(
+        () => EpubStorage.savePosition(id, 'epubcfi(/6/2)', 12.5),
+        /simulated bookMeta write failure/
+      );
+      assert.ok(queuedPromise, '内部队列 Promise 应被记录');
+      await assert.doesNotReject(
+        () => queuedPromise,
+        '内部队列 Promise 应吞掉失败，避免派生未处理拒绝'
+      );
+
+      await EpubStorage.saveReadingTime(id, 30);
+      const meta = await EpubStorage.getBookMeta(id);
+      assert.equal(meta.time, 30);
+    } finally {
+      EpubStorage._set = originalSet;
+      EpubStorage._bookMetaQueue.set = originalQueueSet;
+      EpubStorage._bookMetaQueue.delete(id);
     }
   });
 

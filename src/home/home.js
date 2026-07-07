@@ -14,7 +14,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const annotationsContainer = document.getElementById('annotations-container');
   const annotationsEmpty     = document.getElementById('annotations-empty');
 
-  let currentPrefs = await EpubStorage.getPreferences() || {};
+  let currentPrefs = {};
+  try {
+    currentPrefs = await EpubStorage.getPreferences() || {};
+  } catch (err) {
+    console.warn('[Home] get preferences failed:', err);
+  }
   let currentTheme = currentPrefs.theme === 'dark' ? 'dark' : 'light';
   let currentView  = currentPrefs.homeView === 'list' ? 'list' : 'grid';
 
@@ -24,14 +29,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   setTheme(currentTheme);
   setView(currentView);
-  await loadBookshelf();
-  await loadAnnotations('all');
 
   filterBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       filterBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      loadAnnotations(btn.dataset.filter);
+      loadAnnotationsSafely(btn.dataset.filter);
     });
   });
 
@@ -47,14 +50,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         btnSortTime.title = '切换时间排序: 降序';
       }
       const activeFilter = document.querySelector('.filter-btn.active');
-      loadAnnotations(activeFilter ? activeFilter.dataset.filter : 'all');
+      loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all');
+    });
+  }
+
+  async function loadBookshelfSafely() {
+    try {
+      await loadBookshelf();
+    } catch (err) {
+      console.warn('[Home] load bookshelf failed:', err);
+    }
+  }
+
+  async function loadAnnotationsSafely(filterType = 'all') {
+    try {
+      await loadAnnotations(filterType);
+    } catch (err) {
+      console.warn('[Home] load annotations failed:', err);
+    }
+  }
+
+  function savePreferencesSafely(prefs) {
+    EpubStorage.savePreferences(prefs).catch((err) => {
+      console.warn('[Home] save preferences failed:', err);
     });
   }
 
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(currentTheme);
-    EpubStorage.savePreferences({ theme: currentTheme });
+    savePreferencesSafely({ theme: currentTheme });
   });
 
   function setTheme(theme) {
@@ -64,7 +89,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnView.addEventListener('click', () => {
     currentView = currentView === 'grid' ? 'list' : 'grid';
     setView(currentView);
-    EpubStorage.savePreferences({ homeView: currentView });
+    savePreferencesSafely({ homeView: currentView });
   });
 
   function setView(view) {
@@ -207,12 +232,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm(`确定要移除《${book.title || book.filename}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
-          // v1.7.0: 删除前显式 revoke ObjectURL（不依赖 load/error 事件）
-          const savedUrl = card.dataset.coverUrl;
-          if (savedUrl) URL.revokeObjectURL(savedUrl);
-          await EpubStorage.removeBook(book.id);
-          card.remove();
-          await loadBookshelf();
+          try {
+            // v1.7.0: 删除前显式 revoke ObjectURL（不依赖 load/error 事件）
+            const savedUrl = card.dataset.coverUrl;
+            if (savedUrl) URL.revokeObjectURL(savedUrl);
+            await EpubStorage.removeBook(book.id);
+            card.remove();
+            await loadBookshelfSafely();
+          } catch (err) {
+            console.warn('[Home] remove book failed:', err);
+          }
         }
       });
 
@@ -225,9 +254,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // v1.7.0: clearAll 改为 Promise.all 并行删除
   btnClearAll.addEventListener('click', async () => {
     if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
-      const books = await EpubStorage.getRecentBooks();
-      await Promise.all(books.map(b => EpubStorage.removeBook(b.id)));
-      await loadBookshelf();
+      try {
+        const books = await EpubStorage.getRecentBooks();
+        await Promise.all(books.map(b => EpubStorage.removeBook(b.id)));
+        await loadBookshelfSafely();
+      } catch (err) {
+        console.warn('[Home] clear bookshelf failed:', err);
+      }
     }
   });
 
@@ -297,9 +330,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm('确定要删除这条标注吗？')) {
-          const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
-          await EpubStorage.saveHighlights(hl._bookId, currentHighlights.filter(h => h.cfi !== hl.cfi));
-          loadAnnotations(filterType);
+          try {
+            const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
+            await EpubStorage.saveHighlights(hl._bookId, currentHighlights.filter(h => h.cfi !== hl.cfi));
+            loadAnnotationsSafely(filterType);
+          } catch (err) {
+            console.warn('[Home] remove annotation failed:', err);
+          }
         }
       });
 
@@ -313,35 +350,42 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnExportAll = document.getElementById('btn-export-all');
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
-      const allHighlights = await EpubStorage.getAllHighlights() || {};
-      const recentBooks   = await EpubStorage.getRecentBooks();
-      let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
-      let hasData = false;
-      for (const book of recentBooks) {
-        const hls = allHighlights[book.id];
-        if (hls && hls.length > 0) {
-          hasData = true;
-          md += `## 《${book.title || book.filename}》\n\n`;
-          md += `*作者：${book.author || '未知'}*\n\n`;
-          hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
-            md += `> ${hl.text.trim().replace(/\n/g, '\n> ')}\n\n`;
-            if (hl.note) md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
-            md += `---\n\n`;
-          });
-          md += `\n\n`;
+      try {
+        const allHighlights = await EpubStorage.getAllHighlights() || {};
+        const recentBooks   = await EpubStorage.getRecentBooks();
+        let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
+        let hasData = false;
+        for (const book of recentBooks) {
+          const hls = allHighlights[book.id];
+          if (hls && hls.length > 0) {
+            hasData = true;
+            md += `## 《${book.title || book.filename}》\n\n`;
+            md += `*作者：${book.author || '未知'}*\n\n`;
+            hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
+              md += `> ${hl.text.trim().replace(/\n/g, '\n> ')}\n\n`;
+              if (hl.note) md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
+              md += `---\n\n`;
+            });
+            md += `\n\n`;
+          }
         }
+        if (!hasData) { alert('此时还没有可以导出的笔记！'); return; }
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        a.href = url;
+        a.download = `epub_notes_${new Date().toISOString().slice(0, 10)}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.warn('[Home] export annotations failed:', err);
       }
-      if (!hasData) { alert('此时还没有可以导出的笔记！'); return; }
-      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url;
-      a.download = `epub_notes_${new Date().toISOString().slice(0, 10)}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
     });
   }
+
+  await loadBookshelfSafely();
+  await loadAnnotationsSafely('all');
 
 });

@@ -18,6 +18,18 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('streamRenderBookCard'));
   });
 
+  test.it('home.html 首页脚本 cache-buster 保持一致', () => {
+    const html = fs.readFileSync('src/home/home.html', 'utf8');
+    const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
+    const versions = scripts
+      .filter((src) => src.includes('.js?v='))
+      .map((src) => src.match(/\?v=(\d+)$/)?.[1])
+      .filter(Boolean);
+
+    assert.ok(versions.length > 0);
+    assert.equal(new Set(versions).size, 1, '首页本地脚本应使用同一个 cache-buster');
+  });
+
   test.it('书架流式渲染按 recentBooks 顺序替换对应骨架', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
     assert.ok(js.includes('renderBookshelfSkeleton(books.length)'), '应为每本书创建稳定占位');
@@ -37,6 +49,33 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('Utils.normalizePercent'), 'home.js 应归一化 storage 中的阅读进度');
     assert.ok(js.includes('const percentText = percent.toFixed(1)'), '展示文本应基于归一化后的数字格式化');
     assert.ok(js.includes('--progress-width: ${percent}%'), 'CSS 进度宽度只能使用归一化后的 percent');
+  });
+
+  test.it('首页偏好保存失败不应产生未处理 Promise 拒绝', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    const savePreferenceCallCount = (js.match(/EpubStorage\.savePreferences/g) || []).length;
+
+    assert.equal(savePreferenceCallCount, 1, '偏好保存应统一经过 savePreferencesSafely');
+    assert.ok(js.includes('function savePreferencesSafely'), '应有首页偏好安全保存辅助函数');
+    assert.ok(js.includes('.catch((err) =>'), '偏好保存失败应被 catch');
+    assert.ok(js.includes("console.warn('[Home] save preferences failed:'"), '失败应记录首页上下文告警');
+    assert.ok(js.includes('savePreferencesSafely({ theme: currentTheme })'), '主题保存应走安全保存');
+    assert.ok(js.includes('savePreferencesSafely({ homeView: currentView })'), '视图保存应走安全保存');
+  });
+
+  test.it('首页初始化与异步刷新路径应有错误隔离', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+
+    assert.ok(js.includes("console.warn('[Home] get preferences failed:'"), '偏好读取失败不应中断首页初始化');
+    assert.ok(js.includes('await loadBookshelfSafely()'), '初始化书架加载应走安全刷新');
+    assert.ok(js.includes("await loadAnnotationsSafely('all')"), '初始化标注加载应走安全刷新');
+    assert.ok(js.includes('function loadBookshelfSafely'), '应有书架安全刷新辅助函数');
+    assert.ok(js.includes('function loadAnnotationsSafely'), '应有标注安全刷新辅助函数');
+    assert.ok(js.includes('loadAnnotationsSafely(btn.dataset.filter)'), '筛选标注应走安全刷新');
+    assert.ok(js.includes("console.warn('[Home] remove book failed:'"), '删除书籍失败应被捕获');
+    assert.ok(js.includes("console.warn('[Home] clear bookshelf failed:'"), '清空书架失败应被捕获');
+    assert.ok(js.includes("console.warn('[Home] remove annotation failed:'"), '删除标注失败应被捕获');
+    assert.ok(js.includes("console.warn('[Home] export annotations failed:'"), '导出失败应被捕获');
   });
 
 });
