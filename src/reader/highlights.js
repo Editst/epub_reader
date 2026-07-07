@@ -10,6 +10,7 @@ window.Highlights = (function () {
   let _activeHighlightCfi = null;
   let _renderedHighlightCfis = new Set();
   let _boundDocument = null;
+  let _contextSeq = 0;
   const _hookedRenditions = new WeakSet();
   const _hookedContentDocuments = new WeakSet();
 
@@ -27,6 +28,22 @@ window.Highlights = (function () {
   const btnSaveNote = document.getElementById('btn-save-note');
 
   let highlights = [];
+
+  function isCurrentContext(contextSeq, bookId, rendition) {
+    return contextSeq === _contextSeq && bookId === _bookId && (!rendition || rendition === _rendition);
+  }
+
+  function saveHighlightsSafely(bookId, nextHighlights) {
+    let write;
+    try {
+      write = EpubStorage.saveHighlights(bookId, nextHighlights);
+    } catch (e) {
+      write = Promise.reject(e);
+    }
+    return Promise.resolve(write).catch((e) => {
+      console.warn('[Highlights] save highlights failed:', e);
+    });
+  }
 
   function init() {
     if (_boundDocument === document) return;
@@ -97,12 +114,20 @@ window.Highlights = (function () {
       clearRenderedHighlights();
     }
 
+    const contextSeq = ++_contextSeq;
     _bookId = bookId;
     _fileName = fileName;
     _rendition = rendition;
     
     // Load existing highlights
-    highlights = await EpubStorage.getHighlights(bookId) || [];
+    let loadedHighlights = [];
+    try {
+      loadedHighlights = await EpubStorage.getHighlights(bookId) || [];
+    } catch (e) {
+      console.warn('[Highlights] load highlights failed:', e);
+    }
+    if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+    highlights = loadedHighlights;
     renderAllHighlights();
 
     // Listen to selection event from epub.js
@@ -185,23 +210,28 @@ window.Highlights = (function () {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const color = btn.dataset.color;
+      const contextSeq = _contextSeq;
+      const bookId = _bookId;
+      const rendition = _rendition;
       
       if (_activeHighlightCfi) {
         // Change color of existing
         updateHighlightData(_activeHighlightCfi, { color });
         reRenderHighlight(_activeHighlightCfi);
-        await EpubStorage.saveHighlights(_bookId, highlights);
+        await saveHighlightsSafely(bookId, highlights);
       } else if (_currentCfiRange) {
+        const cfiRange = _currentCfiRange;
         // Issue 6: Prevent duplicate highlights
-        const existingIdx = highlights.findIndex(h => h.cfi === _currentCfiRange);
+        const existingIdx = highlights.findIndex(h => h.cfi === cfiRange);
         if (existingIdx !== -1) {
           highlights[existingIdx].color = color;
-          reRenderHighlight(_currentCfiRange);
+          reRenderHighlight(cfiRange);
         } else {
           // Create new highlight
-          const text = await getCfiText(_currentCfiRange);
+          const text = await getCfiText(cfiRange, rendition);
+          if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           const newHl = {
-            cfi: _currentCfiRange,
+            cfi: cfiRange,
             text: text,
             color: color,
             note: '',
@@ -210,7 +240,8 @@ window.Highlights = (function () {
           highlights.push(newHl);
           renderHighlight(newHl);
         }
-        await EpubStorage.saveHighlights(_bookId, highlights);
+        if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+        await saveHighlightsSafely(bookId, highlights);
         clearNativeSelection();
       }
       closeToolbar();
@@ -293,11 +324,16 @@ window.Highlights = (function () {
   btnClearHl.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (_activeHighlightCfi) {
-          _rendition.annotations.remove(_activeHighlightCfi, "highlight");
-          _rendition.annotations.remove(_activeHighlightCfi, "underline");
-          _renderedHighlightCfis.delete(_activeHighlightCfi);
-          highlights = highlights.filter(h => h.cfi !== _activeHighlightCfi);
-          await EpubStorage.saveHighlights(_bookId, highlights);
+          const contextSeq = _contextSeq;
+          const bookId = _bookId;
+          const rendition = _rendition;
+          const activeCfi = _activeHighlightCfi;
+          rendition.annotations.remove(activeCfi, "highlight");
+          rendition.annotations.remove(activeCfi, "underline");
+          _renderedHighlightCfis.delete(activeCfi);
+          highlights = highlights.filter(h => h.cfi !== activeCfi);
+          await saveHighlightsSafely(bookId, highlights);
+          if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           _activeHighlightCfi = null;
           _pendingCfi = null;
       }
@@ -327,6 +363,9 @@ window.Highlights = (function () {
       }
 
       const note = noteTextarea.value.trim();
+      const contextSeq = _contextSeq;
+      const bookId = _bookId;
+      const rendition = _rendition;
       
       let hl = highlights.find(h => h.cfi === targetCfi);
       if (hl) {
@@ -335,7 +374,8 @@ window.Highlights = (function () {
           reRenderHighlight(targetCfi); // v1.2.2 Fix: Trigger UI redraw to show newly added note underline
       } else if (targetCfi) {
           // Issue 4: Save note even without highlight
-          const text = await getCfiText(targetCfi);
+          const text = await getCfiText(targetCfi, rendition);
+          if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           hl = {
               cfi: targetCfi,
               text: text,
@@ -348,16 +388,17 @@ window.Highlights = (function () {
           clearNativeSelection();
       }
 
-      await EpubStorage.saveHighlights(_bookId, highlights);
+      if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+      await saveHighlightsSafely(bookId, highlights);
       closeNotePopup();
   });
 
   btnCancelNote.addEventListener('click', closeNotePopup);
 
-  async function getCfiText(cfiRange) {
-    if (!_rendition || !_rendition.book) return '';
+  async function getCfiText(cfiRange, rendition = _rendition) {
+    if (!rendition || !rendition.book) return '';
     try {
-      const range = await _rendition.book.getRange(cfiRange);
+      const range = await rendition.book.getRange(cfiRange);
       return range ? range.toString().trim() : '';
     } catch(e) {
       console.warn("Text extraction failed", e);
@@ -479,11 +520,16 @@ window.Highlights = (function () {
   }
 
   function unmount() {
+    _contextSeq++;
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
     }
     clearRenderedHighlights();
     closePanels();
+    highlights = [];
+    _bookId = '';
+    _fileName = '';
+    _rendition = null;
   }
 
   return {

@@ -12,6 +12,7 @@
   panel: null,
   listEl: null,
   _boundDocument: null,
+  _loadSeq: 0,
 
   init() {
     this.panel = document.getElementById('bookmarks-panel');
@@ -38,7 +39,7 @@
     this.bookId = bookId;
     this.book = book;
     this.rendition = rendition;
-    this.loadBookmarks();
+    this._loadBookmarksSafely();
   },
 
   async getBookmarks() {
@@ -46,13 +47,15 @@
     return EpubStorage.getBookmarks(this.bookId);
   },
 
-  async saveBookmarks(bookmarks) {
+  async saveBookmarks(bookmarks, bookId = this.bookId) {
     // D-1-F: Delegate to EpubStorage.
-    return EpubStorage.saveBookmarks(this.bookId, bookmarks);
+    return EpubStorage.saveBookmarks(bookId, bookmarks);
   },
 
   async toggle(cfi, chapterName, progress) {
-    let bookmarks = await this.getBookmarks();
+    const bookId = this.bookId;
+    let bookmarks = await EpubStorage.getBookmarks(bookId);
+    if (bookId !== this.bookId) return;
     const existing = bookmarks.findIndex(b => b.cfi === cfi);
 
     if (existing >= 0) {
@@ -68,18 +71,30 @@
       bookmarks.sort((a, b) => a.progress - b.progress);
     }
 
-    await this.saveBookmarks(bookmarks);
+    await this.saveBookmarks(bookmarks, bookId);
+    if (bookId !== this.bookId) return;
     this.renderList(bookmarks);
   },
 
   async isBookmarked(cfi) {
-    const bookmarks = await this.getBookmarks();
+    const bookId = this.bookId;
+    const bookmarks = await EpubStorage.getBookmarks(bookId);
+    if (bookId !== this.bookId) return false;
     return bookmarks.some(b => b.cfi === cfi);
   },
 
   async loadBookmarks() {
-    const bookmarks = await this.getBookmarks();
+    const bookId = this.bookId;
+    const loadSeq = ++this._loadSeq;
+    const bookmarks = await EpubStorage.getBookmarks(bookId);
+    if (loadSeq !== this._loadSeq || bookId !== this.bookId) return;
     this.renderList(bookmarks);
+  },
+
+  _loadBookmarksSafely() {
+    this.loadBookmarks().catch((err) => {
+      console.warn('[Bookmarks] load bookmarks failed:', err);
+    });
   },
 
   renderList(bookmarks) {
@@ -127,10 +142,17 @@
 
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        let bms = await this.getBookmarks();
-        bms = bms.filter(b => b.cfi !== bm.cfi);
-        await this.saveBookmarks(bms);
-        this.renderList(bms);
+        try {
+          const bookId = this.bookId;
+          let bms = await EpubStorage.getBookmarks(bookId);
+          if (bookId !== this.bookId) return;
+          bms = bms.filter(b => b.cfi !== bm.cfi);
+          await this.saveBookmarks(bms, bookId);
+          if (bookId !== this.bookId) return;
+          this.renderList(bms);
+        } catch (err) {
+          console.warn('[Bookmarks] remove bookmark failed:', err);
+        }
       });
 
       this.listEl.appendChild(item);
@@ -154,7 +176,7 @@
       const overlay = document.getElementById('sidebar-overlay');
       if (overlay) overlay.classList.add('visible');
 
-      this.loadBookmarks();
+      this._loadBookmarksSafely();
     }
   },
 
@@ -171,6 +193,7 @@
 
   reset() {
     this.closePanel();
+    this._loadSeq++;
     this.bookId = '';
     this.book = null;
     this.rendition = null;

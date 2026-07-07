@@ -333,6 +333,62 @@ test.describe('ReaderPersistence', () => {
     assert.equal(bookmarkState, true);
   });
 
+  test.it('onRelocated 忽略过期的书签状态查询结果', async () => {
+    const { document } = createMockDocument(['btn-bookmark']);
+    global.document = document;
+    global.TOC = { setActive() {} };
+
+    let resolveOldBookmark;
+    let currentCfi = 'epubcfi(/6/2)';
+    global.Bookmarks = {
+      async isBookmarked(cfi) {
+        if (cfi === 'epubcfi(/6/2)') {
+          return new Promise((resolve) => { resolveOldBookmark = resolve; });
+        }
+        return false;
+      }
+    };
+
+    const bookmarkStates = [];
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-stale-bookmark',
+      currentStableCfi: null,
+      lastPercent: null,
+      isBookLoaded: true,
+      book: {
+        locations: {
+          length: () => 0
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: currentCfi, href: 'chapter.xhtml' } };
+        }
+      }
+    };
+    const ui = {
+      updateProgress() {},
+      updateReadingStats() {},
+      updateChapterTitle() {},
+      updateBookmarkButtonState(isBookmarked) { bookmarkStates.push(isBookmarked); },
+      updateReadingStatsText() {}
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
+
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml' } });
+    currentCfi = 'epubcfi(/6/4)';
+    persistence.onRelocated({ start: { cfi: 'epubcfi(/6/4)', href: 'chapter.xhtml' } });
+    await Promise.resolve();
+
+    resolveOldBookmark(true);
+    await Promise.resolve();
+
+    assert.deepEqual(bookmarkStates, [false]);
+  });
+
   test.it('onRelocated 分页模式保存 start.cfi，并把页内恢复锚点写入 locator', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;

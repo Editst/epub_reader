@@ -22,6 +22,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
   let currentTheme = currentPrefs.theme === 'dark' ? 'dark' : 'light';
   let currentView  = currentPrefs.homeView === 'list' ? 'list' : 'grid';
+  let bookshelfRenderSeq = 0;
+  let annotationsRenderSeq = 0;
 
   const filterBtns = document.querySelectorAll('.filter-btn');
   const btnSortTime = document.getElementById('btn-sort-time');
@@ -124,7 +126,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Bookshelf ---
   async function loadBookshelf() {
+    const renderSeq = ++bookshelfRenderSeq;
     const books = await EpubStorage.getRecentBooks();
+    if (renderSeq !== bookshelfRenderSeq) return;
     bookCount.textContent = `(${books.length})`;
 
     if (books.length === 0) {
@@ -139,7 +143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     booksContainer.innerHTML = '';
     renderBookshelfSkeleton(books.length);
 
-    const tasks = books.map((book, index) => streamRenderBookCard(book, index));
+    const tasks = books.map((book, index) => streamRenderBookCard(book, index, renderSeq));
     await Promise.all(tasks);
   }
 
@@ -161,11 +165,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function streamRenderBookCard(book, index) {
+  async function streamRenderBookCard(book, index, renderSeq) {
     const [coverBlob, meta] = await Promise.all([
       EpubStorage.getCover(book.id),
       EpubStorage.getBookMeta(book.id)
     ]);
+    if (renderSeq !== bookshelfRenderSeq) return;
 
     {
       const card = document.createElement('div');
@@ -266,10 +271,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // --- Annotations Management ---
   async function loadAnnotations(filterType = 'all') {
+    const renderSeq = ++annotationsRenderSeq;
     const allHighlights = await EpubStorage.getAllHighlights() || {};
+    if (renderSeq !== annotationsRenderSeq) return;
     const bookKeys = Object.keys(allHighlights);
 
     const recentBooks = await EpubStorage.getRecentBooks();
+    if (renderSeq !== annotationsRenderSeq) return;
     const bookMetaMap = {};
     for (const b of recentBooks) bookMetaMap[b.id] = b;
 

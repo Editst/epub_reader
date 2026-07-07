@@ -356,6 +356,119 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(document.getElementById('sidebar-overlay').classList.contains('visible'), false);
   });
 
+  test.it('Bookmarks 切书后忽略上一书的延迟加载结果', async () => {
+    const { document } = createMockDocument([
+      'bookmarks-panel',
+      'bookmarks-list',
+      'btn-bookmarks',
+      'btn-bookmarks-close',
+      'sidebar',
+      'sidebar-overlay',
+      'search-panel'
+    ]);
+    let resolveOldLoad;
+    const oldLoad = new Promise((resolve) => { resolveOldLoad = resolve; });
+    const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+      document,
+      EpubStorage: {
+        async getBookmarks(bookId) {
+          if (bookId === 'old-book') return oldLoad;
+          return [{ cfi: 'new-cfi', chapter: '新书章节', progress: 20, timestamp: 1 }];
+        },
+        async saveBookmarks() {}
+      }
+    });
+
+    Bookmarks.init();
+    Bookmarks.setBook('old-book', {}, { display() {} });
+    Bookmarks.setBook('new-book', {}, { display() {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveOldLoad([{ cfi: 'old-cfi', chapter: '旧书章节', progress: 10, timestamp: 1 }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const chapters = document.getElementById('bookmarks-list')
+      .querySelectorAll('.bookmark-item-chapter')
+      .map(el => el.textContent);
+    assert.deepEqual(chapters, ['新书章节']);
+  });
+
+  test.it('Bookmarks 切书后旧 toggle 不会保存到新书', async () => {
+    const { document } = createMockDocument([
+      'bookmarks-panel',
+      'bookmarks-list',
+      'btn-bookmarks',
+      'btn-bookmarks-close',
+      'sidebar',
+      'sidebar-overlay',
+      'search-panel'
+    ]);
+    let oldGetCount = 0;
+    let resolveOldToggle;
+    const saveCalls = [];
+    const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+      document,
+      EpubStorage: {
+        async getBookmarks(bookId) {
+          if (bookId === 'old-book') {
+            oldGetCount++;
+            if (oldGetCount === 2) {
+              return new Promise((resolve) => { resolveOldToggle = resolve; });
+            }
+          }
+          return [];
+        },
+        async saveBookmarks(bookId, bookmarks) {
+          saveCalls.push({ bookId, bookmarks });
+        }
+      }
+    });
+
+    Bookmarks.init();
+    Bookmarks.setBook('old-book', {}, { display() {} });
+    await Promise.resolve();
+
+    const togglePromise = Bookmarks.toggle('old-cfi', '旧书章节', 0.5);
+    await Promise.resolve();
+    Bookmarks.setBook('new-book', {}, { display() {} });
+    resolveOldToggle([]);
+    await togglePromise;
+
+    assert.deepEqual(saveCalls, []);
+  });
+
+  test.it('Bookmarks 自动加载失败只记录告警', async () => {
+    const { document } = createMockDocument([
+      'bookmarks-panel',
+      'bookmarks-list',
+      'btn-bookmarks',
+      'btn-bookmarks-close',
+      'sidebar',
+      'sidebar-overlay',
+      'search-panel'
+    ]);
+    const warnings = [];
+    const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+      document,
+      console: { ...console, warn(...args) { warnings.push(args); } },
+      EpubStorage: {
+        async getBookmarks() {
+          throw new Error('storage failed');
+        },
+        async saveBookmarks() {}
+      }
+    });
+
+    Bookmarks.init();
+    Bookmarks.setBook('book-1', {}, { display() {} });
+    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(String(warnings[0]?.[0] || ''), /load bookmarks failed/);
+  });
+
   test.it('Search 增量渲染会追加多章节结果，不清空已有结果', async () => {
     const { document } = createMockDocument([
       'search-panel',
@@ -590,6 +703,103 @@ test.describe('Reader 模块基础行为', () => {
     document.getElementById('btn-next').click();
 
     assert.deepEqual(calls, ['new-next', 'new-next']);
+  });
+
+  test.it('ReaderUi 书签按钮保存失败只记录告警', async () => {
+    const { document } = createMockDocument([
+      'welcome-screen',
+      'loading-overlay',
+      'loading-text',
+      'reader-main',
+      'bottom-bar',
+      'toolbar',
+      'file-input',
+      'book-title',
+      'chapter-title',
+      'progress-slider',
+      'progress-current',
+      'progress-location',
+      'progress-time',
+      'font-size-slider',
+      'font-size-value',
+      'line-height-slider',
+      'line-height-value',
+      'font-family-select',
+      'settings-panel',
+      'custom-theme-options',
+      'custom-bg-color',
+      'custom-text-color',
+      'drag-overlay',
+      'welcome-open-btn',
+      'btn-open',
+      'btn-home',
+      'btn-prev',
+      'btn-next',
+      'btn-settings',
+      'btn-settings-close',
+      'btn-bookmark'
+    ]);
+    const warnings = [];
+    const context = {
+      document,
+      window: {
+        focus() {},
+        addEventListener() {}
+      },
+      chrome: {
+        runtime: { getURL: (p) => 'chrome-extension://test/' + p },
+        tabs: { create() {} }
+      },
+      EpubStorage: {
+        async savePreferences() {}
+      },
+      ReaderState: {
+        findTocItem() { return { label: '章节一' }; }
+      },
+      TOC: { close() {} },
+      Bookmarks: {
+        closePanel() {},
+        async toggle() { throw new Error('bookmark failed'); },
+        async isBookmarked() { return false; }
+      },
+      Search: { closePanel() {} },
+      Highlights: { closePanels() {} },
+      console: { ...console, warn(...args) { warnings.push(args); } },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    context.window.document = document;
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({
+      state: {
+        prefs: {},
+        isBookLoaded: true,
+        rendition: {
+          currentLocation() {
+            return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml' } };
+          }
+        },
+        book: {
+          navigation: { toc: [] },
+          locations: {
+            length() { return 1; },
+            percentageFromCfi() { return 0.5; }
+          }
+        }
+      }
+    });
+
+    await ui.bindRuntime({
+      next() {},
+      prev() {},
+      setLayout() {},
+      displayPercentage() {}
+    }, {});
+    document.getElementById('btn-bookmark').click();
+    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(String(warnings[0]?.[0] || ''), /toggle bookmark failed/);
   });
 
   test.it('ReaderUi 偏好保存失败只记录告警且不阻断 UI 更新', async () => {

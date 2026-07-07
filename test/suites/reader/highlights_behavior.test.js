@@ -46,16 +46,19 @@ function createElement(id) {
     },
     querySelectorAll(selector) {
       if (selector !== '.color-btn') return [];
-      return ['#ffeb3b', '#81c784', '#64b5f6'].map((color) => {
-        const btn = createElement(`color-${color}`);
-        btn.dataset.color = color;
-        return btn;
-      });
+      if (!this._colorBtns) {
+        this._colorBtns = ['#ffeb3b', '#81c784', '#64b5f6'].map((color) => {
+          const btn = createElement(`color-${color}`);
+          btn.dataset.color = color;
+          return btn;
+        });
+      }
+      return this._colorBtns;
     }
   };
 }
 
-function loadHighlights(storedHighlights) {
+function loadHighlights(storedHighlights, options = {}) {
   const elements = new Map();
   const documentMock = {
     createElement,
@@ -67,6 +70,7 @@ function loadHighlights(storedHighlights) {
 
   const annotations = [];
   const currentContents = [];
+  const selectedHandlers = new Set();
   const rendition = {
     annotations: {
       highlight(cfi, data, cb, className, styles) {
@@ -91,8 +95,15 @@ function loadHighlights(storedHighlights) {
         }
       }
     },
-    on() {},
-    off() {},
+    on(type, fn) {
+      if (type === 'selected') selectedHandlers.add(fn);
+    },
+    off(type, fn) {
+      if (type === 'selected') selectedHandlers.delete(fn);
+    },
+    triggerSelected(cfiRange, contents) {
+      selectedHandlers.forEach(fn => fn(cfiRange, contents));
+    },
     book: {
       async getRange() {
         return { toString: () => 'text' };
@@ -123,6 +134,12 @@ function loadHighlights(storedHighlights) {
     },
     console
   };
+  if (options.EpubStorage) {
+    context.EpubStorage = options.EpubStorage;
+  }
+  if (options.console) {
+    context.console = options.console;
+  }
   context.window.window = context.window;
   context.window.document = documentMock;
 
@@ -134,11 +151,128 @@ function loadHighlights(storedHighlights) {
     rendition,
     annotations,
     currentContents,
-    elements
+    elements,
+    context
   };
 }
 
 test.describe('Reader Highlights 行为', () => {
+  test.it('切书后忽略上一书延迟返回的高亮列表', async () => {
+    let resolveOldHighlights;
+    const { Highlights, rendition, annotations } = loadHighlights([], {
+      EpubStorage: {
+        async getHighlights(bookId) {
+          if (bookId === 'old-book') {
+            return new Promise((resolve) => { resolveOldHighlights = resolve; });
+          }
+          return [{ cfi: 'epubcfi(/6/4)', text: 'new', color: '#81c784', note: '', timestamp: 2 }];
+        },
+        async saveHighlights() {}
+      }
+    });
+
+    const oldLoad = Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    resolveOldHighlights([{ cfi: 'epubcfi(/6/2)', text: 'old', color: '#ffeb3b', note: '', timestamp: 1 }]);
+    await oldLoad;
+
+    assert.deepEqual(annotations.map(item => item.cfi), ['epubcfi(/6/4)']);
+  });
+
+  test.it('高亮列表加载失败只记录告警并按空列表继续绑定', async () => {
+    const warnings = [];
+    const { Highlights, rendition, annotations } = loadHighlights([], {
+      console: { ...console, warn(...args) { warnings.push(args); } },
+      EpubStorage: {
+        async getHighlights() {
+          throw new Error('storage failed');
+        },
+        async saveHighlights() {}
+      }
+    });
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+
+    assert.deepEqual(annotations, []);
+    assert.match(String(warnings[0]?.[0] || ''), /load highlights failed/);
+  });
+
+  test.it('切书后旧选择的高亮保存不会写入新书', async () => {
+    const saveCalls = [];
+    let resolveOldRange;
+    const { Highlights, rendition, elements } = loadHighlights([], {
+      EpubStorage: {
+        async getHighlights() {
+          return [];
+        },
+        async saveHighlights(bookId, highlights) {
+          saveCalls.push({ bookId, highlights });
+        }
+      }
+    });
+    rendition.book.getRange = async () => new Promise((resolve) => { resolveOldRange = resolve; });
+
+    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    rendition.triggerSelected('epubcfi(/6/2)', {
+      window: {
+        frameElement: {
+          getBoundingClientRect() {
+            return { top: 0, left: 0 };
+          }
+        },
+        getSelection() {
+          return {
+            rangeCount: 1,
+            getRangeAt() {
+              return {
+                getBoundingClientRect() {
+                  return { top: 100, left: 100, bottom: 120, width: 20 };
+                }
+              };
+            }
+          };
+        }
+      }
+    });
+    elements.get('selection-toolbar').querySelectorAll('.color-btn')[0].dispatch('click', {
+      stopPropagation() {}
+    });
+
+    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    resolveOldRange({ toString: () => 'old text' });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(saveCalls, []);
+  });
+
+  test.it('高亮保存失败只记录告警', async () => {
+    const warnings = [];
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored, {
+      console: { ...console, warn(...args) { warnings.push(args); } },
+      EpubStorage: {
+        async getHighlights() {
+          return stored.map(item => ({ ...item }));
+        },
+        async saveHighlights() {
+          throw new Error('save failed');
+        }
+      }
+    });
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    annotations[0].cb({
+      stopPropagation() {},
+      target: createElement('rendered-highlight')
+    }, 'epubcfi(/6/2)');
+    elements.get('selection-toolbar').querySelectorAll('.color-btn')[1].dispatch('click', {
+      stopPropagation() {}
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.match(String(warnings[0]?.[0] || ''), /save highlights failed/);
+  });
+
   test.it('重复绑定同一本书不会叠加已有高亮注解', async () => {
     const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
     const { Highlights, rendition, annotations } = loadHighlights(stored);

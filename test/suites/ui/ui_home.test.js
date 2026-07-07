@@ -33,9 +33,26 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
   test.it('书架流式渲染按 recentBooks 顺序替换对应骨架', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
     assert.ok(js.includes('renderBookshelfSkeleton(books.length)'), '应为每本书创建稳定占位');
-    assert.ok(js.includes('streamRenderBookCard(book, index)'), '渲染任务应携带原始顺序索引');
+    assert.ok(js.includes('streamRenderBookCard(book, index, renderSeq)'), '渲染任务应携带原始顺序索引与刷新代次');
     assert.ok(js.includes('data-skeleton-index'), '骨架应标记顺序索引');
     assert.ok(js.includes('replaceWith(card)'), '书籍卡片应替换对应骨架，而不是按完成时间追加');
+  });
+
+  test.it('书架异步刷新返回过期时不得回写 DOM', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+
+    assert.ok(js.includes('let bookshelfRenderSeq = 0'), '书架刷新应有代次令牌');
+    assert.ok(js.includes('const renderSeq = ++bookshelfRenderSeq'), '每轮书架刷新应递增代次');
+    assert.ok(js.includes('if (renderSeq !== bookshelfRenderSeq) return'), '过期书架刷新应退出');
+    assert.ok(js.includes('async function streamRenderBookCard(book, index, renderSeq)'), '流式卡片渲染应接收所属代次');
+  });
+
+  test.it('标注异步刷新返回过期时不得回写 DOM', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+
+    assert.ok(js.includes('let annotationsRenderSeq = 0'), '标注刷新应有代次令牌');
+    assert.ok(js.includes('const renderSeq = ++annotationsRenderSeq'), '每轮标注刷新应递增代次');
+    assert.ok(js.includes('if (renderSeq !== annotationsRenderSeq) return'), '过期标注刷新应退出');
   });
 
   test.it('C-9: home.js 无 style.* 运行时直写', () => {

@@ -33,6 +33,7 @@
   const VISIBLE_ANCHOR_Y_RATIOS        = [0.45, 0.35, 0.55, 0.25, 0.70];
 
   function createReaderPersistence({ state, ui }) {
+    let _bookmarkStateSeq = 0;
 
     // ── Position ─────────────────────────────────────────────────────────────
 
@@ -498,8 +499,12 @@
       if (!state.rendition || !state.isBookLoaded) return;
       const location = state.rendition.currentLocation();
       if (!location || !location.start) return;
+      const bookmarkSeq = ++_bookmarkStateSeq;
+      const bookId = state.currentBookId;
+      const cfi = location.start.cfi;
       try {
-        const isBookmarked = await Bookmarks.isBookmarked(location.start.cfi);
+        const isBookmarked = await Bookmarks.isBookmarked(cfi);
+        if (bookmarkSeq !== _bookmarkStateSeq || bookId !== state.currentBookId) return;
         ui.updateBookmarkButtonState(isBookmarked);
       } catch (e) {
         console.warn('[Persistence] bookmark state check failed:', e);
@@ -616,6 +621,7 @@
     }
 
     function unmount() {
+      _bookmarkStateSeq++;
       if (state.readingTimer) {
         clearInterval(state.readingTimer);
         state.readingTimer = null;

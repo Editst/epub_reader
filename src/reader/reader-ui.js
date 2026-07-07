@@ -446,25 +446,29 @@
     }
 
     async function _toggleBookmarkAtCurrent() {
-      if (!state.rendition || !state.isBookLoaded) return;
-      const location = state.rendition.currentLocation();
-      if (!location || !location.start) return;
-      const cfi = location.start.cfi;
-      const currentSection = location.start.href;
-      const tocItem = ReaderState.findTocItem(
-        state.book && state.book.navigation ? state.book.navigation.toc : [],
-        currentSection
-      );
-      const chapterName = tocItem ? tocItem.label.trim() : '';
-      const progress = (state.book && state.book.locations && state.book.locations.length())
-        ? state.book.locations.percentageFromCfi(cfi) : 0;
-      await Bookmarks.toggle(cfi, chapterName, progress);
-      // 刷新书签按钮状态（复用 persistence 的逻辑，这里直接操作 DOM）
-      const btn = document.getElementById('btn-bookmark');
-      if (btn) {
-        const isBookmarked = await Bookmarks.isBookmarked(cfi);
-        btn.classList.toggle('active', isBookmarked);
-        btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
+      try {
+        if (!state.rendition || !state.isBookLoaded) return;
+        const location = state.rendition.currentLocation();
+        if (!location || !location.start) return;
+        const cfi = location.start.cfi;
+        const currentSection = location.start.href;
+        const tocItem = ReaderState.findTocItem(
+          state.book && state.book.navigation ? state.book.navigation.toc : [],
+          currentSection
+        );
+        const chapterName = tocItem ? tocItem.label.trim() : '';
+        const progress = (state.book && state.book.locations && state.book.locations.length())
+          ? state.book.locations.percentageFromCfi(cfi) : 0;
+        await Bookmarks.toggle(cfi, chapterName, progress);
+        // 刷新书签按钮状态（复用 persistence 的逻辑，这里直接操作 DOM）
+        const btn = document.getElementById('btn-bookmark');
+        if (btn) {
+          const isBookmarked = await Bookmarks.isBookmarked(cfi);
+          btn.classList.toggle('active', isBookmarked);
+          btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
+        }
+      } catch (err) {
+        console.warn('[ReaderUi] toggle bookmark failed:', err);
       }
     }
 
