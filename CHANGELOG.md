@@ -8,6 +8,54 @@
 
 ---
 
+## [2.4.5] - 2026-07-07
+
+### fix
+- **修复“进度是新的、页面是旧的”分裂快照**：分页恢复不再无条件信任 `locator.restoreCfi`。新写入的 locator 会带 `sourceCfi`，恢复时只有 `locator.sourceCfi === pos.cfi` 才允许用 `restoreCfi` 显示，避免旧 `restoreCfi` 把新进度恢复到老页面。
+- **恢复页码做同章节有限校正**：真实 EPUB 验证确认，epub.js `display(restoreCfi)` 仍可能落到同章节更早的显示页。恢复期现在只在 href/index、页总数、偏好签名均匹配时，最多执行 6 步 `next()/prev()` 校正到 locator 记录页；校正期间保持 `isRestoringPosition`，不触发位置写入，无法收敛则清空 locator。
+- **iframe 内部手势会解除恢复保护**：恢复后若用户在 EPUB iframe 内滚轮、触摸、鼠标或键盘翻页，会先解除 `isRestoreAnchorProtected`，避免“页面已翻到新页，但保存仍停在恢复锚点”。
+- **分页恢复锚点改为列感知采样**：分页模式下优先从当前 displayed page 所在列的可视区域生成 `restoreCfi`，避免在横向分页 iframe 中误采整章中点。
+- **坏快照自愈**：打开书籍时若已缓存 locations，先加载缓存并检查 `pos.cfi` 对应百分比是否与已保存 `percentage` 明显不一致；若不一致，说明 storage 中 CFI 与百分比分裂，恢复时改用 `percentage -> cfi` 兜底，并清空旧 locator。
+- **关闭/刷新前不再用旧页覆盖待写入翻页**：`flushPositionSave()` 发现已有防抖中的位置写入时，直接保存内存中的最新 relocated 快照，不再重新采样可能仍停在上一页的 `currentLocation()`。
+- **损坏 locations 缓存不再阻断打开**：缓存 locations 加载失败时按无缓存处理，先按保存 CFI 打开书籍，再进入后台重建路径。
+
+### test
+- 补充 ReaderPersistence / ReaderRuntime 回归测试，覆盖旧 `restoreCfi` 不得覆盖新 `pos.cfi`、真实 EPUB 同章节多步页校正、iframe 用户手势解除恢复保护、列感知可视锚点、`pos.cfi` 与 `percentage` 分裂时用百分比恢复、pending flush 不回滚、损坏 locations 缓存降级打开。
+
+---
+
+## [2.4.4] - 2026-07-07
+
+### fix
+- **翻页后恢复位置不再回滚到旧页**：`onRelocated()` 改为优先使用 epub.js `relocated` 事件携带的新位置落盘；`rendition.currentLocation()` 在同一 tick 内可能仍停留在上一页，不能覆盖本次翻页事件。修复“进度条已变化，但重新打开仍回到原页面”的问题。
+- **CFI 相同也会刷新恢复快照**：当 `pos.cfi` 字符串未变，但 displayed-page locator、`locator.restoreCfi` 或百分比发生变化时，仍会触发 `savePosition()`，避免只保存了百分比而恢复锚点停留在旧页。
+
+### test
+- 补充 ReaderPersistence 回归测试，覆盖 `currentLocation()` 旧值不能覆盖 relocated 新位置、CFI 相同但 locator/百分比变化仍保存，以及无变化时不重复写入。
+
+---
+
+## [2.4.3] - 2026-07-06
+
+### fix
+- **分页模式拆分保存锚点与恢复锚点**：`pos.cfi` 继续保存 epub.js `location.start.cfi` 作为进度计算与存储兼容锚点；分页模式额外在 `locator.restoreCfi` 写入从 `start.cfi` 向页内轻微前移的恢复锚点。恢复时优先 display `restoreCfi`，但 `currentStableCfi` 保持 `pos.cfi`，避免把边界 CFI 直接用于分页恢复导致前跳。
+- **刷新/关闭前重建恢复 locator**：`flushPositionSave()` 会重新采样当前 location，并同步重建 `locator.restoreCfi`；生成失败时降级为旧行为，不阻断阅读。
+
+### test
+- 补充分页恢复锚点 TDD 回归测试，覆盖 `onRelocated()`、`flushPositionSave()`、恢复锚点不可用降级、滚动模式不启用恢复锚点，以及恢复保护期 flush 不重采样。
+
+---
+
+## [2.4.2] - 2026-07-06
+
+### fix
+- **恢复期不再自动翻页**：`_correctRestoredPage()` 改为只校验 displayed-page locator；同章节内即使页码只差一页，也不再执行 `next()/prev()`。页码漂移只会清空过期 locator，保留已保存 CFI 和恢复锚点保护，避免重新打开书籍时被旧 locator 带到上一页/下一页。该策略已在 v2.4.5 基于真实 EPUB 复测收窄为“同章节同签名有限校正”。
+
+### test
+- 更新恢复定位回归测试，覆盖同章节页码差一页时 `next()/prev()` 均不调用、`currentStableCfi` 不偏移、过期 locator 被清理。
+
+---
+
 ## [2.4.1] - 2026-07-06
 
 ### fix

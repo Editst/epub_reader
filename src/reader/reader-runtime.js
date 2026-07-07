@@ -29,6 +29,8 @@
   const POST_DISPLAY_FOCUS_DELAY_MS     = 100;
   const POST_OPEN_FOCUS_DELAY_MS        = 300;
   const NAV_DEBOUNCE_MS                 = 150;
+  const RESTORE_PERCENT_MISMATCH_THRESHOLD = 0.5;
+  const RESTORE_PAGE_CORRECTION_MAX_STEPS = 6;
 
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
@@ -82,6 +84,7 @@
         Annotations.setBook(state.book);
         Annotations.hookRendition(rendition);
       }
+      _hookContentUserPositionIntent(rendition);
       ui.setupRenditionKeyEvents(rendition, persistence, { next, prev });
 
       rendition.on('relocated', (location) => persistence.onRelocated(location));
@@ -99,6 +102,19 @@
         return;
       }
       setTimeout(() => run(), 0);
+    }
+
+    function _loadCachedLocations(cachedLocsJSON) {
+      if (!cachedLocsJSON || !state.book || !state.book.locations || typeof state.book.locations.load !== 'function') {
+        return false;
+      }
+      try {
+        state.book.locations.load(cachedLocsJSON);
+        return true;
+      } catch (e) {
+        console.warn('[Runtime] locations cache load failed:', e);
+        return false;
+      }
     }
 
     function estimateBookSizeBytes(data) {
@@ -140,6 +156,23 @@
 
     function _markUserPositionIntent() {
       state.isRestoreAnchorProtected = false;
+    }
+
+    function _hookContentUserPositionIntent(rendition) {
+      if (!rendition || !rendition.hooks || !rendition.hooks.content) return;
+      rendition.hooks.content.register((contents) => {
+        const doc = contents && contents.document;
+        if (!doc || doc.__readerPositionIntentGuarded || typeof doc.addEventListener !== 'function') return;
+        const markIntent = () => {
+          if (!state.isRestoringPosition && !state.isResizing) _markUserPositionIntent();
+        };
+        doc.addEventListener('pointerdown', markIntent, { capture: true, passive: true });
+        doc.addEventListener('touchstart', markIntent, { capture: true, passive: true });
+        doc.addEventListener('mousedown', markIntent, { capture: true, passive: true });
+        doc.addEventListener('keydown', markIntent, { capture: true });
+        doc.addEventListener('wheel', markIntent, { capture: true, passive: true });
+        doc.__readerPositionIntentGuarded = true;
+      });
     }
 
     function _wrapRenditionDisplayForPositionIntent(rendition) {
@@ -189,10 +222,63 @@
       };
     }
 
+    function _isDisplayedPageInLocatorSection(page, locator) {
+      return !!page &&
+        page.index === locator.index &&
+        page.href === locator.href;
+    }
+
+    async function _readCurrentDisplayedPage() {
+      await _waitForRenditionStable();
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return null;
+      return _getDisplayedPage(state.rendition.currentLocation());
+    }
+
+    function _getRestoreLocator(savedPos) {
+      if (!savedPos || !savedPos.locator) return null;
+      const locator = savedPos.locator;
+      if (locator.strategy !== 'epubjs-displayed-page-v1') return null;
+      if (locator.restoreCfi && locator.sourceCfi !== savedPos.cfi) return null;
+      return locator;
+    }
+
+    function _getRestoreDisplayCfi(savedPos, restoreLocator) {
+      if (!savedPos) return null;
+      const locator = restoreLocator || _getRestoreLocator(savedPos);
+      if (
+        locator &&
+        locator.layout === 'paginated' &&
+        state.prefs.layout !== 'scrolled' &&
+        typeof locator.restoreCfi === 'string' &&
+        locator.restoreCfi.length > 0
+      ) {
+        return locator.restoreCfi;
+      }
+      return savedPos.cfi || null;
+    }
+
+    function _getProgressFallbackCfi(savedPos) {
+      if (!savedPos || typeof savedPos.percentage !== 'number') return null;
+      if (!state.book || !state.book.locations || !state.book.locations.length()) return null;
+      if (typeof state.book.locations.percentageFromCfi !== 'function') return null;
+      if (typeof state.book.locations.cfiFromPercentage !== 'function') return null;
+      if (!savedPos.cfi) return state.book.locations.cfiFromPercentage(savedPos.percentage / 100) || null;
+
+      let currentPercent = null;
+      try {
+        currentPercent = Math.round(state.book.locations.percentageFromCfi(savedPos.cfi) * 1000) / 10;
+      } catch (_) {
+        return null;
+      }
+      if (typeof currentPercent !== 'number') return null;
+      if (Math.abs(currentPercent - savedPos.percentage) <= RESTORE_PERCENT_MISMATCH_THRESHOLD) return null;
+      return state.book.locations.cfiFromPercentage(savedPos.percentage / 100) || null;
+    }
+
     /**
-     * 位置恢复后做有界页校正。
-     * 只在同章节、同布局签名、页总数一致且仅偏移一页时导航一次；
-     * 其余差异视为 locator 已过期，不用 epub.js 边界 CFI 覆盖保存锚点。
+     * 位置恢复后只验证 locator，不再根据 displayed.page 自动翻页。
+     * CFI 才是恢复锚点；displayed.page 受字体、视口和 epub.js 分页边界影响，
+     * 页码差异只用于判定 locator 过期，不能驱动 next/prev 导航。
      *
      * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过校正
      */
@@ -208,19 +294,13 @@
         return { matched: false, corrected: false };
       }
 
-      await _waitForRenditionStable();
-      if (!state.rendition || typeof state.rendition.currentLocation !== 'function') {
-        state.currentStableLocator = null;
-        return { matched: false, corrected: false };
-      }
-
-      const currentPage = _getDisplayedPage(state.rendition.currentLocation());
+      let currentPage = await _readCurrentDisplayedPage();
       if (!currentPage) {
         state.currentStableLocator = null;
         return { matched: false, corrected: false };
       }
 
-      const matched = currentPage.index === locator.index && currentPage.href === locator.href;
+      const matched = _isDisplayedPageInLocatorSection(currentPage, locator);
       if (!matched) {
         state.currentStableLocator = null;
         return { matched: false, corrected: false };
@@ -236,36 +316,42 @@
         return { matched: true, corrected: false };
       }
 
-      const pageDelta = locator.page - currentPage.page;
-      if (pageDelta === 0) return { matched: true, corrected: false };
-      if (Math.abs(pageDelta) !== 1) {
-        state.currentStableLocator = null;
-        return { matched: true, corrected: false };
+      if (locator.page !== currentPage.page) {
+        let steps = 0;
+        while (currentPage && currentPage.page !== locator.page && steps < RESTORE_PAGE_CORRECTION_MAX_STEPS) {
+          const direction = locator.page > currentPage.page ? 1 : -1;
+          const beforePage = currentPage.page;
+          try {
+            if (direction > 0) await state.rendition.next();
+            else await state.rendition.prev();
+          } catch (_) {
+            state.currentStableLocator = null;
+            return { matched: true, corrected: steps > 0 };
+          }
+
+          steps++;
+          currentPage = await _readCurrentDisplayedPage();
+          if (!_isDisplayedPageInLocatorSection(currentPage, locator) || currentPage.total !== locator.total) {
+            state.currentStableLocator = null;
+            return { matched: false, corrected: steps > 0 };
+          }
+          if (currentPage.page === beforePage) {
+            state.currentStableLocator = null;
+            return { matched: true, corrected: steps > 0 };
+          }
+          if (direction > 0 && currentPage.page > locator.page) break;
+          if (direction < 0 && currentPage.page < locator.page) break;
+        }
+
+        if (!currentPage || currentPage.page !== locator.page) {
+          state.currentStableLocator = null;
+          return { matched: true, corrected: steps > 0 };
+        }
+
+        return { matched: true, corrected: steps > 0 };
       }
 
-      try {
-        if (pageDelta > 0 && typeof state.rendition.next === 'function') {
-          await state.rendition.next();
-        } else if (pageDelta < 0 && typeof state.rendition.prev === 'function') {
-          await state.rendition.prev();
-        } else {
-          return { matched: true, corrected: false };
-        }
-        await _waitForRenditionStable();
-        const correctedPage = _getDisplayedPage(state.rendition.currentLocation());
-        const corrected = !!correctedPage &&
-          correctedPage.index === locator.index &&
-          correctedPage.href === locator.href &&
-          correctedPage.page === locator.page;
-        if (!corrected) {
-          state.currentStableLocator = null;
-        }
-        return { matched: true, corrected };
-      } catch (e) {
-        console.warn('[Runtime] CFI restore: one-page correction failed', e);
-        state.currentStableLocator = null;
-        return { matched: true, corrected: false };
-      }
+      return { matched: true, corrected: false };
     }
 
     // ── Data Normalization ────────────────────────────────────────────────────
@@ -369,15 +455,21 @@
         ui.updateProgress(initialPercent);
       }
 
+      let cachedLocsJSON = await EpubStorage.getLocations(bookId);
+      let cachedLocationsLoaded = _loadCachedLocations(cachedLocsJSON);
+      if (cachedLocsJSON && !cachedLocationsLoaded) cachedLocsJSON = null;
+
       // ── display（位置恢复） ──────────────────────────────────────────────────
       // v2.2.4 BUG-FIX：display 期间抑制 relocated 事件的位置回写，
       // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
       state.isRestoringPosition = true;
       state.isLayoutStable = false;
       try {
-        const displayCfi = targetCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
-        state.currentStableCfi = displayCfi;
-        state.currentStableLocator = targetCfi ? null : (savedPos && savedPos.locator ? savedPos.locator : null);
+        const restoreLocator = targetCfi ? null : _getRestoreLocator(savedPos);
+        const progressFallbackCfi = targetCfi ? null : _getProgressFallbackCfi(savedPos);
+        const displayCfi = targetCfi || progressFallbackCfi || _getRestoreDisplayCfi(savedPos, restoreLocator);
+        state.currentStableCfi = targetCfi || progressFallbackCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
+        state.currentStableLocator = targetCfi || progressFallbackCfi ? null : restoreLocator;
         state.isRestoreAnchorProtected = !!displayCfi && state.prefs.layout !== 'scrolled';
         if (targetCfi) {
           state.lastPercent = null;
@@ -386,7 +478,9 @@
         }
         if (displayCfi) await state.rendition.display(displayCfi);
         else await state.rendition.display();
-        if (!targetCfi && savedPos && savedPos.locator) await _correctRestoredPage(savedPos);
+        if (!targetCfi && savedPos && state.currentStableLocator) {
+          await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator });
+        }
       } finally {
         state.isRestoringPosition = false;
         state.isLayoutStable = true;
@@ -422,10 +516,9 @@
         state.lastProgress = progress;
       };
 
-      const cachedLocsJSON = await EpubStorage.getLocations(bookId);
       if (cachedLocsJSON) {
         console.info('[Runtime] locations_cache_hit:', true);
-        state.book.locations.load(cachedLocsJSON);
+        if (!cachedLocationsLoaded) state.book.locations.load(cachedLocsJSON);
         state.hasLocations = true;
         state.locationsStatus = 'ready';
         state.locationsBreak = null;

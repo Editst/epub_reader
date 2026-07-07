@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.1-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.5-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -20,7 +20,7 @@
 
 - **⏱️ 进度毫秒级同步 (Progress Sync)**
   - 独创在本地生成并缓存 IndexedDB `Locations` (全局坐标地图) 架构。
-  - 阅读位置恢复采用 `start.cfi + displayed-page locator + 一页内校正 + 恢复锚点保护` 策略，解决分页边界与刷新跳页问题。
+  - 阅读位置恢复采用 `pos.cfi + locator.restoreCfi + 同章节有限页校正 + 恢复锚点保护` 策略，解决分页边界、重开错页与刷新跳页问题。
   - ETA 升级为会话加权模型（指数衰减 β=0.8），智能识别跳读；locations 生成引入 Idle 调度与进度文案。
   - Reader 内核完成四层解耦（`reader-state.js` / `reader-runtime.js` / `reader-persistence.js` / `reader-ui.js`），由 Orchestrator 统一调度并落地 `mount/unmount` 生命周期契约。
   - 每一次重新打开书籍或翻页，阅读进度/预计耗时百分比都将如磐石般稳固。
@@ -67,7 +67,12 @@
 - **阅读时长零丢失**：通过 `visibilitychange` 事件在标签页切换/关闭时立即持久化计时器，丢失窗口从最多 10 秒降为 0。
 - **阅读位置实时保存**：翻页/滚动后的首个稳定 CFI 会立即启动持久化，连续变化时再用 300ms 防抖保存最终位置，减少关闭页面时回到旧位置的风险。
 - **恢复锚点保护**：分页模式重新打开书籍后，用户真正导航前不会把 epub.js 回报的页边界 CFI 覆盖为新位置，避免刷新或重开时连续跳页。
-- **恢复 locator 失效自愈（v2.4.1）**：旧版或不可比的页码校正快照会自动失效，保留可靠 CFI 锚点并避免重复运行告警。
+- **分裂位置快照自愈（v2.4.5）**：恢复时要求 `locator.restoreCfi` 明确绑定当前 `pos.cfi`；若 epub.js 显示锚点后落在同章节旧页，只在 href/index/页总数/偏好签名均匹配时做最多 6 步页校正；若缓存 locations 发现 `pos.cfi` 与已保存百分比明显不一致，则用百分比回推 CFI，避免“右下角进度是新的、页面仍是老的”。
+- **iframe 用户翻页保护释放（v2.4.5）**：恢复后在 EPUB iframe 内滚轮、触摸、鼠标或键盘翻页会解除恢复锚点保护，确保新页立即保存。
+- **关闭前待写入保护（v2.4.5）**：若翻页后的防抖保存尚未执行，关闭/刷新会直接保存最新 relocated 快照，不再用可能滞后的 `currentLocation()` 覆盖回旧页；损坏的 locations 缓存会自动降级为后台重建。
+- **翻页位置即时落盘（v2.4.4）**：`relocated` 事件优先作为本次翻页的新位置保存，避免同一 tick 内滞后的 `currentLocation()` 把恢复锚点回滚到旧页；CFI 相同但 locator/百分比变化时也会刷新存储。
+- **分页恢复锚点保存（v2.4.3）**：分页模式在 `locator.restoreCfi` 中保存从页起点向页内轻微前移的恢复锚点，关闭/刷新前会重新生成该 locator，避免重开书籍时被边界归属到上一页。
+- **恢复 locator 失效自愈（v2.4.2）**：旧版或不可比的页码快照会自动失效，恢复时保留可靠 CFI 锚点；v2.4.5 起只有通过同章节校验的 locator 才允许有限页校正。
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
 - **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。
 - **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。

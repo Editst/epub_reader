@@ -636,17 +636,39 @@ test.describe('ReaderRuntime', () => {
     ]);
   });
 
-  async function runRestoreCorrectionCase({ savedPos, initialLocation, correctedLocation, prefs = {}, locationsJson = 'locations-json' }) {
+  async function runRestoreCorrectionCase({
+    savedPos,
+    initialLocation,
+    correctedLocation,
+    correctedLocations,
+    prefs = {},
+    locationsJson = 'locations-json',
+    locationsOverrides = {}
+  }) {
     const { document } = createMockDocument(['reader-main', 'book-title', 'chapter-title', 'progress-location']);
     global.document = document;
     global.requestAnimationFrame = (fn) => fn();
     global.setTimeout = (fn) => { fn(); return 1; };
+    let idleTask = null;
+    global.requestIdleCallback = (cb) => {
+      idleTask = cb;
+      return 1;
+    };
 
     const displayCalls = [];
     let nextCalls = 0;
     let prevCalls = 0;
     let reportLocationCalls = 0;
     let current = initialLocation;
+    const correctionSteps = correctedLocations || (correctedLocation ? [correctedLocation] : []);
+    let correctionIndex = 0;
+
+    function applyCorrectionStep() {
+      if (correctionIndex < correctionSteps.length) {
+        current = correctionSteps[correctionIndex];
+        correctionIndex++;
+      }
+    }
 
     const rendition = {
       hooks: { content: { register() {} } },
@@ -657,11 +679,11 @@ test.describe('ReaderRuntime', () => {
       },
       async next() {
         nextCalls++;
-        if (correctedLocation) current = correctedLocation;
+        applyCorrectionStep();
       },
       async prev() {
         prevCalls++;
-        if (correctedLocation) current = correctedLocation;
+        applyCorrectionStep();
       },
       reportLocation() {
         reportLocationCalls++;
@@ -677,8 +699,20 @@ test.describe('ReaderRuntime', () => {
     const locations = {
       _length: 0,
       length() { return this._length; },
-      load() { this._length = 128; },
-      percentageFromCfi() { return 0.30; }
+      load(json) {
+        this._length = 128;
+        if (typeof locationsOverrides.load === 'function') locationsOverrides.load(json);
+      },
+      percentageFromCfi(cfi) {
+        return typeof locationsOverrides.percentageFromCfi === 'function'
+          ? locationsOverrides.percentageFromCfi(cfi)
+          : 0.30;
+      },
+      cfiFromPercentage(percent) {
+        return typeof locationsOverrides.cfiFromPercentage === 'function'
+          ? locationsOverrides.cfiFromPercentage(percent)
+          : null;
+      }
     };
 
     global.ePub = () => ({
@@ -756,10 +790,284 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.addRecentBook = originalAddRecentBook;
     EpubStorage.getLocations = originalGetLocations;
 
-    return { displayCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls, state };
+    return { displayCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls, state, idleTask };
   }
 
-  test.it('openBook 恢复 start.cfi 后同章节差一页时执行 next 校正', async () => {
+  test.it('openBook 有 locator.restoreCfi 时用其显示，但 currentStableCfi 保持 pos.cfi', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/8!/4/2)',
+      percentage: 30,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        href: 'chapter.xhtml',
+        index: 3,
+        page: 5,
+        total: 12,
+        sourceCfi: 'epubcfi(/6/8!/4/2)',
+        prefsSignature: prefs,
+        restoreCfi: 'epubcfi(/6/8!/4/3)'
+      }
+    };
+
+    const result = await runRestoreCorrectionCase({
+      prefs,
+      savedPos,
+      initialLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/3)']);
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
+    assert.equal(result.state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/3)');
+  });
+
+  test.it('openBook 忽略未绑定当前 pos.cfi 的旧 locator.restoreCfi', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/20!/4/2)',
+      percentage: 70,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        href: 'old.xhtml',
+        index: 1,
+        page: 3,
+        total: 12,
+        sourceCfi: 'epubcfi(/6/8!/4/2)',
+        prefsSignature: prefs,
+        restoreCfi: 'epubcfi(/6/8!/4/3)'
+      }
+    };
+
+    const result = await runRestoreCorrectionCase({
+      prefs,
+      savedPos,
+      initialLocation: { start: { index: 8, href: 'new.xhtml', cfi: 'epubcfi(/6/20!/4/2)', displayed: { page: 9, total: 12 } }, end: { displayed: { page: 9, total: 12 } } }
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/20!/4/2)']);
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/20!/4/2)');
+    assert.equal(result.state.currentStableLocator, null);
+  });
+
+  test.it('openBook 检测到 cfi 与已保存百分比分裂时用百分比恢复', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/8!/4/2)',
+      percentage: 70,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        href: 'old.xhtml',
+        index: 1,
+        page: 3,
+        total: 12,
+        prefsSignature: prefs,
+        restoreCfi: 'epubcfi(/6/8!/4/3)'
+      }
+    };
+
+    const result = await runRestoreCorrectionCase({
+      prefs,
+      savedPos,
+      initialLocation: { start: { index: 8, href: 'new.xhtml', cfi: 'epubcfi(/6/20!/4/2)', displayed: { page: 9, total: 12 } }, end: { displayed: { page: 9, total: 12 } } },
+      locationsOverrides: {
+        percentageFromCfi(cfi) {
+          if (cfi === 'epubcfi(/6/8!/4/2)') return 0.30;
+          if (cfi === 'epubcfi(/6/20!/4/2)') return 0.70;
+          return 0;
+        },
+        cfiFromPercentage(percent) {
+          return percent === 0.70 ? 'epubcfi(/6/20!/4/2)' : null;
+        }
+      }
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/20!/4/2)']);
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/20!/4/2)');
+    assert.equal(result.state.currentStableLocator, null);
+    assert.equal(result.state.lastPercent, 70);
+  });
+
+  test.it('openBook 恢复后 iframe 用户手势会解除恢复锚点保护', async () => {
+    const { document } = createMockDocument([
+      'reader-main',
+      'book-title',
+      'chapter-title',
+      'progress-location'
+    ]);
+    global.document = document;
+    global.requestAnimationFrame = (fn) => fn();
+    global.setTimeout = (fn) => { fn(); return 1; };
+
+    const contentHooks = [];
+    const contentListeners = new Map();
+    const rendition = {
+      hooks: {
+        content: {
+          register(fn) {
+            contentHooks.push(fn);
+          }
+        }
+      },
+      themes: { default() {}, override() {} },
+      on() {},
+      async display() {},
+      currentLocation() {
+        return {
+          start: {
+            index: 10,
+            href: 'Text/chapter07.xhtml',
+            cfi: 'epubcfi(/6/22!/4/84/1:0)',
+            displayed: { page: 4, total: 10 }
+          },
+          end: { displayed: { page: 4, total: 10 } }
+        };
+      },
+      getContents() {
+        return [{ document: { fonts: { ready: Promise.resolve() } } }];
+      }
+    };
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 128; },
+      percentageFromCfi() { return 0.613; }
+    };
+
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      locations,
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: '真实手势测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+    global.ImageViewer = { hookRendition() {} };
+    global.Annotations = { setBook() {}, hookRendition() {} };
+    global.TOC = { build() {}, reset() {} };
+    global.Bookmarks = { setBook() {}, reset() {} };
+    global.Search = { setBook() {}, reset() {} };
+    global.Highlights = { setBookDetails() {} };
+    global.fetch = async () => ({ blob: async () => ({}) });
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', spread: 'none', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => ({
+      cfi: 'epubcfi(/6/22!/4/84/1:0)',
+      percentage: 61.3,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        sourceCfi: 'epubcfi(/6/22!/4/84/1:0)',
+        restoreCfi: 'epubcfi(/6/22!/4/84/1:1)',
+        href: 'Text/chapter07.xhtml',
+        index: 10,
+        page: 4,
+        total: 10,
+        prefsSignature: {
+          layout: 'paginated',
+          fontSize: 18,
+          lineHeight: 1.8,
+          fontFamily: '',
+          paragraphIndent: true,
+          spread: 'none'
+        }
+      }
+    });
+    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.getLocations = async () => 'cached-locations';
+
+    try {
+      const state = {
+        book: null,
+        rendition: null,
+        currentBookId: '',
+        currentFileName: '',
+        isBookLoaded: false,
+        prefs: {},
+        activeReadingSeconds: 0,
+        cachedSpeed: null,
+        sessionStart: null,
+        lastProgress: 0
+      };
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          setReaderVisible() {},
+          clearReaderError() {},
+          setBookTitle() {},
+          setReaderDimmed() {},
+          syncPrefsToControls() {},
+          injectCustomStyleElement() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {},
+          updateProgress() {},
+          showLoading() {},
+          setLocationIndexStatus() {}
+        },
+        persistence: { startReadingTimer() {}, onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-real-gesture', 'gesture.epub');
+      assert.equal(state.isRestoreAnchorProtected, true);
+
+      const contents = {
+        document: {
+          addEventListener(type, handler) {
+            contentListeners.set(type, handler);
+          }
+        }
+      };
+      contentHooks.forEach((fn) => fn(contents));
+      assert.equal(typeof contentListeners.get('pointerdown'), 'function');
+
+      contentListeners.get('pointerdown')();
+      assert.equal(state.isRestoreAnchorProtected, false);
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+    }
+  });
+
+  test.it('openBook 忽略损坏的 locations 缓存并继续按保存 CFI 打开', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/8!/4/2)',
+      percentage: 30
+    };
+
+    const result = await runRestoreCorrectionCase({
+      prefs,
+      savedPos,
+      initialLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'epubcfi(/6/8!/4/2)', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } },
+      locationsOverrides: {
+        load() {
+          throw new Error('corrupt locations cache');
+        }
+      }
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)']);
+    assert.equal(result.state.isBookLoaded, true);
+    assert.equal(result.state.locationsStatus, 'pending');
+  });
+
+  test.it('openBook 恢复 start.cfi 后同章节落在前页时执行有限 next 校正', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -782,12 +1090,13 @@ test.describe('ReaderRuntime', () => {
     });
 
     assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)']);
-    assert.equal(result.nextCalls, 1, '同章节且只差一页时应执行一次 next 校正');
+    assert.equal(result.nextCalls, 1, '同章节同签名页码漂移时应执行一次 next 校正');
     assert.equal(result.prevCalls, 0, '目标页在后一页时不应执行 prev 导航');
+    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator，供后续重开继续校验');
     assert.deepEqual(result.relocatedCalls, [], '恢复保护期不应把 currentLocation 边界 CFI 当作新位置保存');
   });
 
-  test.it('openBook 恢复边界 CFI 后同章节差一页时执行 prev 校正', async () => {
+  test.it('openBook 恢复边界 CFI 后同章节落在后页时执行有限 prev 校正', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/20)',
@@ -810,7 +1119,53 @@ test.describe('ReaderRuntime', () => {
     });
 
     assert.equal(result.nextCalls, 0, '不应执行 next 导航');
-    assert.equal(result.prevCalls, 1, '同章节且只差一页时应执行一次 prev 校正');
+    assert.equal(result.prevCalls, 1, '同章节同签名页码漂移时应执行一次 prev 校正');
+    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator');
+  });
+
+  test.it('openBook 恢复到真实页前方时按 locator 多步校正且不污染保存锚点', async () => {
+    const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
+    const savedPos = {
+      cfi: 'epubcfi(/6/22!/4/168/1:0)',
+      percentage: 65.3,
+      locator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        href: 'Text/chapter07.xhtml',
+        index: 10,
+        page: 13,
+        total: 18,
+        sourceCfi: 'epubcfi(/6/22!/4/168/1:0)',
+        restoreCfi: 'epubcfi(/6/22!/4/172/1:45)',
+        prefsSignature: prefs
+      }
+    };
+    const result = await runRestoreCorrectionCase({
+      prefs,
+      savedPos,
+      initialLocation: {
+        start: { index: 10, href: 'Text/chapter07.xhtml', cfi: 'cfi-page-9', displayed: { page: 9, total: 18 } },
+        end: { displayed: { page: 10, total: 18 } }
+      },
+      correctedLocations: [
+        {
+          start: { index: 10, href: 'Text/chapter07.xhtml', cfi: 'cfi-page-11', displayed: { page: 11, total: 18 } },
+          end: { displayed: { page: 12, total: 18 } }
+        },
+        {
+          start: { index: 10, href: 'Text/chapter07.xhtml', cfi: 'cfi-page-13', displayed: { page: 13, total: 18 } },
+          end: { displayed: { page: 14, total: 18 } }
+        }
+      ]
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/22!/4/172/1:45)']);
+    assert.equal(result.nextCalls, 2);
+    assert.equal(result.prevCalls, 0);
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/22!/4/168/1:0)');
+    assert.equal(result.state.currentStableLocator.page, 13);
+    assert.equal(result.state.isRestoreAnchorProtected, true);
+    assert.deepEqual(result.relocatedCalls, []);
   });
 
   test.it('openBook 页号一致或布局不可比时不做校正，href/index 不一致时不导航', async () => {
@@ -852,7 +1207,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(scrolled.nextCalls + scrolled.prevCalls, 0, 'scrolled 模式：跳过验证');
   });
 
-  test.it('openBook 恢复页码差超过一页时失效 locator 且不输出运行警告', async () => {
+  test.it('openBook 恢复页码无法收敛时有限尝试后失效 locator 且不输出运行警告', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -890,7 +1245,7 @@ test.describe('ReaderRuntime', () => {
       console.warn = originalWarn;
     }
 
-    assert.equal(result.nextCalls + result.prevCalls, 0, '超过一页不做校正导航');
+    assert.equal(result.nextCalls + result.prevCalls, 1, '不可收敛时只做有限尝试');
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
     assert.equal(result.state.currentStableLocator, null, '不可比 locator 应被清除，避免下次重开重复告警');
     assert.equal(
@@ -900,7 +1255,7 @@ test.describe('ReaderRuntime', () => {
     );
   });
 
-  test.it('openBook 页校正后 currentStableCfi 仍等于 displayCfi', async () => {
+  test.it('openBook 页码漂移校正后 currentStableCfi 仍等于保存 CFI', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -922,10 +1277,11 @@ test.describe('ReaderRuntime', () => {
       correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
     });
 
-    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)', 'currentStableCfi 应等于保存的 CFI，不随校正导航偏移');
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)', 'currentStableCfi 应等于保存的 CFI，不随页码漂移偏移');
     assert.equal(result.state.isRestoreAnchorProtected, true, '恢复锚点应保持保护，直到用户导航');
-    assert.equal(result.nextCalls, 1, '执行一次 next 校正');
+    assert.equal(result.nextCalls, 1, '执行有限 next 校正');
     assert.equal(result.prevCalls, 0, '不做 prev 导航');
+    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator');
   });
 
   test.it('loadFileByBookId 在缓存缺失时显示重新导入错误', async () => {

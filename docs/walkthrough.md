@@ -4,6 +4,43 @@
 
 ---
 
+## [v2.4.5] - 分裂位置快照自愈
+
+- 根因确认：最近引入 `locator.restoreCfi` 后，恢复阶段优先 display 它；一旦 storage 出现“新 percentage / 新 pos.cfi + 旧 restoreCfi”的混合快照，就会表现为右下角进度是新的，但页面仍回到老位置。
+- 进一步确认：关闭/刷新时若存在待执行的防抖保存，旧逻辑会重新采样 `currentLocation()`；而 epub.js 在同一 tick 内可能仍返回上一页，于是把刚翻到的新位置覆盖回旧页。
+- 真实 EPUB 复测推翻了“恢复期完全不校正页码”的假设：`display(restoreCfi)` 对同一章节仍可能落到更早的 displayed page，必须用 locator.page 做有限校正。
+- 新写入的 displayed-page locator 增加 `sourceCfi`，恢复时只有 `sourceCfi === pos.cfi` 才信任 `restoreCfi`；旧版无 `sourceCfi` 或 source 不匹配的 `restoreCfi` 会被忽略。
+- `_correctRestoredPage()` 恢复为更窄的校正策略：只有 href/index、页总数、偏好签名都匹配时，最多执行 6 步 `next()/prev()`；校正期间仍处于恢复保护期，不写入 storage，不能收敛就清空 locator。
+- 恢复后 EPUB iframe 内的滚轮、触摸、鼠标、键盘手势会解除 `isRestoreAnchorProtected`，避免用户翻页后仍保存旧恢复锚点。
+- 打开书籍时若已缓存 locations，会先校验 `pos.cfi` 与 `percentage` 是否一致；明显不一致时用 `percentage -> cfi` 兜底恢复，并清空旧 locator，避免翻页后进度再跳回旧页面。
+- 若 locations 缓存损坏，打开流程会忽略该缓存并进入后台重建，避免历史缓存问题阻断阅读或恢复链路。
+
+---
+
+## [v2.4.4] - 翻页后保存位置不回滚
+
+- `onRelocated()` 不再用同一 tick 内可能滞后的 `rendition.currentLocation()` 覆盖 relocated 事件位置，避免用户已翻到新页但落盘 CFI/locator 仍停在旧页。
+- 当 `pos.cfi` 字符串相同但 displayed-page locator、`locator.restoreCfi` 或百分比变化时，仍会触发 `savePosition()`；修复“阅读进度显示已更新，重开仍回原页面”的漏写路径。
+- 保留恢复期不自动翻页与恢复锚点保护：用户导航前仍不让恢复漂移覆盖已保存锚点，用户正常翻页后才写入新位置。
+
+---
+
+## [v2.4.3] - 分页页内锚点保存
+
+- 分页模式保存位置时保留 `pos.cfi = currentLocation().start.cfi` 作为兼容主锚点，同时在 displayed-page locator 中写入 `restoreCfi`。
+- `restoreCfi` 通过 `contents.range(start.cfi)` 向页内轻微前移后由 `contents.cfiFromRange()` 生成；恢复显示优先用 `restoreCfi`，但内存稳定锚点仍保持 `pos.cfi`。
+- `flushPositionSave()` 在关闭/刷新前同样重建 locator，避免最后一次生命周期写入把恢复锚点覆盖回纯页边界。旧位置无需迁移，用户翻页或关闭后会自然写入新 locator。
+
+---
+
+## [v2.4.2] - 阅读位置恢复不自动翻页
+
+- `_correctRestoredPage()` 改为只校验 displayed-page locator，不再根据 `displayed.page` 差异执行 `next()/prev()`。
+- 同章节页码差异视为 locator 过期，清空 `currentStableLocator`，保留 `currentStableCfi` 与恢复锚点保护，避免重开书籍时发生自动前跳/后跳。
+- 该策略在 v2.4.5 被真实 EPUB 验证修正：完全不校正会造成“进度新、页面旧”，因此收窄为同章节同签名的有限页校正。
+
+---
+
 ## [v2.4.1] - 阅读位置恢复降级修复
 
 - `_correctRestoredPage()` 对章节不匹配、布局签名不兼容、页总数不一致或页码偏移超过一页的 displayed-page locator 统一视为过期快照，清空 `currentStableLocator`，保留 CFI 锚点。
