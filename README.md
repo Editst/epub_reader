@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.10-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.11-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -65,6 +65,10 @@
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
 - **存储 key 中心化（v2.4.8）**：`EpubStorage` 集中声明 chrome.storage key 与 IndexedDB store 名称，避免 per-book key 字符串散落造成迁移、删除和兼容路径不一致。
 - **偏好写入串行化（v2.4.10）**：主题、布局、字号和首页视图等偏好保存通过队列串行合并，避免多个入口并发保存时互相覆盖。
+- **书架列表写入串行化（v2.4.11）**：`recentBooks` 的导入与移除通过队列串行合并，避免并发导入/删除时最后一次写入覆盖另一本文档。
+- **bookMeta 整体覆写串行化（v2.4.11）**：`saveBookMeta()` 与位置、时长、速度 patch 共享同书队列，批量覆写和阅读中保存不会互相回滚。
+- **bookMeta 清除路径串行化（v2.4.11）**：清除位置或阅读时长也进入同书写队列，避免与正在保存的进度、时长或速度互相回滚字段。
+- **bookMeta 迁移路径串行化（v2.4.11）**：旧版 `pos_/time_` lazy migration 与首次保存共享同书队列，新位置不会被旧快照回写覆盖，旧阅读时长也不会在首次 patch 时丢失。
 - **bookMeta 队列失败收敛（v2.4.10）**：同书位置/时长/速度写入仍会把真实失败返回给调用方，但内部串行队列不会派生未处理 Promise 拒绝，失败后后续写入可继续。
 - **Reader UI 绑定幂等（v2.4.8）**：阅读器顶层事件监听只注册一次，重复绑定会切换到最新 runtime 引用但不会叠加键盘、按钮或拖拽处理器。
 - **功能模块初始化幂等（v2.4.8）**：注释、书签、目录、搜索、图片查看和高亮模块重复 `init()` 不会叠加顶层事件监听。

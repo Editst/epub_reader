@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.10
+版本：v2.4.11
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -142,7 +142,7 @@ epub_reader/
 ```
 chrome.storage.local
 ├── preferences              全局偏好设置
-├── recentBooks              书架列表（最多 20 本）
+├── recentBooks              书架列表（最多 20 本，读改写串行合并）
 ├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
 │     ├── pos: { cfi, percentage, timestamp, locator? }
 │     ├── time: number               累计阅读秒数
@@ -214,6 +214,8 @@ addRecentBook(book: RecentBook): Promise<void>
 // RecentBook: { id, title, author, filename, lastOpened? }
 // lastOpened 由 addRecentBook 自动设置为 Date.now()
 // 列表上限 20 本，超出时删除最旧
+// addRecentBook/removeRecentBook 必须通过内部队列串行执行 read-modify-write
+// 并发导入、删除或入口刷新不得互相覆盖 recentBooks 列表
 
 getRecentBooks(): Promise<RecentBook[]>
 
@@ -235,21 +237,27 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 //   }
 // }
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
+// lazy migration 必须进入同书 bookMeta 队列，不能绕过队列直接 _set
 
 saveBookMeta(bookId: string, meta: BookMeta): Promise<void>
 // 整体覆写，批量更新时使用
+// 整体覆写也必须进入同书 bookMeta 队列，遵循与 patch 相同的调用顺序
 
 savePosition(bookId: string, cfi: string, percentage?: number, locator?: PositionLocator): Promise<void>
 // Patch pos 字段，保留其他字段不变
+// 同书 bookMeta patch 必须通过内部队列串行执行，避免 pos/time/speed 互相覆盖
+// 首次 patch 创建 bookMeta 时应吸收旧版 pos_/time_ 字段，再应用当前 patch
 
 getPosition(bookId: string): Promise<Position | null>
 // Position: { cfi, percentage, timestamp, locator? }
 
 removePosition(bookId: string): Promise<void>
+// 清除 pos 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
 
 saveReadingTime(bookId: string, seconds: number): Promise<void>
 getReadingTime(bookId: string): Promise<number>
 removeReadingTime(bookId: string): Promise<void>
+// 清除 time 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
 
 saveReadingSpeed(bookId: string, speed: Speed): Promise<void>
 // Speed: { sampledSeconds: number, sampledProgress: number }
@@ -803,24 +811,24 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=12"></script>
-<script src="../utils/utils.js?v=12"></script>
-<script src="../utils/storage.js?v=12"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=13"></script>
+<script src="../utils/utils.js?v=13"></script>
+<script src="../utils/storage.js?v=13"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=12"></script>
-<script src="annotations.js?v=12"></script>
-<script src="toc.js?v=12"></script>
-<script src="search.js?v=12"></script>
-<script src="bookmarks.js?v=12"></script>
-<script src="highlights.js?v=12"></script>
+<script src="image-viewer.js?v=13"></script>
+<script src="annotations.js?v=13"></script>
+<script src="toc.js?v=13"></script>
+<script src="search.js?v=13"></script>
+<script src="bookmarks.js?v=13"></script>
+<script src="highlights.js?v=13"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=12"></script>
-<script src="reader-ui.js?v=12"></script>
-<script src="reader-persistence.js?v=12"></script>
-<script src="reader-runtime.js?v=12"></script>
-<script src="reader.js?v=12"></script>
+<script src="reader-state.js?v=13"></script>
+<script src="reader-ui.js?v=13"></script>
+<script src="reader-persistence.js?v=13"></script>
+<script src="reader-runtime.js?v=13"></script>
+<script src="reader.js?v=13"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

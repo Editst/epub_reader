@@ -141,6 +141,7 @@ function resetAll() {
   _mockDb._reset();
   EpubStorage._dbGateway = _mockDb;
   EpubStorage._preferencesQueue = Promise.resolve();
+  EpubStorage._recentBooksQueue = Promise.resolve();
   EpubStorage._bookMetaQueue = new Map();
   EpubStorage._deletingBookIds = new Set();
 }

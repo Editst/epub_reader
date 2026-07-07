@@ -8,6 +8,20 @@
 
 ---
 
+## [2.4.11] - 2026-07-07
+
+### fix
+- **recentBooks 写入串行化**：`EpubStorage.addRecentBook()` 与 `removeRecentBook()` 改为通过 `_recentBooksQueue` 串行执行读改写，避免并发导入、删除或入口刷新时读到同一旧列表，导致最后一次写入覆盖另一本书架记录。
+- **bookMeta 整体覆写串行化**：`saveBookMeta()` 改为进入同书 `_bookMetaQueue`，与位置、时长、速度 patch 保持调用顺序，避免批量覆写和阅读中保存并发时被旧快照回滚。
+- **bookMeta 清除路径串行化**：`removePosition()` 与 `removeReadingTime()` 改为进入同书 `_bookMetaQueue`，并在无现存 `bookMeta` 时不创建空记录，避免清位置/清时长与保存位置/时长并发时互相回滚字段。
+- **bookMeta 迁移路径串行化**：`getBookMeta()` 的 v1.6 `pos_/time_` lazy migration 改为进入同书队列；首次 `savePosition()` / `saveReadingTime()` 创建 `bookMeta` 时会吸收旧版字段，避免迁移回写旧位置或丢失旧阅读时长。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=13`，home/popup 本地脚本 cache-buster 升级为 `?v=11`，确保存储层行为变更被三个入口页加载。
+
+### test
+- 存储层测试新增 `addRecentBook`、`bookMeta` lazy migration、`saveBookMeta`、`removePosition`、`removeReadingTime` 并发写入回归，并在测试重置流程中复位 `_recentBooksQueue`，确保并发新增书籍、旧版迁移、整体覆写和同书 meta patch 不会互相覆盖。
+
+---
+
 ## [2.4.10] - 2026-07-07
 
 ### fix

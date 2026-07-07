@@ -48,6 +48,7 @@ const STORES = Object.freeze({
 
 const EpubStorage = {
   _preferencesQueue: Promise.resolve(),
+  _recentBooksQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
   _deletingBookIds: new Set(),
 
@@ -78,11 +79,11 @@ const EpubStorage = {
   // ── Recent Books ────────────────────────────────────────────────────────────
 
   async addRecentBook(book) {
-    let recent = (await this._get(KEYS.recentBooks)) || [];
-    recent = recent.filter(b => b.id !== book.id);
-    recent.unshift({ ...book, lastOpened: Date.now() });
-    recent = recent.slice(0, 20);
-    await this._set({ [KEYS.recentBooks]: recent });
+    return this._enqueueRecentBooksWrite((recent) => {
+      recent = recent.filter(b => b.id !== book.id);
+      recent.unshift({ ...book, lastOpened: Date.now() });
+      return recent.slice(0, 20);
+    });
   },
 
   async getRecentBooks() {
@@ -90,9 +91,7 @@ const EpubStorage = {
   },
 
   async removeRecentBook(bookId) {
-    let recent = (await this._get(KEYS.recentBooks)) || [];
-    recent = recent.filter(b => b.id !== bookId);
-    await this._set({ [KEYS.recentBooks]: recent });
+    return this._enqueueRecentBooksWrite((recent) => recent.filter(b => b.id !== bookId));
   },
 
   // ── Book Meta（位置 + 时间 + 速度） ──────────────────────────────────────────
@@ -108,27 +107,16 @@ const EpubStorage = {
     const meta = await this._get(KEYS.bookMeta(bookId));
     if (meta) return meta;
 
-    // Lazy migration from v1.6.0 flat keys
-    const [pos, time] = await Promise.all([
-      this._get(KEYS.legacyPosition(bookId)),
-      this._get(KEYS.legacyReadingTime(bookId))
-    ]);
-    if (pos || (typeof time === 'number')) {
-      const migrated = {
-        pos:   pos  || null,
-        time:  (typeof time === 'number') ? time : 0,
-        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
-      };
-      await this._set({ [KEYS.bookMeta(bookId)]: migrated });
-      this._remove([KEYS.legacyPosition(bookId), KEYS.legacyReadingTime(bookId)]).catch(() => {});
-      return migrated;
-    }
-    return null;
+    return this._migrateLegacyBookMeta(bookId);
   },
 
   async saveBookMeta(bookId, meta) {
     if (!bookId || !meta) return;
-    await this._set({ [KEYS.bookMeta(bookId)]: meta });
+    await this._enqueueBookMetaTask(bookId, async () => {
+      if (this._deletingBookIds.has(bookId)) return;
+      await this._set({ [KEYS.bookMeta(bookId)]: meta });
+      this._removeLegacyBookMetaKeys(bookId).catch(() => {});
+    });
   },
 
   /**
@@ -149,11 +137,11 @@ const EpubStorage = {
   },
 
   async removePosition(bookId) {
-    const current = await this._get(KEYS.bookMeta(bookId));
-    if (current) {
+    if (!bookId) return;
+    await this._enqueueBookMetaWrite(bookId, (current) => {
       current.pos = null;
-      await this._set({ [KEYS.bookMeta(bookId)]: current });
-    }
+      return current;
+    }, false);
     await this._remove(KEYS.legacyPosition(bookId));
   },
 
@@ -173,11 +161,11 @@ const EpubStorage = {
   },
 
   async removeReadingTime(bookId) {
-    const current = await this._get(KEYS.bookMeta(bookId));
-    if (current) {
+    if (!bookId) return;
+    await this._enqueueBookMetaWrite(bookId, (current) => {
       current.time = 0;
-      await this._set({ [KEYS.bookMeta(bookId)]: current });
-    }
+      return current;
+    }, false);
     await this._remove(KEYS.legacyReadingTime(bookId));
   },
 
@@ -462,21 +450,48 @@ const EpubStorage = {
     return next;
   },
 
-  async _enqueueBookMetaWrite(bookId, mutator) {
-    if (this._deletingBookIds.has(bookId)) return Promise.resolve();
+  async _enqueueRecentBooksWrite(mutator) {
+    const prev = this._recentBooksQueue || Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(async () => {
+        const recent = (await this._get(KEYS.recentBooks)) || [];
+        const updated = mutator(recent.slice()) || recent;
+        await this._set({ [KEYS.recentBooks]: updated });
+      });
+    this._recentBooksQueue = next.catch(() => {});
+    return next;
+  },
+
+  async _enqueueBookMetaWrite(bookId, mutator, createIfMissing = true) {
+    return this._enqueueBookMetaTask(bookId, async () => {
+      const existing = await this._get(KEYS.bookMeta(bookId));
+      if (!existing && !createIfMissing) return;
+
+      let shouldRemoveLegacy = false;
+      let current = existing;
+      if (!current) {
+        const legacy = await this._getLegacyBookMeta(bookId);
+        current = legacy || this._createDefaultBookMeta();
+        shouldRemoveLegacy = !!legacy;
+      }
+
+      if (this._deletingBookIds.has(bookId)) return;
+      const updated = mutator(current) || current;
+      await this._set({ [KEYS.bookMeta(bookId)]: updated });
+      if (shouldRemoveLegacy) this._removeLegacyBookMetaKeys(bookId).catch(() => {});
+    });
+  },
+
+  async _enqueueBookMetaTask(bookId, task) {
+    if (this._deletingBookIds.has(bookId)) return undefined;
+    let result;
     const prev = this._bookMetaQueue.get(bookId) || Promise.resolve();
     const next = prev
       .catch(() => {})
       .then(async () => {
         if (this._deletingBookIds.has(bookId)) return;
-        const current = (await this._get(KEYS.bookMeta(bookId))) || {
-          pos: null,
-          time: 0,
-          speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
-        };
-        if (this._deletingBookIds.has(bookId)) return;
-        const updated = mutator(current) || current;
-        await this._set({ [KEYS.bookMeta(bookId)]: updated });
+        result = await task();
       });
     const queued = next
       .catch(() => {})
@@ -484,7 +499,52 @@ const EpubStorage = {
         if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);
       });
     this._bookMetaQueue.set(bookId, queued);
-    return next;
+    await next;
+    return result;
+  },
+
+  async _migrateLegacyBookMeta(bookId) {
+    return this._enqueueBookMetaTask(bookId, async () => {
+      const existing = await this._get(KEYS.bookMeta(bookId));
+      if (existing) {
+        this._removeLegacyBookMetaKeys(bookId).catch(() => {});
+        return existing;
+      }
+      const migrated = await this._getLegacyBookMeta(bookId);
+      if (!migrated) return null;
+      await this._set({ [KEYS.bookMeta(bookId)]: migrated });
+      this._removeLegacyBookMetaKeys(bookId).catch(() => {});
+      return migrated;
+    });
+  },
+
+  async _getLegacyBookMeta(bookId) {
+    const [pos, time] = await Promise.all([
+      this._get(KEYS.legacyPosition(bookId)),
+      this._get(KEYS.legacyReadingTime(bookId))
+    ]);
+    if (!pos && (typeof time !== 'number')) return null;
+    return {
+      pos:   pos || null,
+      time:  (typeof time === 'number') ? time : 0,
+      speed: this._createDefaultSpeed()
+    };
+  },
+
+  _createDefaultBookMeta() {
+    return {
+      pos: null,
+      time: 0,
+      speed: this._createDefaultSpeed()
+    };
+  },
+
+  _createDefaultSpeed() {
+    return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
+  },
+
+  _removeLegacyBookMetaKeys(bookId) {
+    return this._remove([KEYS.legacyPosition(bookId), KEYS.legacyReadingTime(bookId)]);
   },
 
   async _drainBookMetaQueue(bookId) {

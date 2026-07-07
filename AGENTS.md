@@ -27,13 +27,15 @@
 - Shared utilities between reader modules live in `reader-state.js` (`findTocItem`, `buildPrefsSignature`).
 
 ## Critical Loading Order
-- In `reader.html`: libraries first (`jszip`, `epub`), then utils (`db-gateway`, `utils`, `storage`), then feature modules, then `reader-state`, `reader-runtime`, `reader-persistence`, `reader-ui`, and finally `reader.js`.
+- In `reader.html`: libraries first (`jszip`, `epub`), then utils (`db-gateway`, `utils`, `storage`), then feature modules, then `reader-state`, `reader-ui`, `reader-persistence`, `reader-runtime`, and finally `reader.js`.
 - `storage.js` depends on `db-gateway.js`; `reader.js` depends on all reader layers and feature module globals.
 
 ## Storage Rules
 - All app persistence goes through `EpubStorage` in `src/utils/storage.js`; do not call `chrome.storage.local` or IndexedDB directly from page or reader modules.
 - Binary EPUB files, covers, and locations live in IndexedDB via `DbGateway`; preferences, recent books, highlights, bookmarks, and `bookMeta_<bookId>` live in `chrome.storage.local`.
-- `bookMeta_<bookId>` merges `pos`, `time`, and `speed`; same-book writes are serialized by `_enqueueBookMetaWrite` to avoid read-modify-write races.
+- `preferences` and `recentBooks` read-modify-write paths must use their internal queues; do not reintroduce naked `_get` → mutate → `_set` sequences for these shared keys.
+- `bookMeta_<bookId>` merges `pos`, `time`, and `speed`; same-book full overwrite/patch/clear paths are serialized by the internal bookMeta queue to avoid read-modify-write races.
+- `getBookMeta()` lazy migration from legacy `pos_` / `time_` keys must also run inside the same bookMeta queue; first-time patch creation should absorb legacy fields before applying the new patch.
 - Automatic LRU cleanup (`enforceFileLRU`) must only evict IndexedDB `files` EPUB cache; preserve `recentBooks`, `bookMeta`, highlights, bookmarks, covers, and locations so re-importing the same book can recover reading progress and annotations. Explicit `removeBook()` remains the full cascade delete path.
 - Book IDs are content-derived (`SHA-256(filename + first 64KB)`), not filename-only.
 

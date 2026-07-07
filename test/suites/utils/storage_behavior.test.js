@@ -49,6 +49,39 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(memory.preferences.homeView, 'list');
   });
 
+  test.it('addRecentBook 并发写入不会互相覆盖', async () => {
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const memory = {
+      recentBooks: [{ id: 'existing', title: 'Existing' }]
+    };
+
+    EpubStorage._get = async function patchedGet(key) {
+      await new Promise((resolve) => setImmediate(resolve));
+      const value = memory[key];
+      return Array.isArray(value) ? value.map((item) => ({ ...item })) : value;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      await new Promise((resolve) => setImmediate(resolve));
+      Object.assign(memory, data);
+    };
+
+    try {
+      await Promise.all([
+        EpubStorage.addRecentBook({ id: 'book-a', title: 'A' }),
+        EpubStorage.addRecentBook({ id: 'book-b', title: 'B' })
+      ]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+    }
+
+    assert.deepEqual(
+      memory.recentBooks.map((book) => book.id).sort(),
+      ['book-a', 'book-b', 'existing']
+    );
+  });
+
   test.it('bookMeta lazy migration 产出完整 speed 默认结构', async () => {
     await new Promise((resolve) => chrome.storage.local.set({
       pos_book_meta_migrate: { cfi: 'epubcfi(/6/2)', percentage: 12.3, timestamp: 1 },
@@ -69,6 +102,55 @@ test.describe('EpubStorage 行为覆盖', () => {
     });
   });
 
+  test.it('bookMeta lazy migration 与 savePosition 并发时不会回写旧位置', async () => {
+    const id = 'book-meta-migrate-race';
+    const key = 'bookMeta_' + id;
+    const legacyPosKey = 'pos_' + id;
+    const legacyTimeKey = 'time_' + id;
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const originalRemove = EpubStorage._remove;
+    const memory = {
+      [legacyPosKey]: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
+      [legacyTimeKey]: 180
+    };
+
+    EpubStorage._get = async function patchedGet(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      return memory[storageKey] ? JSON.parse(JSON.stringify(memory[storageKey])) : undefined;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      const meta = data[key];
+      if (meta?.pos?.cfi === 'epubcfi(/6/2)') {
+        await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+      } else {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      Object.assign(memory, JSON.parse(JSON.stringify(data)));
+    };
+    EpubStorage._remove = async function patchedRemove(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      [].concat(storageKey).forEach((keyToRemove) => { delete memory[keyToRemove]; });
+    };
+
+    try {
+      await Promise.all([
+        EpubStorage.getBookMeta(id),
+        EpubStorage.savePosition(id, 'epubcfi(/6/8)', 55)
+      ]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+      EpubStorage._remove = originalRemove;
+    }
+
+    assert.equal(memory[key].pos.cfi, 'epubcfi(/6/8)');
+    assert.equal(memory[key].pos.percentage, 55);
+    assert.equal(memory[key].time, 180);
+    assert.equal(memory[legacyPosKey], undefined);
+    assert.equal(memory[legacyTimeKey], undefined);
+  });
+
   test.it('removeReadingTime 会清除聚合 bookMeta.time 并兼容旧 key', async () => {
     await EpubStorage.saveBookMeta('book-remove-time', {
       pos: null,
@@ -84,6 +166,131 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     assert.equal(meta.time, 0);
     assert.equal(legacy['time_book-remove-time'], undefined);
+  });
+
+  test.it('removePosition 与 saveReadingTime 并发时不会互相覆盖', async () => {
+    const id = 'book-remove-position-race';
+    const key = 'bookMeta_' + id;
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const memory = {
+      [key]: {
+        pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
+        time: 30,
+        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+      }
+    };
+
+    EpubStorage._get = async function patchedGet(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      return memory[storageKey] ? JSON.parse(JSON.stringify(memory[storageKey])) : undefined;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      await new Promise((resolve) => setImmediate(resolve));
+      Object.assign(memory, JSON.parse(JSON.stringify(data)));
+    };
+
+    try {
+      await Promise.all([
+        EpubStorage.removePosition(id),
+        EpubStorage.saveReadingTime(id, 900)
+      ]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+    }
+
+    const meta = memory[key];
+    assert.equal(meta.pos, null);
+    assert.equal(meta.time, 900);
+  });
+
+  test.it('removeReadingTime 与 savePosition 并发时不会互相覆盖', async () => {
+    const id = 'book-remove-time-race';
+    const key = 'bookMeta_' + id;
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const memory = {
+      [key]: {
+        pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
+        time: 300,
+        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+      }
+    };
+
+    EpubStorage._get = async function patchedGet(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      return memory[storageKey] ? JSON.parse(JSON.stringify(memory[storageKey])) : undefined;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      await new Promise((resolve) => setImmediate(resolve));
+      Object.assign(memory, JSON.parse(JSON.stringify(data)));
+    };
+
+    try {
+      await Promise.all([
+        EpubStorage.removeReadingTime(id),
+        EpubStorage.savePosition(id, 'epubcfi(/6/8)', 55)
+      ]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+    }
+
+    const meta = memory[key];
+    assert.equal(meta.pos.cfi, 'epubcfi(/6/8)');
+    assert.equal(meta.pos.percentage, 55);
+    assert.equal(meta.time, 0);
+  });
+
+  test.it('saveBookMeta 与 saveReadingTime 并发时遵循同书队列顺序', async () => {
+    const id = 'book-save-meta-race';
+    const key = 'bookMeta_' + id;
+    const originalGet = EpubStorage._get;
+    const originalSet = EpubStorage._set;
+    const originalRemove = EpubStorage._remove;
+    const fullMeta = {
+      pos: { cfi: 'epubcfi(/6/10)', percentage: 80, timestamp: 2 },
+      time: 20,
+      speed: { sampledSeconds: 10, sampledProgress: 0.2, sessions: [], sessionCount: 1 }
+    };
+    const memory = {
+      [key]: {
+        pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
+        time: 10,
+        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+      }
+    };
+
+    EpubStorage._get = async function patchedGet(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      return memory[storageKey] ? JSON.parse(JSON.stringify(memory[storageKey])) : undefined;
+    };
+    EpubStorage._set = async function patchedSet(data) {
+      const meta = data[key];
+      if (meta?.time === 900) {
+        await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+      } else {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      Object.assign(memory, JSON.parse(JSON.stringify(data)));
+    };
+    EpubStorage._remove = async function patchedRemove(storageKey) {
+      await new Promise((resolve) => setImmediate(resolve));
+      [].concat(storageKey).forEach((keyToRemove) => { delete memory[keyToRemove]; });
+    };
+
+    try {
+      const patchPromise = EpubStorage.saveReadingTime(id, 900);
+      const fullWritePromise = EpubStorage.saveBookMeta(id, fullMeta);
+      await Promise.all([patchPromise, fullWritePromise]);
+    } finally {
+      EpubStorage._get = originalGet;
+      EpubStorage._set = originalSet;
+      EpubStorage._remove = originalRemove;
+    }
+
+    assert.deepEqual(memory[key], fullMeta);
   });
 
   test.it('同一 bookId 的 savePosition 与 saveReadingTime 不会互相覆盖', async () => {
