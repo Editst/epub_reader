@@ -4,6 +4,15 @@
 
 ---
 
+## [v2.5.4] - 首页书架单本读取降级
+
+- `home.js` 新增 `loadBookCardData(book)`，将封面与 `bookMeta` 读取集中到单本卡片级辅助函数。
+- 单本 `getCover()` 或 `getBookMeta()` 失败时只记录 `[Home] ... failed` 告警，并分别回退为无封面或无进度；不会让 `loadBookshelf()` 的整轮 `Promise.all` 失败。
+- home 页本地脚本 cache-buster 升级到 `?v=15`，确保首页降级逻辑被加载。
+- 首页 UI 静态契约新增封面与 `bookMeta` 读取失败必须局部捕获的回归约束。
+
+---
+
 ## [v2.5.3] - 共享颜色白名单严格化
 
 - `Utils.sanitizeColor()` 从宽泛的 `{3,8}` hex 长度校验收窄为 CSS 有效长度 3/4/6/8 位，拒绝 `#12345`、`#1234567` 等浏览器无效颜色。

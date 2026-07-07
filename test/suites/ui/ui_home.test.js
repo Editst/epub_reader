@@ -119,4 +119,15 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes("console.warn('[Home] export annotations failed:'"), '导出失败应被捕获');
   });
 
+  test.it('书架单本封面与元数据读取失败只降级当前卡片', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+
+    assert.ok(js.includes('async function loadBookCardData(book)'), '单本卡片数据读取应集中在辅助函数中');
+    assert.ok(js.includes('EpubStorage.getCover(book.id).catch((err) =>'), '封面读取失败应局部捕获');
+    assert.ok(js.includes("console.warn('[Home] get cover failed:'"), '封面读取失败应带首页上下文告警');
+    assert.ok(js.includes('EpubStorage.getBookMeta(book.id).catch((err) =>'), 'bookMeta 读取失败应局部捕获');
+    assert.ok(js.includes("console.warn('[Home] get book meta failed:'"), 'bookMeta 读取失败应带首页上下文告警');
+    assert.ok(js.includes('const { coverBlob, meta } = await loadBookCardData(book);'), '卡片渲染应使用降级后的数据');
+  });
+
 });

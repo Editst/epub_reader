@@ -83,6 +83,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
   }
 
+  async function loadBookCardData(book) {
+    const [coverBlob, meta] = await Promise.all([
+      EpubStorage.getCover(book.id).catch((err) => {
+        console.warn('[Home] get cover failed:', book.id, err);
+        return null;
+      }),
+      EpubStorage.getBookMeta(book.id).catch((err) => {
+        console.warn('[Home] get book meta failed:', book.id, err);
+        return null;
+      })
+    ]);
+    return { coverBlob, meta };
+  }
+
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(currentTheme);
@@ -171,10 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function streamRenderBookCard(book, index, renderSeq) {
-    const [coverBlob, meta] = await Promise.all([
-      EpubStorage.getCover(book.id),
-      EpubStorage.getBookMeta(book.id)
-    ]);
+    const { coverBlob, meta } = await loadBookCardData(book);
     if (renderSeq !== bookshelfRenderSeq) return;
 
     {

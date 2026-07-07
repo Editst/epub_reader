@@ -51,6 +51,7 @@
 - User/book content inserted into DOM must use `textContent` or `Utils.escapeHtml`; avoid `innerHTML` with unsanitized content. `Utils.escapeHtml` is only for element text context; do not use it inside quoted HTML attributes. Attribute values from EPUB/user data must be assigned through DOM properties or `setAttribute` after template construction.
 - User/book colors entering inline style or CSS custom properties must be normalized first; only CSS-valid hex lengths (3/4/6/8 digits) or `transparent` are allowed, and alpha colors must not be built by appending string suffixes to arbitrary hex input.
 - In `highlights.js`, only explicit `color === 'transparent'` is note-only; missing or invalid highlight colors must fall back to the default visible highlight color.
+- In `home.js`, bookshelf card cover and `bookMeta` reads must be isolated per book; a single damaged cover/meta record should degrade that card to no cover/no progress, not fail the whole streaming bookshelf render or leave skeletons behind.
 - Runtime visibility should generally use CSS classes (`is-hidden`, `is-visible`, panel classes), not `style.display`; existing exceptions include dynamic image transforms and popup-specific constraints.
 - Revoke `URL.createObjectURL()` results after cover/image use.
 
