@@ -440,6 +440,174 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(Annotations.isFootnoteLink(link, ctx), false);
   });
 
+  test.it('Annotations 排除正文中的四位年份数字链接', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const parent = { tagName: 'P', textContent: 'The year 1984 appears in this paragraph.' };
+    const link = {
+      textContent: '1984',
+      className: '',
+      id: '',
+      parentElement: parent,
+      firstElementChild: null,
+      ownerDocument: {
+        defaultView: {
+          getComputedStyle() {
+            return { verticalAlign: 'baseline' };
+          }
+        }
+      },
+      getAttribute(name) {
+        if (name === 'href') return '#note1984';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest(selector) {
+        if (selector === 'sup' || selector === 'nav') return null;
+        if (selector === 'p, li, div, dd, td') return parent;
+        return null;
+      },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: {
+        getElementById() {
+          return {
+            tagName: 'DIV',
+            className: 'note',
+            getAttribute() { return ''; },
+            getAttributeNS() { return ''; },
+            closest() { return null; }
+          };
+        }
+      }
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), false);
+  });
+
+  test.it('Annotations 保留 epub:type noteref 的四位数字脚注', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const link = {
+      textContent: '2023',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: '2023' },
+      firstElementChild: null,
+      ownerDocument: {
+        defaultView: {
+          getComputedStyle() {
+            return { verticalAlign: 'baseline' };
+          }
+        }
+      },
+      getAttribute(name) {
+        if (name === 'href') return '#note2023';
+        if (name === 'epub:type') return 'noteref';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
+  test.it('Annotations 同文档目标位于源节点之前时压低 class/fragment 弱阳性', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const doc = {};
+    const target = {
+      tagName: 'DIV',
+      className: '',
+      ownerDocument: doc,
+      getAttribute() { return ''; },
+      getAttributeNS() { return ''; },
+      closest() { return null; }
+    };
+    doc.getElementById = () => target;
+    const link = {
+      textContent: 'note',
+      className: 'note-ref',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: doc,
+      getAttribute(name) {
+        if (name === 'href') return '#note42';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; },
+      compareDocumentPosition(node) {
+        return node === target ? 2 : 0;
+      }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), false);
+  });
+
+  test.it('Annotations 同文档目标前置不否决 epub:type noteref 强信号', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const doc = {};
+    const target = { ownerDocument: doc };
+    doc.getElementById = () => target;
+    const link = {
+      textContent: 'note',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: doc,
+      getAttribute(name) {
+        if (name === 'href') return '#note42';
+        if (name === 'epub:type') return 'noteref';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; },
+      compareDocumentPosition(node) {
+        return node === target ? 2 : 0;
+      }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
   test.it('Annotations 空锚点注释沿后续 sibling 收集且遇边界停止', () => {
     const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
     const boundary = {
@@ -490,6 +658,102 @@ test.describe('Reader 模块基础行为', () => {
 
     assert.equal((html.match(/注/g) || []).length, 2000);
     assert.match(html, /内容过长，请点击原文/);
+  });
+
+  test.it('Annotations 跨文档注释缓存命中时不重复加载 section', async () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    let loadCount = 0;
+    let unloadCount = 0;
+    const loaded = {
+      getElementById(id) {
+        if (id !== 'fn1') return null;
+        return {
+          tagName: 'DIV',
+          textContent: '缓存注释正文',
+          innerHTML: '<p>缓存注释正文</p>'
+        };
+      },
+      querySelector() {
+        return null;
+      }
+    };
+    const section = {
+      href: 'notes.xhtml',
+      async load() {
+        loadCount++;
+        return loaded;
+      },
+      unload() {
+        unloadCount++;
+      }
+    };
+    const book = {
+      load() {},
+      spine: {
+        length: 1,
+        get(key) {
+          return key === 'notes.xhtml' || key === 0 ? section : null;
+        }
+      }
+    };
+
+    Annotations.setBook(book);
+    const first = await Annotations._loadFromBook('notes.xhtml', 'fn1', { cancelled: false });
+    const second = await Annotations._loadFromBook('notes.xhtml', 'fn1', { cancelled: false });
+
+    assert.equal(first.html, '<p>缓存注释正文</p>');
+    assert.equal(first.href, 'notes.xhtml');
+    assert.equal(second.html, '<p>缓存注释正文</p>');
+    assert.equal(second.href, 'notes.xhtml');
+    assert.equal(loadCount, 1);
+    assert.equal(unloadCount, 1);
+  });
+
+  test.it('Annotations 切书后清空跨文档注释缓存', async () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const loadCalls = [];
+    const createBook = (label) => {
+      const section = {
+        href: 'notes.xhtml',
+        async load() {
+          loadCalls.push(label);
+          return {
+            getElementById(id) {
+              if (id !== 'fn1') return null;
+              return {
+                tagName: 'DIV',
+                textContent: `${label}注释正文`,
+                innerHTML: `<p>${label}注释正文</p>`
+              };
+            },
+            querySelector() {
+              return null;
+            }
+          };
+        },
+        unload() {}
+      };
+      return {
+        load() {},
+        spine: {
+          length: 1,
+          get(key) {
+            return key === 'notes.xhtml' || key === 0 ? section : null;
+          }
+        }
+      };
+    };
+
+    Annotations.setBook(createBook('旧书'));
+    await Annotations._loadFromBook('notes.xhtml', 'fn1', { cancelled: false });
+    await Annotations._loadFromBook('notes.xhtml', 'fn1', { cancelled: false });
+
+    Annotations.setBook(createBook('新书'));
+    const result = await Annotations._loadFromBook('notes.xhtml', 'fn1', { cancelled: false });
+
+    assert.deepEqual(loadCalls, ['旧书', '新书']);
+    assert.equal(result.html, '<p>新书注释正文</p>');
+    assert.equal(result.href, 'notes.xhtml');
   });
 
   test.it('Annotations 切书后旧脚注异步加载结果不会显示到新书', async () => {

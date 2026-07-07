@@ -54,8 +54,9 @@ const _RE = Object.freeze({
   noteContainer   : /\b(footnote|endnote|rearnote)\b/i,
   noteCls         : /\b(fn|ft|note|footnote|endnote|annotation|ann)([-_]?(ref|link|mark))?\d*\b/i,
   noteFragPos     : /^(fn|ft|note|endnote|footnote|annotation|en|n|ref)\d+/i,
-  // Classic footnote markers: [1], (iv), *, †, Unicode superscript digits
-  noteTextMarker  : /^[\[(【]?(\d{1,4}|[ivxlcdmIVXLCDM]{1,6})[\])】]?$|^[*†‡§‖¶]{1,3}$|^[\u00B9\u00B2\u00B3\u2070-\u2079]+$/,
+  // Classic footnote markers: [1], (iv), *, †, Unicode superscript digits.
+  // Numeric markers stay at 1-3 digits; 4-digit values are commonly years.
+  noteTextMarker  : /^[\[(【]?(\d{1,3}|[ivxlcdmIVXLCDM]{1,6})[\])】]?$|^[*†‡§‖¶]{1,3}$|^[\u00B9\u00B2\u00B3\u2070-\u2079]+$/,
   // Kindle-style filepos anchors
   filepos         : /#filepos\d+/i,
 
@@ -97,6 +98,9 @@ const _SUPLIKE_VERTICAL_ALIGN_VALUES = new Set(['super', 'sub', 'top', 'bottom']
 const _MAX_FOOTNOTE_TEXT = 2000;
 const _FOOTNOTE_TRUNCATION_HINT = '… [内容过长，请点击原文]';
 const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set(['hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+const _FOOTNOTE_SECTION_CACHE_LIMIT = 50;
+const _DOCUMENT_POSITION_DISCONNECTED = 1;
+const _DOCUMENT_POSITION_PRECEDING = 2;
 
 const _hookedRenditions = new WeakSet();
 const _hookedContentDocuments = new WeakSet();
@@ -120,6 +124,24 @@ function _parseHref(href) {
 
 function _normalizeInlineText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function _isFourDigitNumberMarker(text) {
+  return /^[\[(【]?\d{4}[\])】]?$/.test(_normalizeInlineText(text));
+}
+
+function _isSameDocumentTargetBeforeSource(link, targetEl) {
+  if (!link || !targetEl || typeof link.compareDocumentPosition !== 'function') return false;
+  if (link.ownerDocument && targetEl.ownerDocument && link.ownerDocument !== targetEl.ownerDocument) {
+    return false;
+  }
+  try {
+    const position = link.compareDocumentPosition(targetEl);
+    if (position & _DOCUMENT_POSITION_DISCONNECTED) return false;
+    return !!(position & _DOCUMENT_POSITION_PRECEDING);
+  } catch (_) {
+    return false;
+  }
 }
 
 function _escapeHtmlText(value) {
@@ -287,6 +309,7 @@ const Annotations = {
   rendition: null,
   _boundDocument: null,
   _contextSeq: 0,
+  _sectionDocCache: new Map(),
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -324,6 +347,7 @@ const Annotations = {
     this.book = null;
     this.rendition = null;
     this.close();
+    this._clearSectionCache();
     if (this._onKeyDown) {
       document.removeEventListener('keydown', this._onKeyDown);
       this._isKeyDownBound = false;
@@ -334,6 +358,7 @@ const Annotations = {
     if (this.book !== book) {
       this._contextSeq++;
       this.close();
+      this._clearSectionCache();
     }
     this.book = book;
   },
@@ -357,6 +382,42 @@ const Annotations = {
     if (!this._onKeyDown || this._isKeyDownBound) return;
     document.addEventListener('keydown', this._onKeyDown);
     this._isKeyDownBound = true;
+  },
+
+  _clearSectionCache() {
+    this._sectionDocCache.clear();
+  },
+
+  _getCachedSectionDocument(cacheKey) {
+    if (!cacheKey || !this._sectionDocCache.has(cacheKey)) return null;
+    const loaded = this._sectionDocCache.get(cacheKey);
+    this._sectionDocCache.delete(cacheKey);
+    this._sectionDocCache.set(cacheKey, loaded);
+    return loaded;
+  },
+
+  _rememberSectionDocument(cacheKey, loaded) {
+    if (!cacheKey || !loaded) return;
+    if (this._sectionDocCache.has(cacheKey)) this._sectionDocCache.delete(cacheKey);
+    this._sectionDocCache.set(cacheKey, loaded);
+    while (this._sectionDocCache.size > _FOOTNOTE_SECTION_CACHE_LIMIT) {
+      const firstKey = this._sectionDocCache.keys().next().value;
+      this._sectionDocCache.delete(firstKey);
+    }
+  },
+
+  async _loadSectionDocument(section, activeLoad, cacheKey, cancelToken, context) {
+    const key = cacheKey || section?.href || '';
+    const cached = this._getCachedSectionDocument(key);
+    if (cached) return { loaded: cached, shouldUnload: false };
+
+    const loaded = await section.load(activeLoad);
+    if (cancelToken?.cancelled || !this._isCurrentContext(context)) {
+      try { section.unload(); } catch (_) {}
+      return null;
+    }
+    this._rememberSectionDocument(key, loaded);
+    return { loaded, shouldUnload: true };
   },
 
   // ── Phase 0: Document context (one scan per section) ───────────────────────
@@ -538,6 +599,10 @@ const Annotations = {
     // Stage 2: Text / class / fragment heuristics ─────────────────────────────
     const cls      = link.className || '';
     const fragment = _parseHref(href).fragmentId;
+    const sameDocTarget = href.startsWith('#') && ctx.doc
+      ? this._findTarget(ctx.doc, fragment)
+      : null;
+    const isTargetBeforeSource = _isSameDocumentTargetBeforeSource(link, sameDocTarget);
 
     // Definitive NO
     if (_RE.navCls.test(cls))                                            return false;
@@ -545,6 +610,7 @@ const Annotations = {
     if (_RE.structFragNeg.test(fragment))                                return false;
     if (ctx.hasFootnoteSections && ctx.footnoteSectionNodes.has(link))   return false;
     if (_isIsolatedSourceLink(link, text))                                return false;
+    if (_isFourDigitNumberMarker(text))                                   return false;
 
     // Numeric/symbol marker — needs extra back-link guard.
     //
@@ -561,8 +627,10 @@ const Annotations = {
     }
 
     if (_RE.filepos.test(href))                                          return true;
-    if (_RE.noteCls.test(cls) || _RE.noteCls.test(link.id || ''))       return true;
-    if (_RE.noteFragPos.test(fragment))                                  return true;
+    if (!isTargetBeforeSource && (
+      _RE.noteCls.test(cls) || _RE.noteCls.test(link.id || '')
+    ))                                                                  return true;
+    if (!isTargetBeforeSource && _RE.noteFragPos.test(fragment))         return true;
 
     // Stage 3: Structural DOM — only for links that remain ambiguous ──────────
     // Covers the bug-report pattern: <a href="..."><sup>[2]</sup></a>
@@ -580,7 +648,7 @@ const Annotations = {
 
     // Target element analysis — same-document only, single getElementById call
     if (href.startsWith('#') && ctx.doc) {
-      const targetEl = this._findTarget(ctx.doc, fragment);
+      const targetEl = sameDocTarget;
       if (targetEl) {
         if (/^H[1-6]$/.test(targetEl.tagName)) return false; // heading = chapter anchor
         const tType = targetEl.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') ||
@@ -790,28 +858,37 @@ const Annotations = {
       }
 
       if (section) {
-        const loaded = await section.load(activeLoad);
-        if (cancelToken?.cancelled) { section.unload(); return null; }
-        if (!this._isCurrentContext(context)) { section.unload(); return null; }
+        const loadedResult = await this._loadSectionDocument(
+          section,
+          activeLoad,
+          section.href || sectionHref,
+          cancelToken,
+          context
+        );
+        if (!loadedResult) return null;
+        try {
+          const loaded = loadedResult.loaded;
+          if (targetId) {
+            const el = this._findTarget(loaded, targetId);
+            if (el) {
+              const html = this._extractContent(el);
+              return { html, href: section.href };
+            }
+          }
 
-        if (targetId) {
-          const el = this._findTarget(loaded, targetId);
-          if (el) {
-            const html = this._extractContent(el);
-            section.unload();
-            return { html, href: section.href };
+          const bodyEl = loaded.querySelector?.('body');
+          const html   = bodyEl
+            ? _limitFootnoteHtml(
+                bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl),
+                bodyEl.textContent
+              )
+            : '';
+          if (html) return { html, href: section.href };
+        } finally {
+          if (loadedResult.shouldUnload) {
+            try { section.unload(); } catch (_) {}
           }
         }
-
-        const bodyEl = loaded.querySelector?.('body');
-        const html   = bodyEl
-          ? _limitFootnoteHtml(
-              bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl),
-              bodyEl.textContent
-            )
-          : '';
-        section.unload();
-        if (html) return { html, href: section.href };
       }
 
       // Method 4: brute-force
@@ -821,18 +898,28 @@ const Annotations = {
           if (!this._isCurrentContext(context)) return null;
           const s = activeBook.spine.get(i);
           if (!s) continue;
+          let loadedResult = null;
           try {
-            const loaded = await s.load(activeLoad);
-            if (cancelToken?.cancelled) { s.unload(); return null; }
-            if (!this._isCurrentContext(context)) { s.unload(); return null; }
+            loadedResult = await this._loadSectionDocument(
+              s,
+              activeLoad,
+              s.href || String(i),
+              cancelToken,
+              context
+            );
+            if (!loadedResult) return null;
+            const loaded = loadedResult.loaded;
             const el = this._findTarget(loaded, targetId);
             if (el) {
               const html = this._extractContent(el);
-              s.unload();
               return { html, href: s.href };
             }
-            s.unload();
-          } catch (_) {}
+          } catch (_) {
+          } finally {
+            if (loadedResult?.shouldUnload) {
+              try { s.unload(); } catch (__) {}
+            }
+          }
         }
       }
     } catch (err) {

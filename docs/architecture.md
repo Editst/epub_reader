@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.14
+版本：v2.4.17
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -818,6 +818,21 @@ Annotations.unmount(): void
 - 长链接文本若占父块文本 80% 以上，应视为目录/导航式孤立链接并排除，避免扁平 `<p><a>章节标题</a></p>` 或 TOC 变体被 fragment 命中误判为脚注。
 - `_extractContent()` 必须保留 2000 字文本安全阀，超长内容需截断并提示跳转原文；空锚点目标应沿后续 sibling 收集正文，在 `<hr>`、`H1-H6` 或下一个带 id/name 的 `<a>` 处停止。
 
+**v2.4.16 数字 marker 约束**：
+- `noteTextMarker` 的纯数字分支只能接受 1-3 位数字；四位数字默认按年份/正文引用风险处理，不得直接视为脚注 marker。
+- `_isFourDigitNumberMarker()` 必须在 class/fragment 等启发式正向信号前排除四位数字文本，避免 `1984` / `2023` 等正文链接因 `#note2023` 被误判。
+- 显式 EPUB 语义（如 `epub:type="noteref"` 或等价 role）在四位数字排除前已经返回，可作为四位数字脚注的唯一白名单。
+
+**v2.4.17 同文档拓扑约束**：
+- 同文档 `href="#fragment"` 目标查找只做一次，并在 class/fragment 弱阳性判断和后续 target analysis 中复用。
+- `_isSameDocumentTargetBeforeSource()` 使用 `compareDocumentPosition()` 判断目标是否位于源链接之前；断连节点或跨 document 节点不得参与负向判断。
+- 目标前置只作为弱负向信号：它只能抑制 `class/id` 或 fragment 形态带来的弱阳性，不得覆盖 `epub:type="noteref"`、role 语义、`<sup>` / CSS 上标或明确 footnote 容器。
+
+**v2.4.15 性能约束**：
+- 跨文档注释加载必须经过 `_loadSectionDocument()`，优先命中 `_sectionDocCache`，未命中时再调用 `section.load()`。
+- `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 50` 控制；缓存读命中必须刷新 LRU 顺序。
+- `setBook()` 发现 book 实例变化以及 `unmount()` 时必须清空 `_sectionDocCache`，避免旧书尾注内容污染新书。
+
 **v2.4.7 安全约束**：
 - 注释弹窗展示 EPUB 内联 HTML 前，必须用 template DOM 解析后逐属性清洗，移除 `on*` 事件属性、`srcdoc`，并将 `href/src/xlink:href` 中的 `javascript:` URL 改为 `#`；不得仅依赖正则处理 quoted href。
 
@@ -831,24 +846,24 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=16"></script>
-<script src="../utils/utils.js?v=16"></script>
-<script src="../utils/storage.js?v=16"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=19"></script>
+<script src="../utils/utils.js?v=19"></script>
+<script src="../utils/storage.js?v=19"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=16"></script>
-<script src="annotations.js?v=16"></script>
-<script src="toc.js?v=16"></script>
-<script src="search.js?v=16"></script>
-<script src="bookmarks.js?v=16"></script>
-<script src="highlights.js?v=16"></script>
+<script src="image-viewer.js?v=19"></script>
+<script src="annotations.js?v=19"></script>
+<script src="toc.js?v=19"></script>
+<script src="search.js?v=19"></script>
+<script src="bookmarks.js?v=19"></script>
+<script src="highlights.js?v=19"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=16"></script>
-<script src="reader-ui.js?v=16"></script>
-<script src="reader-persistence.js?v=16"></script>
-<script src="reader-runtime.js?v=16"></script>
-<script src="reader.js?v=16"></script>
+<script src="reader-state.js?v=19"></script>
+<script src="reader-ui.js?v=19"></script>
+<script src="reader-persistence.js?v=19"></script>
+<script src="reader-runtime.js?v=19"></script>
+<script src="reader.js?v=19"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

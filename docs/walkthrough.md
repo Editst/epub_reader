@@ -4,6 +4,34 @@
 
 ---
 
+## [v2.4.17] - Annotations 同文档拓扑弱负向信号
+
+- `isFootnoteLink()` 对同文档 `href="#fragment"` 目标只查找一次，并在弱阳性判断与 target analysis 中复用，避免重复 DOM 查询。
+- 新增 `_isSameDocumentTargetBeforeSource()`，用 `compareDocumentPosition()` 判断目标是否位于源链接之前；断连节点和跨 document 节点不参与负向判断。
+- 目标前置只压低 class/id 或 fragment 形态带来的弱阳性，减少返回链接与双向链接图谱误判。
+- 显式 `epub:type="noteref"` / role、真实 `<sup>` / CSS 上标和明确 footnote 容器仍可覆盖该弱负向信号，避免误杀强语义脚注。
+- 回归测试覆盖弱阳性压低与强信号保留，并用静态契约锁住 DOM 顺序辅助函数和门控位置。
+
+---
+
+## [v2.4.16] - Annotations 四位年份误判收敛
+
+- `noteTextMarker` 的纯数字分支从 1-4 位收窄为 1-3 位，避免正文中的 `1984`、`2023` 等年份链接被当作脚注 marker。
+- 新增 `_isFourDigitNumberMarker()`，在 class/fragment 等启发式正向信号前排除四位数字文本；即使 href 形如 `#note2023` 也不会触发脚注弹窗。
+- 显式语义白名单保留：`epub:type="noteref"` 或等价 role 会在四位数字排除前返回 true，仍支持少数明确标记的四位脚注编号。
+- 回归测试覆盖年份链接排除、语义 noteref 覆盖，以及静态契约约束数字 marker 不得回退到 4 位。
+
+---
+
+## [v2.4.15] - Annotations 跨文档注释缓存
+
+- `annotations.js` 新增 book 生命周期内的 `_sectionDocCache`，以 `Map` 实现 50 项 LRU，缓存跨章节/尾注文件的已解析 section 内容树。
+- `_loadFromBook()` 的直接 section 命中与 brute-force spine 扫描统一经过 `_loadSectionDocument()`，缓存命中时不再重复调用 `section.load()`。
+- `setBook()` 在 book 实例变化时清空缓存，`unmount()` 同样清空，避免旧书尾注内容跨书复用。
+- 新增回归测试覆盖同一尾注文件二次点击不重复加载、切书后必须重新加载新书 section，并用静态契约约束缓存容量和 LRU 辅助函数。
+
+---
+
 ## [v2.4.14] - Annotations 技术债收敛
 
 - `isFootnoteLink()` 补充 CSS `vertical-align: super/sub/top/bottom` 检测，覆盖不用真实 `<sup>`、只靠 computed style 表示脚注引用的 EPUB。

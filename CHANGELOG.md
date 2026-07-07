@@ -8,6 +8,41 @@
 
 ---
 
+## [2.4.17] - 2026-07-07
+
+### fix
+- **同文档脚注拓扑弱负向信号**：`isFootnoteLink()` 对 `href="#..."` 目标复用同一次 `_findTarget()`，并通过 `compareDocumentPosition()` 判断目标是否位于源链接之前；若目标前置，只压低 class/fragment 这类弱阳性，减少返回链接或双向链接图谱误判。
+- **强信号保留**：`epub:type="noteref"`、role 语义、真实 `<sup>` / 上标样式和明确 footnote 容器仍可覆盖目标前置信号，避免把弱负向误用成强否决。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=19`，确保 Annotations 拓扑修复被加载。
+
+### test
+- Reader 模块行为测试新增同文档目标前置压低 class/fragment 弱阳性、但不否决 `epub:type="noteref"` 强信号的回归；Reader 功能模块契约测试新增 DOM 顺序判断辅助与弱阳性门控静态约束。
+
+---
+
+## [2.4.16] - 2026-07-07
+
+### fix
+- **四位年份链接误判收敛**：`noteTextMarker` 的纯数字脚注 marker 从 1-4 位收窄到 1-3 位，并新增四位数字 marker 排除；正文里的 `1984`、`2023` 等年份链接即使 href/fragment 形似 `note*` 也不会弹脚注。
+- **语义白名单保留**：带 `epub:type="noteref"` 或等价 role 的四位数字引用仍按 EPUB 语义识别为脚注，避免破坏显式标记书籍。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=18`，确保 Annotations 年份误判修复被加载。
+
+### test
+- Reader 模块行为测试新增四位年份链接排除与 `epub:type="noteref"` 四位数字保留回归；Reader 功能模块契约测试约束 `noteTextMarker` 纯数字上限不得回退为 4 位。
+
+---
+
+## [2.4.15] - 2026-07-07
+
+### perf
+- **跨文档注释 LRU 缓存**：`Annotations._loadFromBook()` 现在对跨章节/尾注文件的已解析内容树做 book 生命周期内缓存，容量上限 50；同一尾注文件二次点击不再重复 `section.load()`，切书或卸载时清空缓存。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=17`，确保 Annotations 缓存实现被加载。
+
+### test
+- Reader 模块行为测试新增跨文档注释缓存命中与切书清空回归；Reader 功能模块契约测试新增缓存容量、LRU 读写辅助和统一 section 加载路径静态约束。
+
+---
+
 ## [2.4.14] - 2026-07-07
 
 ### refactor
