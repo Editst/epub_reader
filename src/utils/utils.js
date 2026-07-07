@@ -85,6 +85,19 @@ const Utils = {
   },
 
   /**
+   * 将任意进度输入归一化为 0-100 的有限数字。
+   * 用于从 storage 读取进度后进入 UI 文本或 CSS 自定义属性前的安全边界。
+   *
+   * @param {*} value
+   * @returns {number}
+   */
+  normalizePercent(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.min(100, Math.max(0, num));
+  },
+
+  /**
    * 计算会话样本权重，用于区分连续阅读与跳读样本。
    *
    * @param {number} deltaProgress  会话进度增量（0-1）

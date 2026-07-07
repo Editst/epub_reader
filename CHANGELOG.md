@@ -8,6 +8,19 @@
 
 ---
 
+## [2.4.8] - 2026-07-07
+
+### refactor
+- **存储 key 中心化**：`storage.js` 新增 `KEYS` / `STORES` 常量，统一生成 `preferences`、`recentBooks`、`bookMeta_*`、旧版 `pos_/time_`、高亮、书签和 IndexedDB store 名称，降低迁移、删除、LRU 与兼容路径使用不同硬编码 key 的风险。
+- **Reader UI 事件绑定幂等**：`reader-ui.js` 的 `bindRuntime()` 改为可重复调用但只注册一次顶层监听，事件回调读取当前 runtime 引用，避免异常重试、测试复挂或热重载时叠加键盘、按钮、拖拽监听。
+- **功能模块初始化幂等**：`Annotations`、`Bookmarks`、`TOC`、`Search`、`ImageViewer`、`Highlights` 的 `init()` 对同一 document 只注册一次顶层事件监听，避免重复 bootstrap 或测试复挂时叠加按钮、键盘、遮罩与窗口监听。
+- **UI 进度值防御性归一化**：新增 `Utils.normalizePercent()`，home 书架和 popup 最近阅读列表在把 storage 中的阅读进度写入文本或 CSS 自定义属性前统一裁剪到 0–100，避免损坏/旧版数据污染界面。
+
+### test
+- 新增存储层源码契约测试，确保 per-book key 不再散落回实现；新增 ReaderUi 重复绑定行为测试、功能模块 init 幂等测试与 UI 进度归一化测试。全量测试保持通过。
+
+---
+
 ## [2.4.7] - 2026-07-07
 
 ### fix

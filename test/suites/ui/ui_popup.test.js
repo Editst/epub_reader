@@ -48,6 +48,12 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应 have fallback');
   });
 
+  test.it('popup.js 最近阅读进度显示前必须归一化', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    assert.ok(js.includes('Utils.normalizePercent(meta.pos.percentage)'), 'popup.js 应归一化 storage 中的阅读进度');
+    assert.ok(js.includes("percent.toFixed(1) + '%'"), '展示文本应基于归一化后的数字格式化');
+  });
+
   test.it('P-3: popup.html 无外部 preconnect/prefetch 标签', () => {
     const html = fs.readFileSync('src/popup/popup.html', 'utf8');
     assert.ok(!html.includes('rel="preconnect"'), 'popup.html 不应有 preconnect');

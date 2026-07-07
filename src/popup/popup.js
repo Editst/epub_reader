@@ -141,9 +141,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // 进度
       if (meta && meta.pos && meta.pos.percentage != null) {
+        const percent = Utils.normalizePercent(meta.pos.percentage);
         const progressEl = document.createElement('div');
         progressEl.className = 'recent-item-progress';
-        progressEl.textContent = meta.pos.percentage.toFixed(1) + '%';
+        progressEl.textContent = percent.toFixed(1) + '%';
         item.appendChild(progressEl);
       }
 

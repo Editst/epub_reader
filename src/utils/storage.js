@@ -25,6 +25,27 @@
  *   [DESIGN]      enforceFileLRU 仅淘汰 EPUB 文件缓存，保留进度、书签和标注
  *   [MIGRATION]   getBookMeta lazy migration：自动迁移 v1.6.0 pos_/time_ 旧 key
  */
+const KEYS = Object.freeze({
+  preferences: 'preferences',
+  recentBooks: 'recentBooks',
+  legacyHighlightIndex: 'highlightKeys',
+  bookMeta: (bookId) => 'bookMeta_' + bookId,
+  legacyPosition: (bookId) => 'pos_' + bookId,
+  legacyReadingTime: (bookId) => 'time_' + bookId,
+  highlights: (bookId) => 'highlights_' + bookId,
+  bookmarks: (bookId) => 'bookmarks_' + bookId
+});
+
+const KEY_PREFIXES = Object.freeze({
+  highlights: 'highlights_'
+});
+
+const STORES = Object.freeze({
+  files: 'files',
+  covers: 'covers',
+  locations: 'locations'
+});
+
 const EpubStorage = {
   _bookMetaQueue: new Map(),
   _deletingBookIds: new Set(),
@@ -32,8 +53,8 @@ const EpubStorage = {
   // ── Preferences ────────────────────────────────────────────────────────────
 
   async savePreferences(prefs) {
-    const current = (await this._get('preferences')) || {};
-    await this._set({ preferences: { ...current, ...prefs } });
+    const current = (await this._get(KEYS.preferences)) || {};
+    await this._set({ [KEYS.preferences]: { ...current, ...prefs } });
   },
 
   async getPreferences() {
@@ -49,28 +70,28 @@ const EpubStorage = {
       customBg:        '#ffffff',
       customText:      '#333333',
       homeView:        'grid',
-      ...((await this._get('preferences')) || {})
+      ...((await this._get(KEYS.preferences)) || {})
     };
   },
 
   // ── Recent Books ────────────────────────────────────────────────────────────
 
   async addRecentBook(book) {
-    let recent = (await this._get('recentBooks')) || [];
+    let recent = (await this._get(KEYS.recentBooks)) || [];
     recent = recent.filter(b => b.id !== book.id);
     recent.unshift({ ...book, lastOpened: Date.now() });
     recent = recent.slice(0, 20);
-    await this._set({ recentBooks: recent });
+    await this._set({ [KEYS.recentBooks]: recent });
   },
 
   async getRecentBooks() {
-    return (await this._get('recentBooks')) || [];
+    return (await this._get(KEYS.recentBooks)) || [];
   },
 
   async removeRecentBook(bookId) {
-    let recent = (await this._get('recentBooks')) || [];
+    let recent = (await this._get(KEYS.recentBooks)) || [];
     recent = recent.filter(b => b.id !== bookId);
-    await this._set({ recentBooks: recent });
+    await this._set({ [KEYS.recentBooks]: recent });
   },
 
   // ── Book Meta（位置 + 时间 + 速度） ──────────────────────────────────────────
@@ -83,13 +104,13 @@ const EpubStorage = {
    */
   async getBookMeta(bookId) {
     if (!bookId) return null;
-    const meta = await this._get('bookMeta_' + bookId);
+    const meta = await this._get(KEYS.bookMeta(bookId));
     if (meta) return meta;
 
     // Lazy migration from v1.6.0 flat keys
     const [pos, time] = await Promise.all([
-      this._get('pos_' + bookId),
-      this._get('time_' + bookId)
+      this._get(KEYS.legacyPosition(bookId)),
+      this._get(KEYS.legacyReadingTime(bookId))
     ]);
     if (pos || (typeof time === 'number')) {
       const migrated = {
@@ -97,8 +118,8 @@ const EpubStorage = {
         time:  (typeof time === 'number') ? time : 0,
         speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
       };
-      await this._set({ ['bookMeta_' + bookId]: migrated });
-      this._remove(['pos_' + bookId, 'time_' + bookId]).catch(() => {});
+      await this._set({ [KEYS.bookMeta(bookId)]: migrated });
+      this._remove([KEYS.legacyPosition(bookId), KEYS.legacyReadingTime(bookId)]).catch(() => {});
       return migrated;
     }
     return null;
@@ -106,7 +127,7 @@ const EpubStorage = {
 
   async saveBookMeta(bookId, meta) {
     if (!bookId || !meta) return;
-    await this._set({ ['bookMeta_' + bookId]: meta });
+    await this._set({ [KEYS.bookMeta(bookId)]: meta });
   },
 
   /**
@@ -127,12 +148,12 @@ const EpubStorage = {
   },
 
   async removePosition(bookId) {
-    const current = await this._get('bookMeta_' + bookId);
+    const current = await this._get(KEYS.bookMeta(bookId));
     if (current) {
       current.pos = null;
-      await this._set({ ['bookMeta_' + bookId]: current });
+      await this._set({ [KEYS.bookMeta(bookId)]: current });
     }
-    await this._remove('pos_' + bookId);
+    await this._remove(KEYS.legacyPosition(bookId));
   },
 
   // ── Reading Time ─────────────────────────────────────────────────────────
@@ -151,12 +172,12 @@ const EpubStorage = {
   },
 
   async removeReadingTime(bookId) {
-    const current = await this._get('bookMeta_' + bookId);
+    const current = await this._get(KEYS.bookMeta(bookId));
     if (current) {
       current.time = 0;
-      await this._set({ ['bookMeta_' + bookId]: current });
+      await this._set({ [KEYS.bookMeta(bookId)]: current });
     }
-    await this._remove('time_' + bookId);
+    await this._remove(KEYS.legacyReadingTime(bookId));
   },
 
   // ── Reading Speed（per-session 采样，v1.7.0 新增） ────────────────────────
@@ -208,7 +229,7 @@ const EpubStorage = {
     if (!hadDeleteGuard) this._deletingBookIds.add(bookId);
     try {
       await this._drainBookMetaQueue(bookId);
-      await this._remove(['bookMeta_' + bookId, 'pos_' + bookId, 'time_' + bookId]);
+      await this._remove([KEYS.bookMeta(bookId), KEYS.legacyPosition(bookId), KEYS.legacyReadingTime(bookId)]);
     } finally {
       if (!hadDeleteGuard) this._deletingBookIds.delete(bookId);
     }
@@ -217,16 +238,16 @@ const EpubStorage = {
   // ── Highlights ───────────────────────────────────────────────────────────
 
   async getHighlights(bookId) {
-    return (await this._get('highlights_' + bookId)) || [];
+    return (await this._get(KEYS.highlights(bookId))) || [];
   },
 
   async saveHighlights(bookId, highlights) {
     if (!bookId) return;
-    await this._set({ ['highlights_' + bookId]: highlights });
+    await this._set({ [KEYS.highlights(bookId)]: highlights });
   },
 
   async removeHighlights(bookId) {
-    await this._remove('highlights_' + bookId);
+    await this._remove(KEYS.highlights(bookId));
   },
 
   /**
@@ -242,87 +263,87 @@ const EpubStorage = {
     const bookIds = new Set(books.map(b => b.id));
 
     for (const key of Object.keys(allItems || {})) {
-      if (key.startsWith('highlights_')) {
-        bookIds.add(key.slice('highlights_'.length));
+      if (key.startsWith(KEY_PREFIXES.highlights)) {
+        bookIds.add(key.slice(KEY_PREFIXES.highlights.length));
       }
     }
 
     for (const bookId of bookIds) {
-      const hls = allItems['highlights_' + bookId];
+      const hls = allItems[KEYS.highlights(bookId)];
       if (hls && hls.length > 0) result[bookId] = hls;
     }
 
-    this._remove('highlightKeys').catch(() => {});
+    this._remove(KEYS.legacyHighlightIndex).catch(() => {});
     return result;
   },
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────
 
   async getBookmarks(bookId) {
-    return (await this._get('bookmarks_' + bookId)) || [];
+    return (await this._get(KEYS.bookmarks(bookId))) || [];
   },
 
   async saveBookmarks(bookId, bookmarks) {
     if (!bookId) return;
-    await this._set({ ['bookmarks_' + bookId]: bookmarks });
+    await this._set({ [KEYS.bookmarks(bookId)]: bookmarks });
   },
 
   async removeBookmarks(bookId) {
-    await this._remove('bookmarks_' + bookId);
+    await this._remove(KEYS.bookmarks(bookId));
   },
 
   // ── Covers (IndexedDB) ────────────────────────────────────────────────────
 
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
-    return DbGateway.put('covers', { bookId, blob });
+    return DbGateway.put(STORES.covers, { bookId, blob });
   },
 
   async getCover(bookId) {
     if (!bookId) return null;
-    const record = await DbGateway.get('covers', bookId);
+    const record = await DbGateway.get(STORES.covers, bookId);
     return record ? record.blob : null;
   },
 
   async removeCover(bookId) {
     if (!bookId) return;
-    return DbGateway.delete('covers', bookId);
+    return DbGateway.delete(STORES.covers, bookId);
   },
 
   // ── Locations (IndexedDB) ─────────────────────────────────────────────────
 
   async saveLocations(bookId, locationsJSON) {
     if (!bookId || !locationsJSON) return;
-    return DbGateway.put('locations', { bookId, json: locationsJSON, timestamp: Date.now() });
+    return DbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() });
   },
 
   async getLocations(bookId) {
     if (!bookId) return null;
-    const record = await DbGateway.get('locations', bookId);
+    const record = await DbGateway.get(STORES.locations, bookId);
     return record ? record.json : null;
   },
 
   async removeLocations(bookId) {
     if (!bookId) return;
-    return DbGateway.delete('locations', bookId);
+    return DbGateway.delete(STORES.locations, bookId);
   },
 
   // ── Files (IndexedDB) ─────────────────────────────────────────────────────
 
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
-    await DbGateway.put('files', { bookId, filename, data, timestamp: Date.now() });
+    await DbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
     await this.enforceFileLRU(10);
   },
 
   async getFile(bookId) {
     if (!bookId) return null;
-    return DbGateway.get('files', bookId);
+    return DbGateway.get(STORES.files, bookId);
   },
 
   async removeFile(bookId) {
     if (!bookId) return;
-    return DbGateway.delete('files', bookId);
+    return DbGateway.delete(STORES.files, bookId);
   },
 
   /**
@@ -334,13 +355,13 @@ const EpubStorage = {
    * v2.4.0 修复：改为串行执行并逐项隔离失败，避免单本淘汰失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
-    const meta = await DbGateway.getAllMeta('files', ['timestamp']);
+    const meta = await DbGateway.getAllMeta(STORES.files, ['timestamp']);
     if (meta.length <= maxCount) return;
     meta.sort((a, b) => b.timestamp - a.timestamp);
     const toRemove = meta.slice(maxCount);
     for (const m of toRemove) {
       try {
-        await DbGateway.delete('files', m.bookId);
+        await DbGateway.delete(STORES.files, m.bookId);
       } catch (e) {
         console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
       }
@@ -434,14 +455,14 @@ const EpubStorage = {
       .catch(() => {})
       .then(async () => {
         if (this._deletingBookIds.has(bookId)) return;
-        const current = (await this._get('bookMeta_' + bookId)) || {
+        const current = (await this._get(KEYS.bookMeta(bookId))) || {
           pos: null,
           time: 0,
           speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
         };
         if (this._deletingBookIds.has(bookId)) return;
         const updated = mutator(current) || current;
-        await this._set({ ['bookMeta_' + bookId]: updated });
+        await this._set({ [KEYS.bookMeta(bookId)]: updated });
       });
     const queued = next.finally(() => {
       if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);

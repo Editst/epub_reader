@@ -114,6 +114,16 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
     assert.equal(sanitizeColor('expression(alert(1))'), '#ffeb3b');
     assert.equal(sanitizeColor('; display: none'), '#ffeb3b');
   });
+
+  test.it('normalizePercent: 归一化脏进度输入', () => {
+    assert.equal(Utils.normalizePercent(42.5), 42.5);
+    assert.equal(Utils.normalizePercent('88.8'), 88.8);
+    assert.equal(Utils.normalizePercent(-12), 0);
+    assert.equal(Utils.normalizePercent(130), 100);
+    assert.equal(Utils.normalizePercent('12; width:999px'), 0);
+    assert.equal(Utils.normalizePercent(null), 0);
+    assert.equal(Utils.normalizePercent(Infinity), 0);
+  });
 });
 
 test.describe('安全与注入防护 (Utils)', () => {

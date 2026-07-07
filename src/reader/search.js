@@ -13,6 +13,7 @@ const Search = (function() {
   let isSearching = false;
   let currentSearchId = 0;
   let _lastSearchAlertCfi = null; // v1.2.0: Track search highlights to prevent memory/visual leaks
+  let _boundDocument = null;
 
   function init() {
     panel = document.getElementById('search-panel');
@@ -21,6 +22,9 @@ const Search = (function() {
     searchBtn = document.getElementById('btn-do-search');
     resultsList = document.getElementById('search-results-list');
     statusEl = document.getElementById('search-status');
+
+    if (_boundDocument === document) return;
+    _boundDocument = document;
 
     const btnSearch = document.getElementById('btn-search');
     if (btnSearch) {

@@ -158,7 +158,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       // 从 bookMeta 读取 pos + time（v1.7.0 合并读取，节省一次 storage 访问）
-      const percent = (meta && meta.pos && meta.pos.percentage) ? meta.pos.percentage : 0;
+      const percent = Utils.normalizePercent(meta && meta.pos ? meta.pos.percentage : 0);
+      const percentText = percent.toFixed(1);
       const timeInSeconds = (meta && meta.time) ? meta.time : 0;
       const timeHtml = Utils.formatDuration(timeInSeconds);
 
@@ -177,7 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="progress-bar-container">
             <div class="progress-header">
               <span>阅读进度</span>
-              <span>${percent}%</span>
+              <span>${percentText}%</span>
             </div>
             <div class="progress-bar">
               <div class="progress-fill" style="--progress-width: ${percent}%;"></div>

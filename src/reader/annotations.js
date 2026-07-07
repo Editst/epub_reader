@@ -161,6 +161,7 @@ const Annotations = {
   titleEl  : null,
   book     : null,
   rendition: null,
+  _boundDocument: null,
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -170,12 +171,19 @@ const Annotations = {
     this.body    = document.getElementById('annotation-body');
     this.titleEl = document.getElementById('annotation-title');
 
+    if (this._boundDocument === document) {
+      this._bindGlobalEvents();
+      return;
+    }
+    this._boundDocument = document;
+
     document.getElementById('annotation-close')
-      .addEventListener('click', () => this.close());
-    this.overlay.addEventListener('click', () => this.close());
+      ?.addEventListener('click', () => this.close());
+    this.overlay?.addEventListener('click', () => this.close());
     this._onKeyDown = (e) => {
-      if (e.key === 'Escape' && this.popup.classList.contains('is-visible')) this.close();
+      if (e.key === 'Escape' && this.popup?.classList.contains('is-visible')) this.close();
     };
+    this._isKeyDownBound = false;
     this._bindGlobalEvents();
   },
 

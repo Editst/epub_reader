@@ -9,6 +9,7 @@ window.Highlights = (function () {
   let _currentCfiRange = null;
   let _activeHighlightCfi = null;
   let _renderedHighlightCfis = new Set();
+  let _boundDocument = null;
   const _hookedRenditions = new WeakSet();
   const _hookedContentDocuments = new WeakSet();
 
@@ -28,6 +29,9 @@ window.Highlights = (function () {
   let highlights = [];
 
   function init() {
+    if (_boundDocument === document) return;
+    _boundDocument = document;
+
     // FIX P0-C: Both the window-level mousedown handler and the btnShowToolbar
     // click handler were previously registered inside setBookDetails(), which is
     // called every time a book is opened AND every time the layout is switched.

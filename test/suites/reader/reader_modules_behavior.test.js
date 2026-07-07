@@ -500,4 +500,231 @@ test.describe('Reader 模块基础行为', () => {
 
     assert.deepEqual(calls, ['store-start', 'store-end', 'open-book']);
   });
+
+  test.it('ReaderUi bindRuntime 重复调用不会叠加顶层事件监听', async () => {
+    const { document } = createMockDocument([
+      'welcome-screen',
+      'loading-overlay',
+      'loading-text',
+      'reader-main',
+      'bottom-bar',
+      'toolbar',
+      'file-input',
+      'book-title',
+      'chapter-title',
+      'progress-slider',
+      'progress-current',
+      'progress-location',
+      'progress-time',
+      'font-size-slider',
+      'font-size-value',
+      'line-height-slider',
+      'line-height-value',
+      'font-family-select',
+      'settings-panel',
+      'custom-theme-options',
+      'custom-bg-color',
+      'custom-text-color',
+      'drag-overlay',
+      'welcome-open-btn',
+      'btn-open',
+      'btn-home',
+      'btn-prev',
+      'btn-next',
+      'btn-settings',
+      'btn-settings-close',
+      'btn-bookmark'
+    ]);
+    const calls = [];
+    const context = {
+      document,
+      window: {
+        focus() {},
+        addEventListener() {}
+      },
+      chrome: {
+        runtime: { getURL: (p) => 'chrome-extension://test/' + p },
+        tabs: { create() {} }
+      },
+      EpubStorage: {
+        async savePreferences() {}
+      },
+      TOC: { close() {} },
+      Bookmarks: { closePanel() {}, isBookmarked: async () => false, toggle: async () => {} },
+      Search: { closePanel() {} },
+      Highlights: { closePanels() {} },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    context.window.document = document;
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({
+      state: { prefs: {}, isBookLoaded: true }
+    });
+
+    await ui.bindRuntime({
+      next() { calls.push('old-next'); },
+      prev() { calls.push('old-prev'); },
+      setLayout() {},
+      displayPercentage() {}
+    }, {});
+    await ui.bindRuntime({
+      next() { calls.push('new-next'); },
+      prev() { calls.push('new-prev'); },
+      setLayout() {},
+      displayPercentage() {}
+    }, {});
+
+    document.dispatchEvent('keydown', {
+      key: 'ArrowRight',
+      preventDefault() {},
+      stopImmediatePropagation() {}
+    });
+    document.getElementById('btn-next').click();
+
+    assert.deepEqual(calls, ['new-next', 'new-next']);
+  });
+
+  test.it('Reader 功能模块 init 重复调用不会叠加顶层监听', () => {
+    const count = (el, type) => (el.listeners.get(type) || []).length;
+
+    {
+      const { document } = createMockDocument([
+        'bookmarks-panel',
+        'bookmarks-list',
+        'btn-bookmarks',
+        'btn-bookmarks-close'
+      ]);
+      const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+        document,
+        EpubStorage: { async getBookmarks() { return []; }, async saveBookmarks() {} }
+      });
+
+      Bookmarks.init();
+      Bookmarks.init();
+
+      assert.equal(count(document.getElementById('btn-bookmarks'), 'click'), 1);
+      assert.equal(count(document.getElementById('btn-bookmarks-close'), 'click'), 1);
+    }
+
+    {
+      const { document } = createMockDocument([
+        'toc-container',
+        'sidebar',
+        'sidebar-overlay',
+        'btn-toc',
+        'btn-toc-close'
+      ]);
+      const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', { document });
+
+      TOC.init();
+      TOC.init();
+
+      assert.equal(count(document.getElementById('btn-toc'), 'click'), 1);
+      assert.equal(count(document.getElementById('btn-toc-close'), 'click'), 1);
+      assert.equal(count(document.getElementById('sidebar-overlay'), 'click'), 1);
+    }
+
+    {
+      const { document } = createMockDocument([
+        'search-panel',
+        'sidebar-overlay',
+        'search-input',
+        'btn-do-search',
+        'search-results-list',
+        'search-status',
+        'btn-search',
+        'btn-search-close'
+      ]);
+      const Search = loadIsolatedConst('src/reader/search.js', 'Search', {
+        document,
+        setTimeout: global.setTimeout
+      });
+
+      Search.init();
+      Search.init();
+
+      assert.equal(count(document.getElementById('btn-search'), 'click'), 1);
+      assert.equal(count(document.getElementById('btn-search-close'), 'click'), 1);
+      assert.equal(count(document.getElementById('btn-do-search'), 'click'), 1);
+      assert.equal(count(document.getElementById('search-input'), 'keydown'), 1);
+    }
+
+    {
+      const { document } = createMockDocument([
+        'image-viewer',
+        'image-viewer-img',
+        'image-viewer-container',
+        'image-viewer-close',
+        'img-zoom-in',
+        'img-zoom-out',
+        'img-zoom-reset'
+      ]);
+      const ImageViewer = loadIsolatedWindowExport('src/reader/image-viewer.js', 'ImageViewer', { document });
+
+      ImageViewer.init();
+      ImageViewer.init();
+
+      assert.equal(count(document.getElementById('image-viewer-close'), 'click'), 1);
+      assert.equal(count(document.getElementById('image-viewer'), 'click'), 1);
+      assert.equal(count(document.getElementById('image-viewer-container'), 'wheel'), 1);
+      assert.equal(count(document.getElementById('image-viewer-container'), 'mousedown'), 1);
+      assert.equal(count(document.getElementById('img-zoom-in'), 'click'), 1);
+      assert.equal(count(document.getElementById('img-zoom-out'), 'click'), 1);
+      assert.equal(count(document.getElementById('img-zoom-reset'), 'click'), 1);
+    }
+
+    {
+      const { document } = createMockDocument([
+        'annotation-overlay',
+        'annotation-popup',
+        'annotation-body',
+        'annotation-title',
+        'annotation-close'
+      ]);
+      const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations', { document });
+
+      Annotations.init();
+      Annotations.init();
+
+      assert.equal(count(document.getElementById('annotation-close'), 'click'), 1);
+      assert.equal(count(document.getElementById('annotation-overlay'), 'click'), 1);
+    }
+
+    {
+      const { document } = createMockDocument([
+        'selection-toolbar',
+        'btn-add-note',
+        'btn-clear-hl',
+        'note-popup',
+        'note-textarea',
+        'btn-cancel-note',
+        'btn-save-note',
+        'btn-show-toolbar'
+      ]);
+      const windowListeners = new Map();
+      const windowMock = {
+        document,
+        innerHeight: 800,
+        addEventListener(type, handler) {
+          const handlers = windowListeners.get(type) || [];
+          handlers.push(handler);
+          windowListeners.set(type, handlers);
+        }
+      };
+      const Highlights = loadIsolatedWindowExport('src/reader/highlights.js', 'Highlights', {
+        document,
+        window: windowMock,
+        setTimeout: global.setTimeout,
+        EpubStorage: { async getHighlights() { return []; }, async saveHighlights() {} },
+        Utils: { sanitizeColor(color) { return color; } }
+      });
+
+      Highlights.init();
+      Highlights.init();
+
+      assert.equal((windowListeners.get('mousedown') || []).length, 1);
+      assert.equal(count(document.getElementById('btn-show-toolbar'), 'click'), 1);
+    }
+  });
 });

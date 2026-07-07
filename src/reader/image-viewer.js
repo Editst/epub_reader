@@ -22,32 +22,36 @@
   startY: 0,
   hookedRenditions: new WeakSet(),
   hookedDocuments: new WeakSet(),
+  _boundDocument: null,
 
   init() {
     this.overlay = document.getElementById('image-viewer');
     this.img = document.getElementById('image-viewer-img');
     this.container = document.getElementById('image-viewer-container');
 
+    if (this._boundDocument === document) return;
+    this._boundDocument = document;
+
     // Close handlers
-    document.getElementById('image-viewer-close').addEventListener('click', () => this.close());
-    this.overlay.addEventListener('click', (e) => {
+    document.getElementById('image-viewer-close')?.addEventListener('click', () => this.close());
+    this.overlay?.addEventListener('click', (e) => {
       if (e.target === this.overlay || e.target === this.container) this.close();
     });
 
     // Zoom controls
-    document.getElementById('img-zoom-in').addEventListener('click', () => this.zoom(BUTTON_ZOOM_STEP));
-    document.getElementById('img-zoom-out').addEventListener('click', () => this.zoom(-BUTTON_ZOOM_STEP));
-    document.getElementById('img-zoom-reset').addEventListener('click', () => this.resetTransform());
+    document.getElementById('img-zoom-in')?.addEventListener('click', () => this.zoom(BUTTON_ZOOM_STEP));
+    document.getElementById('img-zoom-out')?.addEventListener('click', () => this.zoom(-BUTTON_ZOOM_STEP));
+    document.getElementById('img-zoom-reset')?.addEventListener('click', () => this.resetTransform());
 
     // Mouse wheel zoom
-    this.container.addEventListener('wheel', (e) => {
+    this.container?.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP;
       this.zoom(delta);
     }, { passive: false });
 
     // Drag to pan
-    this.container.addEventListener('mousedown', (e) => {
+    this.container?.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       this.isDragging = true;
       this.startX = e.clientX - this.translateX;
@@ -68,7 +72,7 @@
 
     // Keyboard
     document.addEventListener('keydown', (e) => {
-      if (this.overlay.classList.contains('is-hidden')) return;
+      if (!this.overlay || this.overlay.classList.contains('is-hidden')) return;
       if (e.key === 'Escape') this.close();
       if (e.key === '+' || e.key === '=') this.zoom(BUTTON_ZOOM_STEP);
       if (e.key === '-') this.zoom(-BUTTON_ZOOM_STEP);

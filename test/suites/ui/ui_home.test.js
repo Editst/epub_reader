@@ -32,4 +32,11 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(!js.includes('style.cursor'));
   });
 
+  test.it('书架进度进入文本和 CSS 前必须归一化', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    assert.ok(js.includes('Utils.normalizePercent'), 'home.js 应归一化 storage 中的阅读进度');
+    assert.ok(js.includes('const percentText = percent.toFixed(1)'), '展示文本应基于归一化后的数字格式化');
+    assert.ok(js.includes('--progress-width: ${percent}%'), 'CSS 进度宽度只能使用归一化后的 percent');
+  });
+
 });

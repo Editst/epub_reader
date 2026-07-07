@@ -11,21 +11,25 @@
   overlay: null,
   rendition: null,
   currentHref: '',
+  _boundDocument: null,
 
   init() {
     this.container = document.getElementById('toc-container');
     this.sidebar = document.getElementById('sidebar');
     this.overlay = document.getElementById('sidebar-overlay');
 
+    if (this._boundDocument === document) return;
+    this._boundDocument = document;
+
     // Toggle buttons
-    document.getElementById('btn-toc').addEventListener('click', () => this.toggle());
-    document.getElementById('btn-toc-close').addEventListener('click', () => this.close());
+    document.getElementById('btn-toc')?.addEventListener('click', () => this.toggle());
+    document.getElementById('btn-toc-close')?.addEventListener('click', () => this.close());
 
     // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
     // Clicking it should close ALL open panels, not just TOC.
     // We defer to closeAllPanels() (defined in reader.js) which already
     // handles every panel and the overlay in one consistent call.
-    this.overlay.addEventListener('click', () => {
+    this.overlay?.addEventListener('click', () => {
       if (typeof closeAllPanels === 'function') closeAllPanels();
       else this.close(); // fallback if called before reader.js initialises
     });

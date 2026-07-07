@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.7
+版本：v2.4.8
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -384,6 +384,10 @@ Utils.formatMinutes(minutes: number): string
 Utils.sanitizeColor(color: string): string | null
 // 高亮颜色白名单校验（#[0-9a-fA-F]{3,8}|transparent）
 // 通过返回原值，不通过返回 null
+
+Utils.normalizePercent(value: any): number
+// 将 storage / 外部输入中的进度归一化为 0-100 有限数字
+// 进入 UI 文本、CSS 自定义属性或进度条前必须使用
 ```
 
 ---
@@ -607,6 +611,7 @@ bindResize(rendition, state, persistence): void
 - 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。
 - persistence 层通过本层辅助函数委托 DOM 更新，不直接持有元素引用。
 - Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；若缓存失败，应显示加载错误，避免产生无法重新打开的书架记录。
+- `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
 
 ---
 
@@ -810,3 +815,5 @@ Annotations.unmount(): void
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
 
 **v2.4.0 IIFE 规范**：全部 11 个 reader 模块统一使用 `(function () { 'use strict'; ... window.XXX = XXX; })();` 封装，避免全局变量污染。功能模块（annotations、bookmarks、toc、search、highlights、image-viewer）与四层架构模块（reader-state、reader-runtime、reader-persistence、reader-ui）均遵循此规范。
+
+**v2.4.8 生命周期约束**：功能模块 `init()` 必须按 document 幂等；同一 document 上重复调用不得重复注册按钮、键盘、遮罩或 window 级顶层监听。测试环境切换 document 时允许重新绑定新 DOM。

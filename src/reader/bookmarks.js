@@ -11,14 +11,18 @@
   rendition: null,
   panel: null,
   listEl: null,
+  _boundDocument: null,
 
   init() {
     this.panel = document.getElementById('bookmarks-panel');
     this.listEl = document.getElementById('bookmarks-list');
 
+    if (this._boundDocument === document) return;
+    this._boundDocument = document;
+
     // Panel toggle
-    document.getElementById('btn-bookmarks').addEventListener('click', () => this.togglePanel());
-    document.getElementById('btn-bookmarks-close').addEventListener('click', () => this.closePanel());
+    document.getElementById('btn-bookmarks')?.addEventListener('click', () => this.togglePanel());
+    document.getElementById('btn-bookmarks-close')?.addEventListener('click', () => this.closePanel());
   },
 
   mount(context) {

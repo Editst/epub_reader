@@ -19,6 +19,7 @@
 
   function createReaderUi({ state }) {
     let _runtime = null;
+    let _isRuntimeBound = false;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -487,24 +488,25 @@
 
     // ── Event Binding ─────────────────────────────────────────────────────────
 
-    function bindNavigation(runtime) {
-      document.getElementById('btn-prev')?.addEventListener('click', () => runtime.prev());
-      document.getElementById('btn-next')?.addEventListener('click', () => runtime.next());
+    function bindNavigation() {
+      document.getElementById('btn-prev')?.addEventListener('click', () => _runtime && _runtime.prev());
+      document.getElementById('btn-next')?.addEventListener('click', () => _runtime && _runtime.next());
 
       dom.readerMain?.addEventListener('wheel', (e) => {
         if (!state.isBookLoaded || !state.rendition) return;
         if (state.prefs.layout === 'scrolled') return;
         e.preventDefault();
-        if (e.deltaY > 0 || e.deltaX > 0) runtime.next();
-        else runtime.prev();
+        if (!_runtime) return;
+        if (e.deltaY > 0 || e.deltaX > 0) _runtime.next();
+        else _runtime.prev();
       }, { passive: false });
 
       dom.readerMain?.addEventListener('click', () => ensureFocus());
 
-      document.addEventListener('keydown', (e) => _handleKeyNav(e, runtime));
+      document.addEventListener('keydown', (e) => _handleKeyNav(e, _runtime));
     }
 
-    function bindProgress(runtime) {
+    function bindProgress() {
       if (!dom.progressSlider) return;
       dom.progressSlider.addEventListener('input', (e) => {
         if (dom.progressCurrent) {
@@ -513,20 +515,21 @@
       });
       dom.progressSlider.addEventListener('change', (e) => {
         if (!state.book || !state.book.locations || !state.book.locations.length()) return;
-        runtime.displayPercentage(parseFloat(e.target.value));
+        if (_runtime) _runtime.displayPercentage(parseFloat(e.target.value));
       });
       dom.progressSlider.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
           e.stopImmediatePropagation();
-          if (e.key === 'ArrowLeft') runtime.prev(); else runtime.next();
+          if (!_runtime) return;
+          if (e.key === 'ArrowLeft') _runtime.prev(); else _runtime.next();
         }
       });
     }
 
-    function bindLayoutSettings(runtime) {
+    function bindLayoutSettings() {
       document.querySelectorAll('.layout-btn').forEach((btn) => {
-        btn.addEventListener('click', () => runtime.setLayout(btn.dataset.layout));
+        btn.addEventListener('click', () => _runtime && _runtime.setLayout(btn.dataset.layout));
       });
     }
 
@@ -599,7 +602,7 @@
       });
     }
 
-    function bindDragAndDrop(runtime) {
+    function bindDragAndDrop() {
       document.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -617,7 +620,7 @@
         const files = e.dataTransfer?.files;
         const file = files && files[0];
         if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
-        await openLocalFile(file, runtime);
+        if (_runtime) await openLocalFile(file, _runtime);
       });
     }
 
@@ -670,6 +673,8 @@
      */
     async function bindRuntime(runtime, persistence) {
       _runtime = runtime;
+      if (_isRuntimeBound) return;
+      _isRuntimeBound = true;
 
       document.getElementById('welcome-open-btn')?.addEventListener('click', () => {
         dom.fileInput && dom.fileInput.click();
@@ -684,17 +689,17 @@
       dom.fileInput?.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        await openLocalFile(file, runtime);
+        if (_runtime) await openLocalFile(file, _runtime);
         e.target.value = '';
       });
 
-      bindNavigation(runtime);
-      bindProgress(runtime);
-      bindLayoutSettings(runtime);
+      bindNavigation();
+      bindProgress();
+      bindLayoutSettings();
       bindTheme();
       bindTypography(persistence);
       bindPanelState();
-      bindDragAndDrop(runtime);
+      bindDragAndDrop();
       bindResize(persistence);
     }
 

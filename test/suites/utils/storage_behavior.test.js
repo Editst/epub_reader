@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 test.describe('EpubStorage 行为覆盖', () => {
   test.beforeEach(() => {
@@ -97,6 +98,17 @@ test.describe('EpubStorage 行为覆盖', () => {
     const all = await EpubStorage.getAllHighlights();
 
     assert.deepEqual(Object.keys(all).sort(), ['book-a', 'book-orphan']);
+  });
+
+  test.it('storage.js 集中声明存储 key 与 IndexedDB store 名称', () => {
+    const source = fs.readFileSync('src/utils/storage.js', 'utf8');
+    const count = (pattern) => (source.match(pattern) || []).length;
+
+    assert.match(source, /const KEYS = Object\.freeze/);
+    assert.match(source, /const STORES = Object\.freeze/);
+    assert.equal(count(/'bookMeta_' \+ bookId/g), 1, 'bookMeta 前缀只能出现在 KEYS 声明中');
+    assert.equal(count(/'highlights_' \+ bookId/g), 1, 'highlights 前缀只能出现在 KEYS 声明中');
+    assert.equal(count(/'bookmarks_' \+ bookId/g), 1, 'bookmarks 前缀只能出现在 KEYS 声明中');
   });
 
   test.it('removeBook 会等待同书 bookMeta 写队列，避免删除后回写孤立 meta', async () => {
