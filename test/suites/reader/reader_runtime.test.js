@@ -641,6 +641,7 @@ test.describe('ReaderRuntime', () => {
     initialLocation,
     correctedLocation,
     correctedLocations,
+    displayedLocations,
     prefs = {},
     locationsJson = 'locations-json',
     locationsOverrides = {}
@@ -676,6 +677,8 @@ test.describe('ReaderRuntime', () => {
       on() {},
       async display(target) {
         displayCalls.push(target);
+        const nextDisplayLocation = displayedLocations && displayedLocations[displayCalls.length - 1];
+        if (nextDisplayLocation) current = nextDisplayLocation;
       },
       async next() {
         nextCalls++;
@@ -1067,7 +1070,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(result.state.locationsStatus, 'pending');
   });
 
-  test.it('openBook 恢复 start.cfi 后同章节落在前页时执行有限 next 校正', async () => {
+  test.it('openBook 恢复 start.cfi 后同章节短暂回报前页时不执行 next 校正', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -1086,17 +1089,21 @@ test.describe('ReaderRuntime', () => {
       prefs,
       savedPos,
       initialLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-4', displayed: { page: 4, total: 12 } }, end: { displayed: { page: 4, total: 12 } } },
-      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } },
+      displayedLocations: [
+        null,
+        { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      ]
     });
 
-    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)']);
-    assert.equal(result.nextCalls, 1, '同章节同签名页码漂移时应执行一次 next 校正');
-    assert.equal(result.prevCalls, 0, '目标页在后一页时不应执行 prev 导航');
-    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator，供后续重开继续校验');
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)', 'epubcfi(/6/8!/4/2)']);
+    assert.equal(result.nextCalls, 0, '恢复阶段不得用 locator 页码驱动 next 导航');
+    assert.equal(result.prevCalls, 0, '恢复阶段不得用 locator 页码驱动 prev 导航');
+    assert.equal(result.state.currentStableLocator.page, 5, '页码短暂不一致时仍保留 locator 作为诊断信息');
     assert.deepEqual(result.relocatedCalls, [], '恢复保护期不应把 currentLocation 边界 CFI 当作新位置保存');
   });
 
-  test.it('openBook 恢复边界 CFI 后同章节落在后页时执行有限 prev 校正', async () => {
+  test.it('openBook 恢复边界 CFI 后同章节短暂回报后页时不执行 prev 校正', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/20)',
@@ -1115,15 +1122,20 @@ test.describe('ReaderRuntime', () => {
       prefs,
       savedPos,
       initialLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-6', displayed: { page: 6, total: 12 } }, end: { displayed: { page: 6, total: 12 } } },
-      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } },
+      displayedLocations: [
+        null,
+        { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      ]
     });
 
-    assert.equal(result.nextCalls, 0, '不应执行 next 导航');
-    assert.equal(result.prevCalls, 1, '同章节同签名页码漂移时应执行一次 prev 校正');
-    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator');
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/20)', 'epubcfi(/6/8!/4/20)']);
+    assert.equal(result.nextCalls, 0, '恢复阶段不得用 locator 页码驱动 next 导航');
+    assert.equal(result.prevCalls, 0, '恢复阶段不得用 locator 页码驱动 prev 导航');
+    assert.equal(result.state.currentStableLocator.page, 5, '页码短暂不一致时仍保留 locator');
   });
 
-  test.it('openBook 恢复到真实页前方时按 locator 多步校正且不污染保存锚点', async () => {
+  test.it('openBook restoreCfi 直接恢复时 currentLocation 短暂旧页也不按 locator 多步校正', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/22!/4/168/1:0)',
@@ -1156,11 +1168,18 @@ test.describe('ReaderRuntime', () => {
           start: { index: 10, href: 'Text/chapter07.xhtml', cfi: 'cfi-page-13', displayed: { page: 13, total: 18 } },
           end: { displayed: { page: 14, total: 18 } }
         }
+      ],
+      displayedLocations: [
+        null,
+        {
+          start: { index: 10, href: 'Text/chapter07.xhtml', cfi: 'cfi-page-13', displayed: { page: 13, total: 18 } },
+          end: { displayed: { page: 14, total: 18 } }
+        }
       ]
     });
 
-    assert.deepEqual(result.displayCalls, ['epubcfi(/6/22!/4/172/1:45)']);
-    assert.equal(result.nextCalls, 2);
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/22!/4/172/1:45)', 'epubcfi(/6/22!/4/172/1:45)']);
+    assert.equal(result.nextCalls, 0, '真实 EPUB 中 currentLocation 可能短暂回报旧页，不能因此快速翻页');
     assert.equal(result.prevCalls, 0);
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/22!/4/168/1:0)');
     assert.equal(result.state.currentStableLocator.page, 13);
@@ -1207,7 +1226,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(scrolled.nextCalls + scrolled.prevCalls, 0, 'scrolled 模式：跳过验证');
   });
 
-  test.it('openBook 恢复页码无法收敛时有限尝试后失效 locator 且不输出运行警告', async () => {
+  test.it('openBook 恢复页码差较大时不导航且不输出运行警告', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -1245,9 +1264,10 @@ test.describe('ReaderRuntime', () => {
       console.warn = originalWarn;
     }
 
-    assert.equal(result.nextCalls + result.prevCalls, 1, '不可收敛时只做有限尝试');
+    assert.equal(result.nextCalls + result.prevCalls, 0, '恢复阶段不做任何自动翻页尝试');
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)', 'epubcfi(/6/8!/4/2)']);
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
-    assert.equal(result.state.currentStableLocator, null, '不可比 locator 应被清除，避免下次重开重复告警');
+    assert.equal(result.state.currentStableLocator.page, 10, '页码差只作为诊断，不驱动导航');
     assert.equal(
       warnCalls.some((args) => String(args[0]).includes('page delta out of correction range')),
       false,
@@ -1255,7 +1275,7 @@ test.describe('ReaderRuntime', () => {
     );
   });
 
-  test.it('openBook 页码漂移校正后 currentStableCfi 仍等于保存 CFI', async () => {
+  test.it('openBook 页码漂移时 currentStableCfi 仍等于保存 CFI', async () => {
     const prefs = { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', paragraphIndent: true, spread: 'auto' };
     const savedPos = {
       cfi: 'epubcfi(/6/8!/4/2)',
@@ -1274,14 +1294,19 @@ test.describe('ReaderRuntime', () => {
       prefs,
       savedPos,
       initialLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-4', displayed: { page: 4, total: 12 } }, end: { displayed: { page: 4, total: 12 } } },
-      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      correctedLocation: { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } },
+      displayedLocations: [
+        null,
+        { start: { index: 3, href: 'chapter.xhtml', cfi: 'cfi-page-5', displayed: { page: 5, total: 12 } }, end: { displayed: { page: 5, total: 12 } } }
+      ]
     });
 
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)', 'currentStableCfi 应等于保存的 CFI，不随页码漂移偏移');
     assert.equal(result.state.isRestoreAnchorProtected, true, '恢复锚点应保持保护，直到用户导航');
-    assert.equal(result.nextCalls, 1, '执行有限 next 校正');
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/2)', 'epubcfi(/6/8!/4/2)']);
+    assert.equal(result.nextCalls, 0, '不执行 next 校正');
     assert.equal(result.prevCalls, 0, '不做 prev 导航');
-    assert.equal(result.state.currentStableLocator.page, 5, '校正成功时保留 locator');
+    assert.equal(result.state.currentStableLocator.page, 5, '保留 locator 作为诊断信息');
   });
 
   test.it('loadFileByBookId 在缓存缺失时显示重新导入错误', async () => {

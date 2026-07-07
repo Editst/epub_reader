@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.5
+版本：v2.4.6
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -415,12 +415,12 @@ buildPrefsSignature(prefs: object): string
 // 生成偏好设置签名字符串，用于 locator 布局变化检测
 ```
 
-**v2.4.5 运行约束**：
+**v2.4.6 运行约束**：
 - `hasLocations` 表示当前书籍是否已有可用定位索引。
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
 - `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
 - `currentStableCfi` 保存可落盘位置锚点：分页与滚动模式均以 `location.start.cfi` 为兼容主锚点。
-- `currentStableLocator` 保存 `displayed-page` 信息（layout/href/index/page/total/sourceCfi/prefsSignature），分页模式可额外携带 `restoreCfi` 作为 display 恢复锚点；`restoreCfi` 只有在 `sourceCfi === pos.cfi` 时可信，locator 只在同章节、同页总数、同偏好签名时驱动有限页校正。
+- `currentStableLocator` 保存 `displayed-page` 信息（layout/href/index/page/total/sourceCfi/prefsSignature），分页模式可额外携带 `restoreCfi` 作为 display 恢复锚点；`restoreCfi` 只有在 `sourceCfi === pos.cfi` 时可信，locator 只用于校验与诊断，不驱动 `next()/prev()` 翻页。
 - 恢复期 `relocated.start.cfi` 不得覆盖 `currentStableCfi`。
 - `isRestoringPosition` 用于区分 `openBook()` 恢复显示与用户正常翻页。
 - `isRestoreAnchorProtected` 用于保护刚恢复的分页锚点；用户导航前，locations 就绪和刷新 flush 都不得用 epub.js 页边界 CFI 覆盖它。
@@ -480,8 +480,9 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 | `POST_DISPLAY_FOCUS_DELAY_MS` | 100 | display 后聚焦延迟 |
 | `POST_OPEN_FOCUS_DELAY_MS` | 300 | openBook 后聚焦延迟 |
 | `NAV_DEBOUNCE_MS` | 150 | 翻页防抖 |
+| `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | 1 | 恢复期同 CFI 直接重放次数上限 |
 
-**v2.4.5 行为约束**：
+**v2.4.6 行为约束**：
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
 - `_hookRenditionEvents` 由 `openBook` 和 `setLayout` 共享，确保模块挂载逻辑一致。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
@@ -489,12 +490,13 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
 - 分页模式下，若保存位置包含与 `pos.cfi` 同源的 `locator.restoreCfi`，恢复显示应优先使用该 CFI；`state.currentStableCfi` 仍保持 `pos.cfi`，防止关闭刷新时把兼容主锚点改写成临时显示锚点。
+- fresh rendition 首次 `display(displayCfi)` 后，`currentLocation()` 可能短暂回报同章节旧分页；若 href/index、页总数、偏好签名均匹配且页码不一致，只允许在恢复保护期内重放一次同一个 `displayCfi`，不得调用 `next()/prev()`。
 - 若缓存 locations 可用且 `pos.cfi` 对应百分比与 `pos.percentage` 明显不一致，应视为分裂快照，用 `locations.cfiFromPercentage()` 兜底恢复并清空旧 locator。
 - 若缓存 locations 加载失败，应按无缓存处理：先完成正文显示，再异步调度 locations 重建，不得阻断 `openBook()`。
 - 分页模式下，`displayCfi` 恢复完成后应设置 `isRestoreAnchorProtected=true`；`next()`/`prev()`/`displayPercentage()` 以及非恢复期的 `rendition.display()` 会解除该保护。
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
-- `_correctRestoredPage` 只在 href/index、布局签名和页总数均匹配时执行有限校正，最多 6 步 `next()/prev()`；校正成功保留 locator，校正失败或离开原章节时清空 `currentStableLocator`，保留 CFI 锚点，不输出运行警告。
+- `_correctRestoredPage` 只做章节/签名/页总数校验和同 CFI 直接重放；它不得执行翻页导航。若重放后仍无法与 locator 页码一致，保留 CFI 锚点与保护，不把短暂旧 `currentLocation()` 写回 storage。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
@@ -542,7 +544,7 @@ _isPositionMeaningfullyChanged(newCfi: string, oldCfi: string): boolean
 | `SPEED_MIN_SESSIONS` | 3 | 最小采样会话数 |
 | `READING_STATS_DEBOUNCE_MS` | 500 | 统计更新防抖 |
 
-**v2.4.5 行为约束**：
+**v2.4.6 行为约束**：
 - `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
 - 连续位置变化仍保留 300ms 防抖，用最终 `pos.cfi + locator.restoreCfi` 覆盖首个位置。
 - `onRelocated()` 的 UI 更新与即时持久化优先使用事件参数；`rendition.currentLocation()` 在同一 tick 内可能仍是上一页，只在事件缺失 CFI 时兜底。

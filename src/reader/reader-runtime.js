@@ -30,7 +30,7 @@
   const POST_OPEN_FOCUS_DELAY_MS        = 300;
   const NAV_DEBOUNCE_MS                 = 150;
   const RESTORE_PERCENT_MISMATCH_THRESHOLD = 0.5;
-  const RESTORE_PAGE_CORRECTION_MAX_STEPS = 6;
+  const RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS = 1;
 
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
@@ -276,13 +276,13 @@
     }
 
     /**
-     * 位置恢复后只验证 locator，不再根据 displayed.page 自动翻页。
-     * CFI 才是恢复锚点；displayed.page 受字体、视口和 epub.js 分页边界影响，
-     * 页码差异只用于判定 locator 过期，不能驱动 next/prev 导航。
+     * 位置恢复后只用 CFI 做直接重定位，不根据 locator 页码自动翻页。
+     * fresh rendition 首次 display 后 currentLocation 可能短暂回报旧分页；
+     * 若同章节页码不一致，只重放同一个 displayCfi 一次，避免 next/prev 快速翻动。
      *
-     * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过校正
+     * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过翻页校正
      */
-    async function _correctRestoredPage(savedPos) {
+    async function _correctRestoredPage(savedPos, displayCfi) {
       const locator = savedPos && savedPos.locator;
       if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false, corrected: false };
       if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') {
@@ -306,49 +306,24 @@
         return { matched: false, corrected: false };
       }
 
-      if (
-        typeof locator.page !== 'number' ||
-        typeof locator.total !== 'number' ||
-        typeof currentPage.page !== 'number' ||
-        currentPage.total !== locator.total
-      ) {
-        state.currentStableLocator = null;
-        return { matched: true, corrected: false };
-      }
+      const canRedisplay =
+        !!displayCfi &&
+        typeof state.rendition.display === 'function' &&
+        typeof locator.page === 'number' &&
+        typeof currentPage.page === 'number' &&
+        (typeof locator.total !== 'number' || currentPage.total === locator.total);
 
-      if (locator.page !== currentPage.page) {
-        let steps = 0;
-        while (currentPage && currentPage.page !== locator.page && steps < RESTORE_PAGE_CORRECTION_MAX_STEPS) {
-          const direction = locator.page > currentPage.page ? 1 : -1;
-          const beforePage = currentPage.page;
-          try {
-            if (direction > 0) await state.rendition.next();
-            else await state.rendition.prev();
-          } catch (_) {
-            state.currentStableLocator = null;
-            return { matched: true, corrected: steps > 0 };
-          }
-
-          steps++;
-          currentPage = await _readCurrentDisplayedPage();
-          if (!_isDisplayedPageInLocatorSection(currentPage, locator) || currentPage.total !== locator.total) {
-            state.currentStableLocator = null;
-            return { matched: false, corrected: steps > 0 };
-          }
-          if (currentPage.page === beforePage) {
-            state.currentStableLocator = null;
-            return { matched: true, corrected: steps > 0 };
-          }
-          if (direction > 0 && currentPage.page > locator.page) break;
-          if (direction < 0 && currentPage.page < locator.page) break;
+      for (let attempt = 0; canRedisplay && currentPage.page !== locator.page && attempt < RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS; attempt++) {
+        try {
+          await state.rendition.display(displayCfi);
+        } catch (_) {
+          return { matched: true, corrected: false };
         }
-
-        if (!currentPage || currentPage.page !== locator.page) {
+        currentPage = await _readCurrentDisplayedPage();
+        if (!_isDisplayedPageInLocatorSection(currentPage, locator)) {
           state.currentStableLocator = null;
-          return { matched: true, corrected: steps > 0 };
+          return { matched: false, corrected: false };
         }
-
-        return { matched: true, corrected: steps > 0 };
       }
 
       return { matched: true, corrected: false };
@@ -479,7 +454,7 @@
         if (displayCfi) await state.rendition.display(displayCfi);
         else await state.rendition.display();
         if (!targetCfi && savedPos && state.currentStableLocator) {
-          await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator });
+          await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator }, displayCfi);
         }
       } finally {
         state.isRestoringPosition = false;

@@ -4,13 +4,23 @@
 
 ---
 
+## [v2.4.6] - 重开定位无快速翻页
+
+- 用户提供《九故事》EPUB 后重新从真实链路验证：65.3% 位置保存正确，`pos.cfi = epubcfi(/6/22!/4/168/1:0)`，`locator.restoreCfi = epubcfi(/6/22!/4/172/1:45)`。
+- 根因修正：fresh rendition 首次 `display(restoreCfi)` 后，`currentLocation()` 可能短暂回报同章节旧分页；v2.4.5 根据该旧页码执行 `next()/prev()`，形成重开时可见的快速翻页。
+- 单纯移除页校正会复现“右下角 65.3%，页面在旧页；一翻页进度回到旧页”的问题，因此不能只删逻辑。
+- 最终策略：恢复期同章节、同页总数、同偏好签名但页码不一致时，只重放一次同一个 `displayCfi`；不再调用 `next()/prev()`。
+- 真实 EPUB 连续重开 3 次验证：页面均停在 page 13/14、UI 为 65.3%、storage 未被旧页覆盖、恢复期间 `next/prev` 计数为 0。
+
+---
+
 ## [v2.4.5] - 分裂位置快照自愈
 
 - 根因确认：最近引入 `locator.restoreCfi` 后，恢复阶段优先 display 它；一旦 storage 出现“新 percentage / 新 pos.cfi + 旧 restoreCfi”的混合快照，就会表现为右下角进度是新的，但页面仍回到老位置。
 - 进一步确认：关闭/刷新时若存在待执行的防抖保存，旧逻辑会重新采样 `currentLocation()`；而 epub.js 在同一 tick 内可能仍返回上一页，于是把刚翻到的新位置覆盖回旧页。
-- 真实 EPUB 复测推翻了“恢复期完全不校正页码”的假设：`display(restoreCfi)` 对同一章节仍可能落到更早的 displayed page，必须用 locator.page 做有限校正。
+- 真实 EPUB 复测推翻了“恢复期完全不处理页码差异”的假设：`display(restoreCfi)` 对同一章节仍可能落到更早的 displayed page；本版先采用有限 `next()/prev()` 校正，该策略随后在 v2.4.6 被替换为同 CFI 直接重放。
 - 新写入的 displayed-page locator 增加 `sourceCfi`，恢复时只有 `sourceCfi === pos.cfi` 才信任 `restoreCfi`；旧版无 `sourceCfi` 或 source 不匹配的 `restoreCfi` 会被忽略。
-- `_correctRestoredPage()` 恢复为更窄的校正策略：只有 href/index、页总数、偏好签名都匹配时，最多执行 6 步 `next()/prev()`；校正期间仍处于恢复保护期，不写入 storage，不能收敛就清空 locator。
+- `_correctRestoredPage()` 恢复为更窄的校正策略：只有 href/index、页总数、偏好签名都匹配时，最多执行 6 步 `next()/prev()`；校正期间仍处于恢复保护期，不写入 storage，不能收敛就清空 locator。该策略已在 v2.4.6 废弃。
 - 恢复后 EPUB iframe 内的滚轮、触摸、鼠标、键盘手势会解除 `isRestoreAnchorProtected`，避免用户翻页后仍保存旧恢复锚点。
 - 打开书籍时若已缓存 locations，会先校验 `pos.cfi` 与 `percentage` 是否一致；明显不一致时用 `percentage -> cfi` 兜底恢复，并清空旧 locator，避免翻页后进度再跳回旧页面。
 - 若 locations 缓存损坏，打开流程会忽略该缓存并进入后台重建，避免历史缓存问题阻断阅读或恢复链路。
@@ -37,7 +47,7 @@
 
 - `_correctRestoredPage()` 改为只校验 displayed-page locator，不再根据 `displayed.page` 差异执行 `next()/prev()`。
 - 同章节页码差异视为 locator 过期，清空 `currentStableLocator`，保留 `currentStableCfi` 与恢复锚点保护，避免重开书籍时发生自动前跳/后跳。
-- 该策略在 v2.4.5 被真实 EPUB 验证修正：完全不校正会造成“进度新、页面旧”，因此收窄为同章节同签名的有限页校正。
+- 该策略在 v2.4.5 被真实 EPUB 验证修正：完全不处理页码差异会造成“进度新、页面旧”；最终在 v2.4.6 确认为同 CFI 直接重放，而不是恢复期翻页。
 
 ---
 

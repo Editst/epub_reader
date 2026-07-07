@@ -1,15 +1,16 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-07-07（v2.4.5）
+> 最后更新：2026-07-07（v2.4.6）
 
 ---
 
 ## 当前状态
 
-- **v2.4.5 已完成**（2026-07-07）：分裂位置快照与重开错页修复——restoreCfi 绑定 sourceCfi，同章节同签名有限页校正，iframe 手势解除恢复保护，pos.cfi 与 percentage 不一致时用百分比兜底恢复，pending flush 不回滚，损坏 locations 缓存降级重建。
+- **v2.4.6 已完成**（2026-07-07）：重开定位无快速翻页——同章节旧页短暂回报时重放同一个 `displayCfi`，彻底移除恢复期 `next()/prev()` 校正；用户 EPUB 连续重开 3 次验证不回退、不覆盖 storage。
+- **v2.4.5 已完成**（2026-07-07）：分裂位置快照与重开错页修复——restoreCfi 绑定 sourceCfi，iframe 手势解除恢复保护，pos.cfi 与 percentage 不一致时用百分比兜底恢复，pending flush 不回滚，损坏 locations 缓存降级重建；其 `next()/prev()` 有限页校正已被 v2.4.6 替换为同 CFI 直接重放。
 - **v2.4.4 已完成**（2026-07-07）：翻页后保存位置不回滚——onRelocated 优先使用 relocated 事件位置，CFI 相同但 locator/百分比变化也会落盘。
 - **v2.4.3 已完成**（2026-07-06）：分页模式保存恢复锚点——pos.cfi 保持 start.cfi，locator.restoreCfi 保存页内恢复锚点，避免重开书籍时页边界 CFI 被归属到上一页。
-- **v2.4.2 已完成**（2026-07-06）：恢复期不再自动翻页——locator 只校验，不执行 next/prev；该策略后续在 v2.4.5 收窄为同章节同签名有限校正。
+- **v2.4.2 已完成**（2026-07-06）：恢复期不再自动翻页——locator 只校验，不执行 next/prev；v2.4.6 最终确认该原则，仅允许同 CFI 直接重放。
 - **v2.3.3 已完成**（2026-06-24）：位置恢复级联退化修复——onRelocated 重采样 CFI、CFI 变化守卫、setLayout/_withCfiLock 恢复保护、beforeunload 兜底。
 - **v2.3.2 已完成**（2026-06-24）：位置恢复跳页修复——移除页校正导航、isLayoutStable 门控、resize 防抖。
 - **v2.3.1 已完成**（2026-06-24）：iframe hook 幂等性 + 生命周期收敛。
@@ -22,10 +23,11 @@
 
 | 版本 | 主题 | 关键交付 |
 |------|------|---------|
-| v2.4.5 | 分裂位置快照与重开错页修复 | restoreCfi 绑定 sourceCfi、同章节有限页校正、iframe 手势解除恢复保护、百分比兜底恢复、pending flush 保护、损坏 locations 缓存降级 |
+| v2.4.6 | 重开定位无快速翻页 | 同 CFI 直接重放一次、恢复期禁止 next/prev、连续重开不回退 |
+| v2.4.5 | 分裂位置快照与重开错页修复 | restoreCfi 绑定 sourceCfi、iframe 手势解除恢复保护、百分比兜底恢复、pending flush 保护、损坏 locations 缓存降级 |
 | v2.4.4 | 翻页保存不回滚 | relocated 事件优先、CFI 相同但 locator/百分比变化仍保存 |
 | v2.4.3 | 分页恢复锚点保存 | pos.cfi 保持 start.cfi、locator.restoreCfi 保存页内恢复锚点 |
-| v2.4.2 | 恢复期不自动翻页 | locator 只校验，页码差异清空 locator；v2.4.5 收窄恢复有限校正 |
+| v2.4.2 | 恢复期不自动翻页 | locator 只校验，页码差异清空 locator；v2.4.6 确认为禁止 next/prev |
 | v2.3.3 | 位置恢复级联退化修复 | onRelocated 重采样 CFI、CFI 变化守卫、setLayout 恢复保护、beforeunload |
 | v2.3.2 | 位置恢复跳页修复 | 移除页校正导航、isLayoutStable 门控、resize 防抖 |
 | v2.3.1 | iframe hook 幂等性 | WeakSet guard、补绑定当前 contents、openBook 直调收敛 |
@@ -167,8 +169,8 @@ Binary 走 IndexedDB，轻量 Metadata 走 Chrome Storage (10MB 限额)。
 ### ADR-007：恢复期 CFI 不落盘 (v2.2.5)
 `display(savedCfi)` 触发的 `relocated.start.cfi` 可能是上一页边界，只能用于 UI 进度，不得覆盖可 flush 的稳定 CFI。
 
-### ADR-008：分页边界 CFI 不作为唯一恢复真相 (v2.3.0 / v2.4.5)
-`start.cfi` 可前跳、`end.cfi` 可后跳；分页模式保留 `pos.cfi = start.cfi` 作为兼容主锚点，并在 displayed-page locator 中记录 `sourceCfi + restoreCfi` 作为实际 display 恢复锚点。`restoreCfi` 只有与当前 `pos.cfi` 同源才可信，生成失败或来源不匹配时降级为 `pos.cfi`；若 `display(restoreCfi)` 仍落在同章节旧页，只在 href/index、页总数、偏好签名均匹配时执行最多 6 步 `next()/prev()` 校正，无法收敛则清 locator；若 `pos.cfi` 与 `percentage` 分裂则用百分比兜底恢复。
+### ADR-008：分页边界 CFI 不作为唯一恢复真相 (v2.3.0 / v2.4.6)
+`start.cfi` 可前跳、`end.cfi` 可后跳；分页模式保留 `pos.cfi = start.cfi` 作为兼容主锚点，并在 displayed-page locator 中记录 `sourceCfi + restoreCfi` 作为实际 display 恢复锚点。`restoreCfi` 只有与当前 `pos.cfi` 同源才可信，生成失败或来源不匹配时降级为 `pos.cfi`；若 fresh rendition 首次 `display(restoreCfi)` 后 `currentLocation()` 短暂回报同章节旧页，只重放一次同一个 `displayCfi`，不得执行 `next()/prev()`；若 `pos.cfi` 与 `percentage` 分裂则用百分比兜底恢复。
 
 ### ADR-009：Reader 子模块 hook 必须幂等 (v2.3.1)
 `openBook()`、`setLayout()` 与 epub.js contents 生命周期可能多次触达同一模块；模块需用 rendition/document 级 guard 防止重复监听，并在 display 后挂载时补绑定当前 iframe。

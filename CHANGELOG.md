@@ -8,11 +8,23 @@
 
 ---
 
+## [2.4.6] - 2026-07-07
+
+### fix
+- **彻底移除恢复期 `next()/prev()` 快速翻页校正**：真实 EPUB 验证确认，fresh rendition 首次 `display(restoreCfi)` 后 `currentLocation()` 可能短暂回报旧页；v2.4.5 的页码校正会因此误判并快速翻页。本版改为在同章节、同布局签名、页总数匹配且页码不一致时，最多重放一次同一个 `displayCfi`，不再调用 `next()/prev()`。
+- **修复“右下角进度是新的、页面是旧的、一翻页进度回滚”**：恢复阶段若首次显示停在旧分页，会在 loading 期间直接 `display(同一 CFI)` 收敛到保存页；用户真正翻页前仍保护 `currentStableCfi`，不会把旧 `currentLocation()` 写回 storage。
+- **连续重开稳定性**：使用用户提供的《九故事》EPUB 复测，65.3% 位置连续重开 3 次均停在 page 13/14，`pos.cfi` 与 `locator.restoreCfi` 未被关闭/重开覆盖，恢复期间 `next/prev` 计数为 0。
+
+### test
+- 更新 ReaderRuntime 恢复定位回归用例：覆盖同章节前页/后页/真实 EPUB page 9 → page 13 短暂回报时，只允许二次 `display(同一 CFI)`，禁止 `next()/prev()`；全量 139 个测试通过。
+
+---
+
 ## [2.4.5] - 2026-07-07
 
 ### fix
 - **修复“进度是新的、页面是旧的”分裂快照**：分页恢复不再无条件信任 `locator.restoreCfi`。新写入的 locator 会带 `sourceCfi`，恢复时只有 `locator.sourceCfi === pos.cfi` 才允许用 `restoreCfi` 显示，避免旧 `restoreCfi` 把新进度恢复到老页面。
-- **恢复页码做同章节有限校正**：真实 EPUB 验证确认，epub.js `display(restoreCfi)` 仍可能落到同章节更早的显示页。恢复期现在只在 href/index、页总数、偏好签名均匹配时，最多执行 6 步 `next()/prev()` 校正到 locator 记录页；校正期间保持 `isRestoringPosition`，不触发位置写入，无法收敛则清空 locator。
+- **恢复页码做同章节有限校正**：真实 EPUB 验证确认，epub.js `display(restoreCfi)` 仍可能落到同章节更早的显示页。恢复期现在只在 href/index、页总数、偏好签名均匹配时，最多执行 6 步 `next()/prev()` 校正到 locator 记录页；校正期间保持 `isRestoringPosition`，不触发位置写入，无法收敛则清空 locator。该策略已在 2.4.6 被同 CFI 直接重放替代。
 - **iframe 内部手势会解除恢复保护**：恢复后若用户在 EPUB iframe 内滚轮、触摸、鼠标或键盘翻页，会先解除 `isRestoreAnchorProtected`，避免“页面已翻到新页，但保存仍停在恢复锚点”。
 - **分页恢复锚点改为列感知采样**：分页模式下优先从当前 displayed page 所在列的可视区域生成 `restoreCfi`，避免在横向分页 iframe 中误采整章中点。
 - **坏快照自愈**：打开书籍时若已缓存 locations，先加载缓存并检查 `pos.cfi` 对应百分比是否与已保存 `percentage` 明显不一致；若不一致，说明 storage 中 CFI 与百分比分裂，恢复时改用 `percentage -> cfi` 兜底，并清空旧 locator。
@@ -49,7 +61,7 @@
 ## [2.4.2] - 2026-07-06
 
 ### fix
-- **恢复期不再自动翻页**：`_correctRestoredPage()` 改为只校验 displayed-page locator；同章节内即使页码只差一页，也不再执行 `next()/prev()`。页码漂移只会清空过期 locator，保留已保存 CFI 和恢复锚点保护，避免重新打开书籍时被旧 locator 带到上一页/下一页。该策略已在 v2.4.5 基于真实 EPUB 复测收窄为“同章节同签名有限校正”。
+- **恢复期不再自动翻页**：`_correctRestoredPage()` 改为只校验 displayed-page locator；同章节内即使页码只差一页，也不再执行 `next()/prev()`。页码漂移只会清空过期 locator，保留已保存 CFI 和恢复锚点保护，避免重新打开书籍时被旧 locator 带到上一页/下一页。该原则最终在 v2.4.6 确认为“同 CFI 直接重放一次，不做翻页导航”。
 
 ### test
 - 更新恢复定位回归测试，覆盖同章节页码差一页时 `next()/prev()` 均不调用、`currentStableCfi` 不偏移、过期 locator 被清理。
