@@ -92,7 +92,7 @@ function loadReaderModule(file, exportName) {
   vm.createContext(context);
   const code = fs.readFileSync(file, 'utf8');
   vm.runInContext(
-    `${code}; result = (typeof ${exportName} !== 'undefined' ? ${exportName} : window.${exportName});`,
+    `${code}; result = window.${exportName};`,
     context,
     { filename: file }
   );
@@ -108,4 +108,14 @@ test.describe('Reader 功能模块公开契约', () => {
       });
     });
   }
+
+  test.it('Reader 功能模块统一暴露为 window.XXX', () => {
+    for (const [file, exportName] of expectedContracts) {
+      const context = createReaderModuleContext();
+      vm.createContext(context);
+      const code = fs.readFileSync(file, 'utf8');
+      vm.runInContext(code, context, { filename: file });
+      assert.equal(typeof context.window[exportName], 'object', `${exportName} 应挂载到 window.${exportName}`);
+    }
+  });
 });

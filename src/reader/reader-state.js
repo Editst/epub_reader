@@ -95,6 +95,15 @@
     }
   }
 
+  function _isTocHrefMatch(currentHref, itemHref) {
+    const currentBase = String(currentHref || '').split('#')[0];
+    const itemBase = String(itemHref || '').split('#')[0];
+    if (!currentBase || !itemBase) return false;
+    return currentBase === itemBase ||
+      currentBase.endsWith('/' + itemBase) ||
+      itemBase.endsWith('/' + currentBase);
+  }
+
   /**
    * 在 TOC 树中递归查找匹配当前 href 的条目。
    * @param {Array} items TOC 节点数组
@@ -104,7 +113,7 @@
   function findTocItem(items, href) {
     if (!items || !items.length) return null;
     for (const item of items) {
-      if (href.includes(item.href.split('#')[0])) return item;
+      if (_isTocHrefMatch(href, item.href)) return item;
       if (item.subitems && item.subitems.length > 0) {
         const found = findTocItem(item.subitems, href);
         if (found) return found;

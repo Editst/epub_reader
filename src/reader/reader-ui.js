@@ -58,6 +58,12 @@
       window.focus();
     }
 
+    function _savePreferencesSafely(prefs) {
+      EpubStorage.savePreferences(prefs).catch((e) => {
+        console.warn('[ReaderUi] save preferences failed:', e);
+      });
+    }
+
     // ── Visibility ────────────────────────────────────────────────────────────
 
     /**
@@ -274,7 +280,7 @@
         dom.customThemeOptions.classList.toggle('is-visible', theme === 'custom');
       }
       applyThemeToRendition(theme);
-      if (save) EpubStorage.savePreferences({ theme });
+      if (save) _savePreferencesSafely({ theme });
     }
 
     // ── Custom Styles ─────────────────────────────────────────────────────────
@@ -544,14 +550,14 @@
           if (state.prefs.theme === 'custom') applyThemeToRendition('custom');
         });
         dom.customBgColor.addEventListener('change', (e) => {
-          EpubStorage.savePreferences({ customBg: e.target.value });
+          _savePreferencesSafely({ customBg: e.target.value });
         });
         dom.customTextColor.addEventListener('input', (e) => {
           state.prefs.customText = e.target.value;
           if (state.prefs.theme === 'custom') applyThemeToRendition('custom');
         });
         dom.customTextColor.addEventListener('change', (e) => {
-          EpubStorage.savePreferences({ customText: e.target.value });
+          _savePreferencesSafely({ customText: e.target.value });
         });
       }
     }
@@ -566,7 +572,7 @@
         _withCfiLock(() => updateCustomStyles(), persistence);
       });
       dom.fontSizeSlider.addEventListener('change', (e) => {
-        EpubStorage.savePreferences({ fontSize: parseInt(e.target.value) });
+        _savePreferencesSafely({ fontSize: parseInt(e.target.value) });
       });
 
       dom.lineHeightSlider?.addEventListener('input', (e) => {
@@ -576,13 +582,13 @@
         _withCfiLock(() => updateCustomStyles(), persistence);
       });
       dom.lineHeightSlider?.addEventListener('change', (e) => {
-        EpubStorage.savePreferences({ lineHeight: parseInt(e.target.value) / 10 });
+        _savePreferencesSafely({ lineHeight: parseInt(e.target.value) / 10 });
       });
 
       dom.fontFamilySelect?.addEventListener('change', (e) => {
         state.prefs.fontFamily = e.target.value;
         _withCfiLock(() => updateCustomStyles(), persistence);
-        EpubStorage.savePreferences({ fontFamily: e.target.value });
+        _savePreferencesSafely({ fontFamily: e.target.value });
       });
     }
 

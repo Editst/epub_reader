@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.8
+版本：v2.4.9
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -417,7 +417,7 @@ state.isResizing: boolean
 ```typescript
 // 共享工具函数 — 供 reader 模块与功能模块共同使用
 findTocItem(navigation: object[], href: string): object | null
-// 在 TOC navigation 中精确匹配当前 href，支持 3 级嵌套
+// 在 TOC navigation 中按路径边界精确匹配当前 href，忽略 fragment，支持 3 级嵌套
 
 buildPrefsSignature(prefs: object): string
 // 生成偏好设置签名字符串，用于 locator 布局变化检测
@@ -497,6 +497,8 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - 新书加载期间必须设置 `isBookLoaded=false`、`isLayoutStable=false`、`navLock=false`，直到首屏 `display()` 和恢复逻辑完成后再允许导航和计时写入。
 - `loadFileByBookId()` 应直接把缓存 `record.data` 交给 `openBook()`，由 `normalizeBookData()` 统一处理 `ArrayBuffer` / `Blob` / `TypedArray`，避免非零 offset 视图被扩展成完整 backing buffer。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- `setLayout()` 中销毁旧 rendition、创建/挂钩新 rendition、功能模块重绑或 `display()` 任一步失败，都必须释放 `isRestoringPosition`，避免后续真实阅读位置被长期抑制写入。
+- `setLayout()` 保存 layout 偏好失败时只记录告警，不得阻断当前布局切换，也不得产生未处理 Promise 拒绝。
 - 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
 - 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
 - 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
@@ -566,6 +568,7 @@ _isPositionMeaningfullyChanged(newCfi: string, oldCfi: string): boolean
 - `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
 - `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时调用 `flushPositionSave()` 兜底。
+- 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。
 ---
 
 ## ReaderUi（reader/reader-ui.js）
@@ -612,6 +615,7 @@ bindResize(rendition, state, persistence): void
 - persistence 层通过本层辅助函数委托 DOM 更新，不直接持有元素引用。
 - Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；若缓存失败，应显示加载错误，避免产生无法重新打开的书架记录。
 - `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
+- 主题、颜色、字号、行距和字体偏好保存失败时，只记录告警并保留当前 UI 更新，不得产生未处理 Promise 拒绝。
 
 ---
 
@@ -713,7 +717,7 @@ TOC.reset(): void
 
 ## Search（reader/search.js）
 
-IIFE 单例，暴露为 `const Search`。
+IIFE 单例，暴露为 `window.Search`。
 
 ```typescript
 Search.init(): void
@@ -814,6 +818,6 @@ Annotations.unmount(): void
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。
 
-**v2.4.0 IIFE 规范**：全部 11 个 reader 模块统一使用 `(function () { 'use strict'; ... window.XXX = XXX; })();` 封装，避免全局变量污染。功能模块（annotations、bookmarks、toc、search、highlights、image-viewer）与四层架构模块（reader-state、reader-runtime、reader-persistence、reader-ui）均遵循此规范。
+**v2.4.9 IIFE 规范**：全部 11 个 reader 模块统一使用 `(function () { 'use strict'; ... window.XXX = XXX; })();` 封装，避免全局变量污染。功能模块（annotations、bookmarks、toc、search、highlights、image-viewer）与四层架构模块（reader-state、reader-runtime、reader-persistence、reader-ui）均遵循此规范，公开契约测试会校验功能模块挂载到 `window.XXX`。
 
 **v2.4.8 生命周期约束**：功能模块 `init()` 必须按 document 幂等；同一 document 上重复调用不得重复注册按钮、键盘、遮罩或 window 级顶层监听。测试环境切换 document 时允许重新绑定新 DOM。

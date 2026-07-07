@@ -74,4 +74,21 @@ test.describe('ReaderState', () => {
     assert.equal(state.posTimer, null);
     assert.deepEqual(cleared, [['interval', 11], ['timeout', 22]]);
   });
+
+  test.it('findTocItem 按路径边界匹配章节，避免 ch1 误命中 ch10', () => {
+    const toc = [
+      { label: '第一章', href: 'ch1' },
+      { label: '第十章', href: 'text/ch10.xhtml' },
+      {
+        label: '附录',
+        href: 'appendix.xhtml',
+        subitems: [
+          { label: '附录 A', href: 'appendix/a.xhtml#top' }
+        ]
+      }
+    ];
+
+    assert.equal(ReaderState.findTocItem(toc, 'text/ch10.xhtml#p1').label, '第十章');
+    assert.equal(ReaderState.findTocItem(toc, 'OPS/appendix/a.xhtml#note').label, '附录 A');
+  });
 });

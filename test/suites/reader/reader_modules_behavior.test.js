@@ -11,7 +11,10 @@ function loadGlobalConst(filePath, constName) {
   if (global[constName]) return global[constName];
   const code = fs.readFileSync(filePath, 'utf8');
   global.window = global;
-  vm.runInThisContext(`${code}; global.${constName} = ${constName};`, { filename: filePath });
+  vm.runInThisContext(
+    `${code}; global.${constName} = (typeof ${constName} !== 'undefined' ? ${constName} : window.${constName});`,
+    { filename: filePath }
+  );
   return global[constName];
 }
 
@@ -20,7 +23,11 @@ function loadIsolatedConst(filePath, constName, context = {}) {
   const sandbox = { result: null, console, ...context };
   sandbox.window = sandbox.window || sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(`${code}; result = ${constName};`, sandbox, { filename: filePath });
+  vm.runInContext(
+    `${code}; result = (typeof ${constName} !== 'undefined' ? ${constName} : window.${constName});`,
+    sandbox,
+    { filename: filePath }
+  );
   return sandbox.result;
 }
 
@@ -583,6 +590,45 @@ test.describe('Reader 模块基础行为', () => {
     document.getElementById('btn-next').click();
 
     assert.deepEqual(calls, ['new-next', 'new-next']);
+  });
+
+  test.it('ReaderUi 偏好保存失败只记录告警且不阻断 UI 更新', async () => {
+    const { document } = createMockDocument(['custom-theme-options']);
+    const warnings = [];
+    const context = {
+      document,
+      window: {
+        focus() {},
+        addEventListener() {}
+      },
+      EpubStorage: {
+        async savePreferences() {
+          throw new Error('storage failed');
+        }
+      },
+      console: {
+        ...console,
+        warn(...args) { warnings.push(args); }
+      }
+    };
+    context.window.document = document;
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({
+      state: {
+        currentFileName: '',
+        prefs: {
+          theme: 'light',
+          customBg: '#ffffff',
+          customText: '#333333'
+        }
+      }
+    });
+
+    ui.applyTheme('dark');
+    await Promise.resolve();
+
+    assert.equal(document.documentElement.attrs['data-theme'], 'dark');
+    assert.match(String(warnings[0]?.[0] || ''), /save preferences failed/);
   });
 
   test.it('Reader 功能模块 init 重复调用不会叠加顶层监听', () => {

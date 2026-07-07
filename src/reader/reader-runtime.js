@@ -702,7 +702,9 @@
       if (!layout || !['paginated', 'scrolled'].includes(layout)) return;
       state.prefs.layout = layout;
       ui.syncPrefsToControls();
-      EpubStorage.savePreferences({ layout });
+      EpubStorage.savePreferences({ layout }).catch((e) => {
+        console.warn('[Runtime] save layout preference failed:', e);
+      });
 
       if (!state.book || !state.isBookLoaded) return;
 
@@ -710,21 +712,21 @@
       const currentCfi = loc && loc.start ? loc.start.cfi : null;
 
       state.isRestoringPosition = true;
-      state.rendition.destroy();
-      state.rendition = _createRendition(layout);
-
-      _hookRenditionEvents(state.rendition, state.prefs.theme);
-
-      if (typeof TOC !== 'undefined') TOC.build(state.book.navigation, state.rendition);
-      if (typeof Bookmarks !== 'undefined') {
-        Bookmarks.setBook(state.currentBookId, state.book, state.rendition);
-      }
-      if (typeof Search !== 'undefined') Search.setBook(state.book, state.rendition);
-      if (typeof Highlights !== 'undefined') {
-        Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
-      }
-
       try {
+        state.rendition.destroy();
+        state.rendition = _createRendition(layout);
+
+        _hookRenditionEvents(state.rendition, state.prefs.theme);
+
+        if (typeof TOC !== 'undefined') TOC.build(state.book.navigation, state.rendition);
+        if (typeof Bookmarks !== 'undefined') {
+          Bookmarks.setBook(state.currentBookId, state.book, state.rendition);
+        }
+        if (typeof Search !== 'undefined') Search.setBook(state.book, state.rendition);
+        if (typeof Highlights !== 'undefined') {
+          Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
+        }
+
         if (currentCfi) await state.rendition.display(currentCfi);
         else await state.rendition.display();
         // 布局切换完成，等待 relocated 事件处理完毕后解除保护

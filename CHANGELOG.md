@@ -8,6 +8,24 @@
 
 ---
 
+## [2.4.9] - 2026-07-07
+
+### refactor
+- **Search 模块导出一致化**：`search.js` 补齐外层 IIFE 与 `window.Search` 导出，和其他 Reader 功能模块保持同一公开契约，避免顶层 `const` 与文档/加载顺序约束漂移。
+- **Reader 脚本 cache-buster 对齐**：`reader.html` 中工具层、功能模块和四层架构脚本统一升级为 `?v=12`，与架构文档加载顺序示例保持一致。
+
+### fix
+- **章节标题匹配精确化**：`ReaderState.findTocItem()` 改为去除 fragment 后按路径边界匹配，避免 `ch10` 误命中短 href `ch1` 导致章节标题显示错误。
+- **布局偏好保存错误隔离**：`ReaderRuntime.setLayout()` 保存 layout 偏好失败时会记录告警但继续完成当前布局切换，避免产生未处理 Promise 拒绝。
+- **布局切换恢复锁异常释放**：`ReaderRuntime.setLayout()` 在销毁旧 rendition、重建、模块重绑或 display 任一步失败时都会释放 `isRestoringPosition`，避免后续阅读位置写入被长期抑制。
+- **Reader UI 偏好保存错误隔离**：主题、颜色、字号、行距和字体偏好保存失败时统一记录告警，不阻断当前 UI 更新，也避免未处理 Promise 拒绝。
+- **阅读持久化错误隔离**：位置保存和阅读时长保存失败时统一记录告警，不再让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入留下未处理 Promise 拒绝。
+
+### test
+- Reader 功能模块公开契约测试改为直接验证 `window.XXX` 导出，并新增统一导出断言；Reader 入口测试新增脚本 cache-buster 一致性检查；ReaderState 测试补充 TOC href 边界匹配回归；ReaderRuntime 测试覆盖 layout 偏好保存失败不阻断布局切换与重建失败释放恢复锁；ReaderUi 测试覆盖偏好保存失败不阻断主题更新；ReaderPersistence 测试覆盖位置与阅读时长保存失败隔离。
+
+---
+
 ## [2.4.8] - 2026-07-07
 
 ### refactor

@@ -41,6 +41,31 @@
       return EpubStorage.savePosition(bookId, cfi, percent);
     }
 
+    function _savePositionSafely(bookId, cfi, percent, locator) {
+      let write;
+      try {
+        write = _savePosition(bookId, cfi, percent, locator);
+      } catch (e) {
+        write = Promise.reject(e);
+      }
+      state.lastPositionSave = Promise.resolve(write).catch((e) => {
+        console.warn('[Persistence] save position failed:', e);
+      });
+      return state.lastPositionSave;
+    }
+
+    function _saveReadingTimeSafely(bookId, seconds) {
+      let write;
+      try {
+        write = EpubStorage.saveReadingTime(bookId, seconds);
+      } catch (e) {
+        write = Promise.reject(e);
+      }
+      return Promise.resolve(write).catch((e) => {
+        console.warn('[Persistence] save reading time failed:', e);
+      });
+    }
+
     /**
      * 比较新旧 CFI，判断位置是否发生了有意义的变化。
      * 字符串精确比较——CFI 不同就视为变化，保证不丢失用户的精确位置。
@@ -81,7 +106,7 @@
     }
 
     function schedulePositionSave(bookId, cfi, percent, locator) {
-      state.lastPositionSave = _savePosition(bookId, cfi, percent, locator);
+      _savePositionSafely(bookId, cfi, percent, locator);
       clearTimeout(state.posTimer);
       state.posTimer = setTimeout(() => {
         state.posTimer = null;
@@ -345,13 +370,12 @@
       state.posTimer = null;
       if (!hasPendingPositionSave) _refreshStablePositionFromRendition();
       if (state.currentBookId && state.currentStableCfi) {
-        state.lastPositionSave = _savePosition(
+        return _savePositionSafely(
           state.currentBookId,
           state.currentStableCfi,
           state.lastPercent,
           state.currentStableLocator
         );
-        return state.lastPositionSave;
       }
       return state.lastPositionSave || Promise.resolve();
     }
@@ -550,7 +574,7 @@
           state.activeReadingSeconds++;
           // 每 10s 写入 storage
           if (state.activeReadingSeconds % READING_TIME_FLUSH_INTERVAL_S === 0) {
-            EpubStorage.saveReadingTime(state.currentBookId, state.activeReadingSeconds);
+            _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
           }
           // 每 60s 刷新 ETA 展示
           if (state.activeReadingSeconds % READING_STATS_UPDATE_INTERVAL_S === 0) updateReadingStats();
@@ -565,7 +589,7 @@
       if (document.hidden) {
         if (state.currentBookId && state.isBookLoaded) {
           flushPositionSave();
-          EpubStorage.saveReadingTime(state.currentBookId, state.activeReadingSeconds);
+          _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
           flushSpeedSession(null);  // session 结束，不续期
         }
       } else {

@@ -354,6 +354,135 @@ test.describe('ReaderRuntime', () => {
     });
   });
 
+  test.it('setLayout 偏好保存失败不阻断布局切换且记录告警', async () => {
+    global.requestAnimationFrame = (fn) => fn();
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    const originalWarn = console.warn;
+    const warnings = [];
+    EpubStorage.savePreferences = async () => {
+      throw new Error('storage failed');
+    };
+    console.warn = (...args) => warnings.push(args);
+
+    let oldDestroyed = false;
+    const displayed = [];
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() {
+          return {
+            hooks: { content: { register() {} } },
+            themes: { default() {}, override() {} },
+            on() {},
+            async display(cfi) { displayed.push(cfi); },
+            currentLocation() {
+              return { start: { cfi: 'epubcfi(/6/4)', href: 'chapter.xhtml', index: 1 } };
+            },
+            getContents() { return []; }
+          };
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+        },
+        destroy() { oldDestroyed = true; }
+      },
+      currentBookId: 'book-layout-pref',
+      currentFileName: 'layout.epub',
+      isBookLoaded: true
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {},
+          injectCustomStyleElement() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {}
+        },
+        persistence: { onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await runtime.setLayout('scrolled');
+      await Promise.resolve();
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+      console.warn = originalWarn;
+    }
+
+    assert.equal(state.prefs.layout, 'scrolled');
+    assert.equal(oldDestroyed, true);
+    assert.deepEqual(displayed, ['epubcfi(/6/2)']);
+    assert.match(String(warnings[0]?.[0] || ''), /save layout preference failed/);
+  });
+
+  test.it('setLayout 重建失败时也会释放恢复保护锁', async () => {
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    EpubStorage.savePreferences = async () => {};
+
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() {
+          throw new Error('should not render');
+        }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+        },
+        destroy() {
+          throw new Error('destroy failed');
+        }
+      },
+      currentBookId: 'book-layout-fail',
+      currentFileName: 'layout.epub',
+      isBookLoaded: true,
+      isRestoringPosition: false
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {},
+          injectCustomStyleElement() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() {}
+        },
+        persistence: { onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await assert.rejects(() => runtime.setLayout('scrolled'), /destroy failed/);
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
+
+    assert.equal(state.isRestoringPosition, false);
+  });
+
   test.it('openBook 提取封面后会释放 Blob URL', async () => {
     const { document } = createMockDocument([
       'reader-main',

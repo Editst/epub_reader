@@ -215,6 +215,41 @@ test.describe('ReaderPersistence', () => {
     assert.equal(scheduled.size, 1);
   });
 
+  test.it('schedulePositionSave 位置保存失败只记录告警，不留下 rejected promise', async () => {
+    const state = {
+      posTimer: null,
+      lastPositionSave: null
+    };
+    const originalSavePosition = EpubStorage.savePosition;
+    const originalWarn = console.warn;
+    const originalSetTimeout = global.setTimeout;
+    const originalClearTimeout = global.clearTimeout;
+    const warnings = [];
+
+    EpubStorage.savePosition = async () => {
+      throw new Error('position failed');
+    };
+    console.warn = (...args) => warnings.push(args);
+    global.setTimeout = () => 1;
+    global.clearTimeout = () => {};
+
+    try {
+      const persistence = ReaderPersistence.createReaderPersistence({
+        state,
+        ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+      });
+      persistence.schedulePositionSave('book-fail-position', 'epubcfi(/6/2)', 12.3);
+      await state.lastPositionSave;
+    } finally {
+      EpubStorage.savePosition = originalSavePosition;
+      console.warn = originalWarn;
+      global.setTimeout = originalSetTimeout;
+      global.clearTimeout = originalClearTimeout;
+    }
+
+    assert.match(String(warnings[0]?.[0] || ''), /save position failed/);
+  });
+
   test.it('flushPositionSave 立即落盘 currentStableCfi 与 lastPercent', async () => {
     const state = {
       posTimer: 9,
@@ -971,6 +1006,53 @@ test.describe('ReaderPersistence', () => {
     assert.deepEqual(saveTimeCalls, [['book-4', 120]]);
     assert.equal(speedCalls.length, 1);
     assert.equal(state.sessionStart.progress, 0.5);
+  });
+
+  test.it('visibilitychange 阅读时长保存失败只记录告警', async () => {
+    const { document } = createMockDocument();
+    global.document = document;
+
+    const originalSavePosition = EpubStorage.savePosition;
+    const originalSaveReadingTime = EpubStorage.saveReadingTime;
+    const originalWarn = console.warn;
+    const warnings = [];
+
+    EpubStorage.savePosition = async () => {};
+    EpubStorage.saveReadingTime = async () => {
+      throw new Error('time failed');
+    };
+    console.warn = (...args) => warnings.push(args);
+
+    const state = {
+      readingTimer: null,
+      posTimer: null,
+      currentBookId: 'book-time-fail',
+      currentStableCfi: 'epubcfi(/6/8)',
+      lastPercent: 88.8,
+      activeReadingSeconds: 120,
+      sessionStart: null,
+      lastProgress: 0,
+      isBookLoaded: true
+    };
+
+    try {
+      const persistence = ReaderPersistence.createReaderPersistence({
+        state,
+        ui: { updateProgress() {}, updateReadingStats() {} }
+      });
+
+      persistence.mount();
+      document.hidden = true;
+      document.dispatchEvent('visibilitychange');
+      await Promise.resolve();
+      persistence.unmount();
+    } finally {
+      EpubStorage.savePosition = originalSavePosition;
+      EpubStorage.saveReadingTime = originalSaveReadingTime;
+      console.warn = originalWarn;
+    }
+
+    assert.match(String(warnings[0]?.[0] || ''), /save reading time failed/);
   });
 
   test.it('onRelocated 正常阅读时优先使用 relocated 事件位置，避免 currentLocation 旧值回滚', async () => {

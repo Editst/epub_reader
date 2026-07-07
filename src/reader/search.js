@@ -1,6 +1,9 @@
 /**
  * EPUB Reader - Search Module
  */
+(function () {
+  'use strict';
+
 const Search = (function() {
   let book = null;
   let rendition = null;
@@ -262,4 +265,7 @@ const Search = (function() {
   }
 
   return { init, setBook, togglePanel, closePanel, reset, mount, unmount, panel: () => panel };
+})();
+
+  window.Search = Search;
 })();
