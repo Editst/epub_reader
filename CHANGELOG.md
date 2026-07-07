@@ -8,6 +8,18 @@
 
 ---
 
+## [2.5.0] - 2026-07-07
+
+### fix
+- **跨文档脚注拓扑弱负向信号**：`Annotations._buildDocContext()` 现在基于 `contents.sectionIndex` 和 book spine 构建 href/index 映射；`isFootnoteLink()` 对跨文件目标位于当前 section 之前的链接，只压低 class/id 与 fragment 弱阳性，减少尾注区回链误拦截。
+- **跨文档相对 href 解析归口**：新增统一的 section href 规范化与相对路径解析辅助，`_loadFromBook()` 的相对 section 查找也复用同一路径，避免 `../` 场景解析漂移。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=21`，确保跨文档拓扑逻辑被加载。
+
+### test
+- Reader 模块行为测试新增 spine 索引上下文构建、跨文档目标前置压低弱阳性、目标在后方保留弱阳性、上标强信号保留回归；Reader 功能模块契约测试新增跨文档拓扑辅助、spine 索引和相对 href 解析静态约束。
+
+---
+
 ## [2.4.18] - 2026-07-07
 
 ### fix

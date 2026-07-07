@@ -4,6 +4,16 @@
 
 ---
 
+## [v2.5.0] - Annotations 跨文档拓扑弱负向信号
+
+- `_buildDocContext(doc, contents, book)` 会基于 `contents.sectionIndex` 和 book spine 构建当前 section 与 href/index 映射，单个 iframe 只扫描一次。
+- `isFootnoteLink()` 新增跨文档目标前置判断：当链接目标 section 位于当前 section 之前时，只压低 class/id 与 fragment 弱阳性，减少尾注区回链被误当作正文脚注引用。
+- 显式 `epub:type="noteref"` / role、真实 `<sup>` / CSS 上标和明确 footnote 容器仍可覆盖该弱负向信号。
+- section href 规范化与相对路径解析集中到辅助函数，`_loadFromBook()` 的相对 section 查找复用同一路径，降低 `../` 场景的分类/加载漂移。
+- 回归测试覆盖 spine 索引上下文构建、跨文档前置压低弱阳性、目标在后方保留弱阳性、上标强信号保留，并用静态契约锁住跨文档拓扑辅助函数。
+
+---
+
 ## [v2.4.18] - Annotations FB2 转换格式兼容
 
 - `_buildDocContext()` 将 Calibre/FB2 常见的 `body[name="notes"]` / `body[name="comments"]` 及其 `section` 纳入注释容器扫描。

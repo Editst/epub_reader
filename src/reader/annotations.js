@@ -144,6 +144,123 @@ function _isSameDocumentTargetBeforeSource(link, targetEl) {
   }
 }
 
+function _asSpineIndex(value) {
+  const index = Number(value);
+  return Number.isFinite(index) && index >= 0 ? index : -1;
+}
+
+function _normalizeSectionHref(href) {
+  return _parseHref(href).sectionHref
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/^(\.\/)+/, '');
+}
+
+function _sectionFilename(href) {
+  const sectionHref = _normalizeSectionHref(href);
+  const slashIndex = sectionHref.lastIndexOf('/');
+  return slashIndex >= 0 ? sectionHref.slice(slashIndex + 1) : sectionHref;
+}
+
+function _resolveRelativeSectionHref(baseHref, href) {
+  const rawTarget = _parseHref(href).sectionHref.replace(/\\/g, '/');
+  if (!rawTarget) return '';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(rawTarget)) return _normalizeSectionHref(rawTarget);
+  if (rawTarget.startsWith('/')) return _normalizeSectionHref(rawTarget);
+
+  const base = _normalizeSectionHref(baseHref);
+  if (!base) return _normalizeSectionHref(rawTarget);
+
+  const parts = base.split('/');
+  parts.pop();
+  rawTarget.split('/').forEach((part) => {
+    if (!part || part === '.') return;
+    if (part === '..') {
+      parts.pop();
+      return;
+    }
+    parts.push(part);
+  });
+  return parts.join('/');
+}
+
+function _lookupSpineIndex(ctx, sectionHref) {
+  if (!ctx || !sectionHref) return -1;
+
+  const directHref = _normalizeSectionHref(sectionHref);
+  let index = _asSpineIndex(ctx.spineIndexesByHref?.get(directHref));
+  if (index >= 0) return index;
+
+  const relativeHref = _resolveRelativeSectionHref(ctx.currentSpineHref, sectionHref);
+  index = _asSpineIndex(ctx.spineIndexesByHref?.get(relativeHref));
+  if (index >= 0) return index;
+
+  const filename = _sectionFilename(sectionHref);
+  return _asSpineIndex(ctx.spineIndexesByFilename?.get(filename));
+}
+
+function _isCrossDocumentTargetBeforeSource(ctx, sectionHref) {
+  const currentIndex = _asSpineIndex(ctx?.currentSpineIndex);
+  if (!sectionHref || currentIndex < 0) return false;
+  const targetIndex = _lookupSpineIndex(ctx, sectionHref);
+  return targetIndex >= 0 && targetIndex < currentIndex;
+}
+
+function _readContentsSectionIndex(contents) {
+  return _asSpineIndex(
+    contents?.sectionIndex ??
+    contents?.section?.index ??
+    contents?.index
+  );
+}
+
+function _readContentsSectionHref(contents) {
+  return _normalizeSectionHref(
+    contents?.section?.href ??
+    contents?.href ??
+    contents?.location?.href ??
+    ''
+  );
+}
+
+function _indexSpineContext(ctx, book, contents) {
+  ctx.currentSpineIndex = _readContentsSectionIndex(contents);
+  ctx.currentSpineHref = _readContentsSectionHref(contents);
+
+  const spine = book?.spine;
+  if (!spine || typeof spine.get !== 'function') return;
+
+  const length = Number(spine.length);
+  if (!Number.isFinite(length) || length <= 0) return;
+
+  for (let i = 0; i < length; i++) {
+    const section = spine.get(i);
+    const href = _normalizeSectionHref(section?.href);
+    if (!href) continue;
+
+    const index = _asSpineIndex(section?.index);
+    const sectionIndex = index >= 0 ? index : i;
+    ctx.spineIndexesByHref.set(href, sectionIndex);
+
+    const filename = _sectionFilename(href);
+    if (filename) {
+      const previous = ctx.spineIndexesByFilename.get(filename);
+      ctx.spineIndexesByFilename.set(
+        filename,
+        previous === undefined || previous === sectionIndex ? sectionIndex : -1
+      );
+    }
+
+    if (sectionIndex === ctx.currentSpineIndex && !ctx.currentSpineHref) {
+      ctx.currentSpineHref = href;
+    }
+  }
+
+  if (ctx.currentSpineIndex < 0 && ctx.currentSpineHref) {
+    ctx.currentSpineIndex = _lookupSpineIndex(ctx, ctx.currentSpineHref);
+  }
+}
+
 function _escapeHtmlText(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -427,9 +544,10 @@ const Annotations = {
    * Subsequent per-link checks use O(1) WeakSet lookups instead of DOM queries.
    *
    * @param  {Document} doc
+   * @param  {Contents} contents
    * @returns {DocContext}
    */
-  _buildDocContext(doc) {
+  _buildDocContext(doc, contents, book = this.book) {
     const ctx = {
       doc,
       isGlobalTocDoc       : false,   // whole spine item is a nav/TOC file
@@ -438,9 +556,14 @@ const Annotations = {
       hasTocLinks          : false,
       footnoteSectionNodes : new WeakSet(),  // links inside epub:type footnote sections
       hasFootnoteSections  : false,
+      currentSpineIndex    : -1,
+      currentSpineHref     : '',
+      spineIndexesByHref   : new Map(),
+      spineIndexesByFilename: new Map(),
     };
 
     if (!doc?.body) return ctx;
+    _indexSpineContext(ctx, book, contents);
 
     ctx.isGlobalTocDoc =
       !!doc.querySelector('nav[epub\\:type~="toc"], nav[epub\\:type~="landmarks"]') ||
@@ -599,12 +722,15 @@ const Annotations = {
     if (_RE.noteSemanticPos.test(epubType) || _RE.noteSemanticPos.test(role)) return true;
 
     // Stage 2: Text / class / fragment heuristics ─────────────────────────────
-    const cls      = link.className || '';
-    const fragment = _parseHref(href).fragmentId;
+    const cls        = link.className || '';
+    const parsedHref = _parseHref(href);
+    const fragment   = parsedHref.fragmentId;
     const sameDocTarget = href.startsWith('#') && ctx.doc
       ? this._findTarget(ctx.doc, fragment)
       : null;
-    const isTargetBeforeSource = _isSameDocumentTargetBeforeSource(link, sameDocTarget);
+    const isTargetBeforeSource =
+      _isSameDocumentTargetBeforeSource(link, sameDocTarget) ||
+      _isCrossDocumentTargetBeforeSource(ctx, parsedHref.sectionHref);
 
     // Definitive NO
     if (_RE.navCls.test(cls))                                            return false;
@@ -843,10 +969,7 @@ const Annotations = {
         if (!section && activeRendition) {
           try {
             const cur    = activeRendition.currentLocation()?.start?.href || '';
-            const curDir = cur.substring(0, cur.lastIndexOf('/') + 1);
-            section      = activeBook.spine.get(
-              curDir + sectionHref.replace(/^(\.\.\/)+/, '')
-            );
+            section      = activeBook.spine.get(_resolveRelativeSectionHref(cur, sectionHref));
           } catch (_) {}
         }
 
@@ -1043,7 +1166,7 @@ const Annotations = {
     _hookedContentDocuments.add(doc);
 
     // Phase 0 ────────────────────────────────────────────────────────────────
-    const ctx = this._buildDocContext(doc);
+    const ctx = this._buildDocContext(doc, contents, context.book);
     if (ctx.isGlobalTocDoc) return;
 
     // Inject per-iframe styles ───────────────────────────────────────────────

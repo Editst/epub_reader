@@ -608,6 +608,149 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(Annotations.isFootnoteLink(link, ctx), true);
   });
 
+  test.it('Annotations 从 contents.sectionIndex 构建 spine 索引上下文', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const sections = [
+      { index: 0, href: 'text/chapter1.xhtml' },
+      { index: 1, href: 'text/chapter2.xhtml' },
+      { index: 2, href: 'notes.xhtml' }
+    ];
+    const doc = {
+      body: { id: '', className: '' },
+      querySelector() { return null; },
+      querySelectorAll() { return []; }
+    };
+    const book = {
+      spine: {
+        length: sections.length,
+        get(index) { return sections[index]; }
+      }
+    };
+
+    const ctx = Annotations._buildDocContext(doc, { sectionIndex: 1 }, book);
+
+    assert.equal(ctx.currentSpineIndex, 1);
+    assert.equal(ctx.currentSpineHref, 'text/chapter2.xhtml');
+    assert.equal(ctx.spineIndexesByHref.get('notes.xhtml'), 2);
+  });
+
+  test.it('Annotations 跨文档目标位于当前 section 之前时压低 class/fragment 弱阳性', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const link = {
+      textContent: 'note',
+      className: 'note-ref',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: {
+        defaultView: {
+          getComputedStyle() {
+            return { verticalAlign: 'baseline' };
+          }
+        }
+      },
+      getAttribute(name) {
+        if (name === 'href') return '../chapter.xhtml#note42';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null,
+      currentSpineIndex: 2,
+      currentSpineHref: 'text/endnotes.xhtml',
+      spineIndexesByHref: new Map([
+        ['chapter.xhtml', 0],
+        ['text/endnotes.xhtml', 2]
+      ]),
+      spineIndexesByFilename: new Map()
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), false);
+  });
+
+  test.it('Annotations 跨文档目标在当前 section 之后时保留 fragment 弱阳性', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const link = {
+      textContent: 'note',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: null,
+      getAttribute(name) {
+        if (name === 'href') return 'notes.xhtml#note42';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null,
+      currentSpineIndex: 1,
+      currentSpineHref: 'chapter.xhtml',
+      spineIndexesByHref: new Map([
+        ['chapter.xhtml', 1],
+        ['notes.xhtml', 3]
+      ]),
+      spineIndexesByFilename: new Map()
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
+  test.it('Annotations 跨文档目标前置不否决上标强信号', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const link = {
+      textContent: 'note',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SUP', textContent: 'note' },
+      firstElementChild: null,
+      ownerDocument: null,
+      getAttribute(name) {
+        if (name === 'href') return 'chapter.xhtml#note42';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null,
+      currentSpineIndex: 2,
+      currentSpineHref: 'notes.xhtml',
+      spineIndexesByHref: new Map([
+        ['chapter.xhtml', 0],
+        ['notes.xhtml', 2]
+      ]),
+      spineIndexesByFilename: new Map()
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
   test.it('Annotations 将 FB2 notes body 内链接纳入注释区排除', () => {
     const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
     const noteBackLink = {

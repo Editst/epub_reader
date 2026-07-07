@@ -1,11 +1,12 @@
 # EPUB Reader — 项目路线图
 
-> 最后更新：2026-07-07（v2.4.18）
+> 最后更新：2026-07-07（v2.5.0）
 
 ---
 
 ## 当前状态
 
+- **v2.5.0 已完成**（2026-07-07）：Annotations 跨文档拓扑——基于 `contents.sectionIndex` 与 book spine href 索引判断跨文件目标是否位于当前 section 之前；该信号只压低 class/fragment 弱阳性，显式语义、上标与明确 footnote 容器强信号保持有效。
 - **v2.4.18 已完成**（2026-07-07）：Annotations FB2 转换格式兼容——识别 `body[name="notes"]` / `body[name="comments"]` 注释容器，注释区内回链排除，正文链接指向该容器时可识别为脚注。
 - **v2.4.17 已完成**（2026-07-07）：Annotations 同文档拓扑弱负向信号——同文档目标位于源链接之前时压低 class/fragment 弱阳性，但不否决显式 noteref、上标或 footnote 容器强信号。
 - **v2.4.16 已完成**（2026-07-07）：Annotations 四位年份误判收敛——纯数字脚注 marker 收窄到 1-3 位，`1984`/`2023` 等正文年份链接不再被 note-like fragment 误判；显式 `epub:type="noteref"` 仍可覆盖。
@@ -27,7 +28,7 @@
 - **v2.3.2 已完成**（2026-06-24）：位置恢复跳页修复——移除页校正导航、isLayoutStable 门控、resize 防抖。
 - **v2.3.1 已完成**（2026-06-24）：iframe hook 幂等性 + 生命周期收敛。
 - **v2.3.0 已完成**（2026-06-24）：阅读位置恢复重写（start.cfi + displayed-page locator）。
-- **下一步**：继续 Annotations 算法深度对齐 + 代码质量专项，版本号按实际发布节奏另行确定。
+- **下一步**：继续全局质量巡检，优先评估阅读体验增强与大文件性能候选项。
 
 ---
 
@@ -35,6 +36,7 @@
 
 | 版本 | 主题 | 关键交付 |
 |------|------|---------|
+| v2.5.0 | Annotations 跨文档拓扑 | spine href/index 映射、跨文件目标前置弱负向信号、相对 href 解析归口 |
 | v2.4.18 | Annotations FB2 兼容 | notes/comments body 容器识别、注释区回链排除、目标容器强信号 |
 | v2.4.17 | Annotations 同文档拓扑 | 目标前置弱负向信号、class/fragment 弱阳性压低、强信号保留 |
 | v2.4.16 | Annotations 数字 marker 收敛 | 四位年份误判排除、`epub:type=noteref` 白名单、数字 marker 1-3 位约束 |
@@ -76,7 +78,7 @@
 
 #### 算法专项（AN-1 ～ AN-5）
 
-> v2.4.14 已完成 AN-1、AN-2 与 AN-4；v2.4.15 已完成 AN-5；v2.4.16 已完成 AN-7；v2.4.17 已完成 AN-3a；v2.4.18 已完成 AN-6 基础容器识别；后续保留跨文档 spine 拓扑。
+> v2.4.14 已完成 AN-1、AN-2 与 AN-4；v2.4.15 已完成 AN-5；v2.4.16 已完成 AN-7；v2.4.17 已完成 AN-3a；v2.4.18 已完成 AN-6 基础容器识别；v2.5.0 已完成 AN-3b。
 
 **AN-1: computedStyle 垂直对齐检测（D-2026-11）**
 - 目标：补全 CSS `vertical-align: super` 替代 `<sup>` 标签的漏判场景。
@@ -145,17 +147,18 @@
 - 缓存命中：同文档第二次点击 P90 < 15ms（手动验证）。
 - AN-C1～C8 全部重构完成，无回归。
 
-### v2.5.0 — Annotations 跨文档拓扑与 FB2 兼容（计划 3～4 工作日）
+### v2.5.0 — Annotations 跨文档拓扑与 FB2 兼容（已完成）
 
 > v2.4.0 的延伸，处理更复杂的跨文档场景与历史格式兼容。
 
-- [ ] **AN-3b**：spine index 跨文档位置比对（AN-3 Step B），提升跨文件返回链接的识别精度。
+- [x] **AN-3b**：spine index 跨文档位置比对（AN-3 Step B）。`_buildDocContext()` 基于 `contents.sectionIndex` 和 book spine 构建 href/index 映射；跨文件目标位于当前 section 之前时只压低 class/id 与 fragment 弱阳性，强语义和上标信号不被否决。（v2.5.0）
 - [x] **AN-6**：FB2 转换格式兼容（对应 Calibre 掩码 0x0008）。识别 `body[name="notes"]` / `body[name="comments"]` 下的 `section` 结构，将其链接视为注释容器高置信度；在 `_buildDocContext` 中扫描并加入 `footnoteSectionNodes`。（v2.4.18 基础容器识别已落地）
 - [x] **AN-7**：数字标记上限收窄至 3 位（过滤年份误判），白名单保留 `epub:type="noteref"` 覆盖 4 位数字场景。（v2.4.16）
 
 **验收标准**：
 - FB2 转换书籍（测试集 5 本）注释识别率 ≥ 90%。
 - 正文中 "1984"、"2023" 等年份数字链接误判率 = 0（v2.4.16 已用回归测试覆盖基础链路）。
+- 跨文档目标前置弱负向、目标后置保留弱阳性、上标强信号保留、spine 索引上下文构建已用自动回归覆盖。
 
 ### v2.6.0 — 阅读体验增强（待评估）
 
@@ -210,8 +213,6 @@ Binary 走 IndexedDB，轻量 Metadata 走 Chrome Storage (10MB 限额)。
 
 ## 技术债务索引（仅活跃项）
 
-| 优先级 | ID | 描述 | 目标版本 | 状态 |
-|---|---|---|---|---|
-| 🔵 P3 | D-2026-26 | 跨文档 spine index 位置比对未完成 | v2.5.0 | 📋 已规划 |
+当前无活跃项。
 
-> 已修复的历史债务（D-2026-01～D-2026-25）全部清零，详见 git 历史。
+> 已修复的历史债务（D-2026-01～D-2026-26）全部清零，详见 git 历史。

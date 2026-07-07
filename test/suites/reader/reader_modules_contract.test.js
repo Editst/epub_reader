@@ -136,12 +136,18 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.match(src, /function _parseHref\(href\)/, 'href 片段解析应集中到 _parseHref');
     assert.match(src, /function _isFourDigitNumberMarker\(text\)/, '四位数字 marker 应集中判断并排除年份误判');
     assert.match(src, /function _isSameDocumentTargetBeforeSource\(link, targetEl\)/, '同文档目标前置判断应集中到辅助函数');
+    assert.match(src, /function _isCrossDocumentTargetBeforeSource\(ctx, sectionHref\)/, '跨文档 spine 前置判断应集中到辅助函数');
+    assert.match(src, /function _resolveRelativeSectionHref\(baseHref, href\)/, '跨文档相对 href 解析应集中处理');
+    assert.match(src, /function _indexSpineContext\(ctx, book, contents\)/, 'spine href 索引应在文档上下文阶段一次性构建');
     assert.match(src, /function _collectAfterEmptyAnchor\(anchor\)/, '空锚点内容收集应集中到辅助函数');
+    assert.match(src, /currentSpineIndex\s+:\s+-1/, 'DocContext 应携带当前 spine index');
+    assert.match(src, /spineIndexesByHref\s+:\s+new Map\(\)/, 'DocContext 应携带 href 到 spine index 的映射');
     assert.match(src, /_clearSectionCache\(\)/, '切书和卸载应复用注释缓存清理方法');
     assert.match(src, /_getCachedSectionDocument\(cacheKey\)/, '缓存读取应集中并刷新 LRU 顺序');
     assert.match(src, /_rememberSectionDocument\(cacheKey, loaded\)/, '缓存写入应集中并执行容量淘汰');
     assert.match(src, /_loadSectionDocument\(section, activeLoad, cacheKey, cancelToken, context\)/, 'section 加载应统一经过缓存辅助');
     assert.match(src, /while \(this\._sectionDocCache\.size > _FOOTNOTE_SECTION_CACHE_LIMIT\)/, '跨文档注释缓存应执行 LRU 容量淘汰');
+    assert.match(src, /_isCrossDocumentTargetBeforeSource\(ctx, parsedHref\.sectionHref\)/, '跨文档目标前置只能作为分类弱负向信号');
     assert.match(src, /!isTargetBeforeSource && _RE\.noteFragPos\.test\(fragment\)/, '目标在源前时只能压低 class/fragment 弱阳性');
     assert.ok(src.includes('(\\d{1,3}|'), '纯数字脚注 marker 应限制为 1-3 位');
     assert.ok(!src.includes('(\\d{1,4}|'), '不得重新把四位年份纳入纯数字脚注 marker');
