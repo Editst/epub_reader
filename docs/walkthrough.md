@@ -4,6 +4,27 @@
 
 ---
 
+## [v2.4.14] - Annotations 技术债收敛
+
+- `isFootnoteLink()` 补充 CSS `vertical-align: super/sub/top/bottom` 检测，覆盖不用真实 `<sup>`、只靠 computed style 表示脚注引用的 EPUB。
+- 新增源节点孤立性检查：长链接文本若占父块文本 80% 以上，会被视为目录/导航式链接，避免扁平段落中 `notes.xhtml#note1` 一类长链接误触发脚注弹窗。
+- `_extractContent()` 加入 2000 字安全阀；空锚点尾注会沿后续 sibling 收集正文，并在 `<hr>`、标题或下一个带 id/name 的锚点处停止，避免把整章内容塞进弹窗。
+- `annotations.js` 提取 `_hasSup()` 统一 `closest('sup')` / `querySelector('sup')` 判断，避免 `isBackLink()` 与 `isFootnoteLink()` 重复维护。
+- href 片段解析集中到 `_parseHref()`，清理散落的 `split('#')`；跨章节注释加载复用 `activeBook.load` 绑定函数，避免扫描 spine 时反复 `.bind()`。
+- `_BLOCK_TAGS`、`_PAGINATION_SETTLE_MS` 与 TOC 阈值提升为模块级常量；脚注 last-resort 提示改用 `.annotation-fallback-hint`，不再在 JS 中拼接 inline style。
+- 新增静态回归约束，防止上述技术债重新散落。
+
+---
+
+## [v2.4.13] - Reader 异步上下文隔离
+
+- `reader-runtime.js` 对旧 `rendition` 的迟到 `relocated`、`displayed`、iframe 用户事件与旧 `display()` wrapper 增加当前上下文校验，切书或布局重建后不得再写入当前书位置、抢焦点或解除恢复保护。
+- `search.js` 在 `setBook()` 时取消旧搜索、恢复按钮并先清理旧 `rendition` 高亮；增量搜索结果携带 `searchId` 守卫，旧任务慢返回或旧结果点击都不能污染新书。
+- `annotations.js` 与 `image-viewer.js` 为 hook、iframe 点击、异步脚注加载和弹窗跳转捕获发起时的 `book/rendition` 上下文，旧 iframe 事件不再影响新书。
+- 设计确认：用户主动 `removeBook()` 是全量级联删除；自动 `enforceFileLRU()` 只删除 IndexedDB `files` 中的 EPUB 文件缓存，必须保留 `recentBooks`、`bookMeta`、封面、locations、高亮和书签，方便重新导入同一书籍后恢复进度与标注。
+
+---
+
 ## [v2.4.6] - 重开定位无快速翻页
 
 - 用户提供《九故事》EPUB 后重新从真实链路验证：65.3% 位置保存正确，`pos.cfi = epubcfi(/6/22!/4/168/1:0)`，`locator.restoreCfi = epubcfi(/6/22!/4/172/1:45)`。
@@ -208,7 +229,7 @@
 - **重试退避机制**：为 `DbGateway` 引入指数退避重试（500/1000/2000ms），并在连续 3 次失败后熔断，防止重试风暴。
 
 ### 4. 健壮性保障
-- **LRU 全链路级联清理**：修正 `enforceFileLRU` 仅删文件缺陷，现已实现「文件 -> 封面 -> 元数据」的全链路级联驱逐，根除僵尸条目。
+- **LRU 设计更正**：早期曾尝试把 `enforceFileLRU` 做成「文件 -> 封面 -> 元数据」级联驱逐；后续已明确废弃该方向。当前设计中，自动 LRU 只释放 IndexedDB `files` 中的 EPUB 文件缓存，主动删除才执行全量级联清理。
 - **显式资源回收**：改由 `card.dataset` 持有 `ObjectURL` 引用，删除书籍时主动执行 `revoke`，不再依赖加载事件触发。
 - **去中心化索引**：废弃 `highlightKeys` 风险索引，改由权威 `recentBooks` 列表遍历读取，确保标注面板 100% 数据一致性。
 

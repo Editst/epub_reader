@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.4.13-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.4.14-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -77,6 +77,9 @@
 - **ReaderRuntime 旧事件隔离（v2.4.13）**：切书或布局重建后，旧 rendition 的迟到 `relocated/displayed`、iframe 用户事件和旧 `display()` 调用不会写入当前书位置、抢焦点或解除恢复锚点保护。
 - **异步刷新代次隔离（v2.4.12）**：首页书架/标注刷新与 Reader 书签、高亮加载会忽略过期请求，旧书、旧页或旧筛选结果返回后不会覆盖新 UI，也不会把旧书书签/高亮保存或渲染到新书记录；书签和高亮加载/保存失败只记录告警，不留下未处理拒绝。
 - **搜索切书生命周期隔离（v2.4.13）**：切换书籍会取消旧搜索任务并先清理旧 rendition 上的搜索高亮；旧搜索慢返回不会把结果追加到新书面板，旧结果项也不能再驱动新书跳转。
+- **脚注模块技术债收敛（v2.4.14）**：脚注 `sup` 判断、href 解析、块标签集合和分页补偿等待时间均集中为模块级辅助函数/常量；fallback 提示改用 CSS class，减少重复和 inline style 漂移。
+- **脚注识别算法补强（v2.4.14）**：支持 `vertical-align: super/sub/top/bottom` 上标式脚注引用，并排除父段落中占比过高的孤立长链接，降低扁平 TOC 误判。
+- **脚注内容安全阀（v2.4.14）**：空锚点尾注会沿后续 sibling 收集到明确边界，超长注释正文会在 2000 字处截断并提示跳转原文，避免整章误入弹窗。
 - **脚注切书上下文隔离（v2.4.13）**：EPUB 脚注点击、异步加载和弹窗跳转捕获发起时的 book/rendition；旧 iframe 或旧脚注慢返回不会污染新书。
 - **图片查看切书上下文隔离（v2.4.13）**：EPUB iframe 图片点击捕获当前 rendition；切书或布局重建后，旧 iframe 图片点击不会打开当前书籍页面的图片查看器。
 - **进度值归一化（v2.4.8）**：书架与弹窗展示阅读进度前会把 storage 值裁剪到 0–100，避免损坏数据影响文本或 CSS 进度条。

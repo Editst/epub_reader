@@ -8,6 +8,24 @@
 
 ---
 
+## [2.4.14] - 2026-07-07
+
+### refactor
+- **Annotations 低风险技术债收敛**：`annotations.js` 集中提取 `_hasSup()`、`_parseHref()`、`_BLOCK_TAGS` 与 `_PAGINATION_SETTLE_MS`，消除重复 `sup` 查询、散落的 `href.split('#')`、局部块标签数组和分页补偿魔法数字。
+- **Annotations fallback 样式归口**：脚注 last-resort 提示改用 `.annotation-fallback-hint` CSS class，不再在模块里拼接 inline style 字符串。
+- **Annotations 加载路径微收敛**：跨章节注释加载复用同一个 `activeBook.load` 绑定函数，避免 brute-force 扫描时反复 `.bind()`。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=16`，确保 Annotations 重构被加载。
+
+### fix
+- **CSS 上标脚注识别**：`isFootnoteLink()` 在便宜的字符串/DOM gate 之后补充 `computedStyle.verticalAlign` 检测，能识别使用 `vertical-align: super/sub/top/bottom` 而非真实 `<sup>` 的脚注引用。
+- **扁平目录长链接排除**：`isFootnoteLink()` 新增源节点孤立性检查；当长链接文本占父块文本 80% 以上时视为导航/目录式链接，即使 fragment 命中 `note*` 形态也不弹注释，降低 TOC 误判。
+- **注释内容安全阀**：`_extractContent()` 新增 2000 字文本上限，超长内容会截断并追加“内容过长”提示；空锚点脚注会沿 `nextSibling` 收集正文，并在 `<hr>`、标题或下一个带 id/name 的锚点处停止，避免弹窗吞入整章内容。
+
+### test
+- Reader 功能模块契约测试新增 Annotations 技术债收敛静态约束，覆盖模块级常量、`_hasSup()`、`_parseHref()`、fallback CSS class、禁止散落 `split('#')` 与分页补偿魔法数字；Reader 模块行为测试新增 CSS `vertical-align` 上标识别、扁平段落孤立长链接排除、空锚点 sibling 收集边界和超长内容截断回归。
+
+---
+
 ## [2.4.13] - 2026-07-07
 
 ### fix

@@ -86,9 +86,132 @@ const _FN_STYLE_CSS = `
     border-bottom: 1px dotted currentColor !important;
   }
 `;
+const _BLOCK_TAGS = new Set(['p', 'div', 'li', 'aside', 'section', 'blockquote']);
+const _PAGINATION_SETTLE_MS = 100;
+const _TOC_MIN_ITEMS = 3;
+const _TOC_LINK_TEXT_MIN_LENGTH = 10;
+const _TOC_LONG_LINK_RATIO = 0.6;
+const _ISOLATED_LINK_MIN_LENGTH = 6;
+const _ISOLATED_LINK_PARENT_RATIO = 0.8;
+const _SUPLIKE_VERTICAL_ALIGN_VALUES = new Set(['super', 'sub', 'top', 'bottom']);
+const _MAX_FOOTNOTE_TEXT = 2000;
+const _FOOTNOTE_TRUNCATION_HINT = '… [内容过长，请点击原文]';
+const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set(['hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
 const _hookedRenditions = new WeakSet();
 const _hookedContentDocuments = new WeakSet();
+
+function _hasSup(link) {
+  if (!link) return false;
+  const hasAncestor = typeof link.closest === 'function' && link.closest('sup') !== null;
+  const hasDescendant = typeof link.querySelector === 'function' && link.querySelector('sup') !== null;
+  return hasAncestor || hasDescendant;
+}
+
+function _parseHref(href) {
+  const raw = String(href || '');
+  const hashIndex = raw.indexOf('#');
+  if (hashIndex < 0) return { sectionHref: raw, fragmentId: '' };
+  return {
+    sectionHref: raw.slice(0, hashIndex),
+    fragmentId: raw.slice(hashIndex + 1)
+  };
+}
+
+function _normalizeInlineText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function _escapeHtmlText(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function _stripHtmlToText(html) {
+  return _normalizeInlineText(String(html || '').replace(/<[^>]+>/g, ' '));
+}
+
+function _nodeText(node) {
+  return String(node?.textContent ?? node?.nodeValue ?? '');
+}
+
+function _serializeNode(node) {
+  if (!node) return '';
+  if (node.nodeType === 3) return _escapeHtmlText(node.nodeValue ?? node.textContent ?? '');
+  if (typeof node.outerHTML === 'string') return node.outerHTML;
+  try {
+    if (typeof XMLSerializer !== 'undefined') {
+      return new XMLSerializer().serializeToString(node);
+    }
+  } catch (_) {}
+  return _escapeHtmlText(_nodeText(node));
+}
+
+function _limitFootnoteHtml(html, plainText) {
+  const text = _normalizeInlineText(plainText || _stripHtmlToText(html));
+  if (text.length <= _MAX_FOOTNOTE_TEXT) return html;
+  return `<p>${_escapeHtmlText(text.slice(0, _MAX_FOOTNOTE_TEXT))}${_FOOTNOTE_TRUNCATION_HINT}</p>`;
+}
+
+function _isEmptyAnchorBoundary(node) {
+  if (!node || node.nodeType === 3) return false;
+  const tag = node.tagName?.toLowerCase();
+  if (_EMPTY_ANCHOR_BOUNDARY_TAGS.has(tag)) return true;
+  if (tag !== 'a') return false;
+  return !!(
+    node.id ||
+    node.name ||
+    node.getAttribute?.('id') ||
+    node.getAttribute?.('name')
+  );
+}
+
+function _collectAfterEmptyAnchor(anchor) {
+  if (!anchor || _normalizeInlineText(anchor.textContent).length > 0) return '';
+  let html = '';
+  let text = '';
+  let node = anchor.nextSibling;
+
+  while (node) {
+    if (_isEmptyAnchorBoundary(node)) break;
+    html += _serializeNode(node);
+    text += ' ' + _nodeText(node);
+    if (_normalizeInlineText(text).length > _MAX_FOOTNOTE_TEXT) break;
+    node = node.nextSibling;
+  }
+
+  return html ? _limitFootnoteHtml(html, text) : '';
+}
+
+function _readVerticalAlign(el) {
+  if (!el) return '';
+  const view = el.ownerDocument?.defaultView;
+  const getter = view?.getComputedStyle ||
+    (typeof window !== 'undefined' ? window.getComputedStyle : null);
+  if (typeof getter !== 'function') return '';
+  try {
+    return String(getter.call(view || window, el)?.verticalAlign || '').toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+function _hasSupLikeStyle(link) {
+  return _SUPLIKE_VERTICAL_ALIGN_VALUES.has(_readVerticalAlign(link)) ||
+    _SUPLIKE_VERTICAL_ALIGN_VALUES.has(_readVerticalAlign(link?.firstElementChild));
+}
+
+function _isIsolatedSourceLink(link, text) {
+  const linkText = _normalizeInlineText(text);
+  if (linkText.length <= _ISOLATED_LINK_MIN_LENGTH) return false;
+  const block = link.closest?.('p, li, div, dd, td') || link.parentElement;
+  const blockText = _normalizeInlineText(block?.textContent);
+  return !!blockText && (linkText.length / blockText.length) >= _ISOLATED_LINK_PARENT_RATIO;
+}
 
 function _isUnsafeUrl(value) {
   return String(value || '')
@@ -299,19 +422,20 @@ const Annotations = {
 
   /**
    * Heuristic: does this list look like a Table of Contents?
+   * Thresholds follow the Calibre/KOReader-style "many long chapter links"
+   * navigation-list signal and are evaluated once per list, never per link.
    * A list qualifies when >= 60% of its direct <li> children contain an <a>
    * whose text is longer than 10 characters (chapter/section titles).
-   * Called once per list, never per link.
    */
   _isTocList(listEl) {
     const items = listEl.querySelectorAll(':scope > li');
-    if (items.length < 3) return false;
+    if (items.length < _TOC_MIN_ITEMS) return false;
     let longLinked = 0;
     for (let i = 0; i < items.length; i++) {
       const a = items[i].querySelector('a');
-      if (a && a.textContent.trim().length > 10) longLinked++;
+      if (a && a.textContent.trim().length > _TOC_LINK_TEXT_MIN_LENGTH) longLinked++;
     }
-    return (longLinked / items.length) >= 0.6;
+    return (longLinked / items.length) >= _TOC_LONG_LINK_RATIO;
   },
 
   // ── Phase 1: Back-link detection (cheapest signals first) ──────────────────
@@ -367,8 +491,7 @@ const Annotations = {
     //   <a>2</a> mid-paragraph  fails (c)
     //   <a>2</a> alone in block fails (d)
     if (_RE.noteTextMarker.test(text)) {
-      const hasSup = link.closest('sup') !== null || link.querySelector('sup') !== null;
-      if (!hasSup) {
+      if (!_hasSup(link)) {
         const block = link.closest('p, li, div, dd, td') || link.parentElement;
         if (block) {
           const blockText = block.textContent.trim();
@@ -414,13 +537,14 @@ const Annotations = {
 
     // Stage 2: Text / class / fragment heuristics ─────────────────────────────
     const cls      = link.className || '';
-    const fragment = href.split('#')[1] || '';
+    const fragment = _parseHref(href).fragmentId;
 
     // Definitive NO
     if (_RE.navCls.test(cls))                                            return false;
     if (text.length > 6 && _RE.chapterText.test(text))                  return false;
     if (_RE.structFragNeg.test(fragment))                                return false;
     if (ctx.hasFootnoteSections && ctx.footnoteSectionNodes.has(link))   return false;
+    if (_isIsolatedSourceLink(link, text))                                return false;
 
     // Numeric/symbol marker — needs extra back-link guard.
     //
@@ -429,8 +553,7 @@ const Annotations = {
     // We reject it here regardless of block length — it is safer to miss a
     // rare in-text numeric ref than to intercept a back-link navigation.
     if (_RE.noteTextMarker.test(text)) {
-      const hasSup = link.closest('sup') !== null || link.querySelector('sup') !== null;
-      if (!hasSup) {
+      if (!_hasSup(link)) {
         const block = link.closest('p, li, div, dd, td') || link.parentElement;
         if (block && block.textContent.trim().startsWith(text)) return false;
       }
@@ -446,10 +569,14 @@ const Annotations = {
 
     // <sup> is the strongest single structural signal for a forward reference
     if (link.parentElement?.tagName === 'SUP') return true;
-    if (link.querySelector('sup') !== null)     return true;
+    if (_hasSup(link))                          return true;
 
     // <nav> containment — guarded to skip closest() when document has no navs
     if (ctx.hasNavBlocks && link.closest('nav')) return false;
+
+    // Some EPUBs style note references as vertical-align: super instead of
+    // using a literal <sup>. Read computed style only after cheap gates pass.
+    if (_hasSupLikeStyle(link)) return true;
 
     // Target element analysis — same-document only, single getElementById call
     if (href.startsWith('#') && ctx.doc) {
@@ -485,27 +612,27 @@ const Annotations = {
       let targetId    = '';
       let sectionHref = '';
       let displayHref = href;
+      const parsedHref = _parseHref(href);
 
-      if (href.startsWith('#')) {
+      if (!parsedHref.sectionHref && parsedHref.fragmentId) {
         // Same-document fragment
-        targetId = href.substring(1);
+        targetId = parsedHref.fragmentId;
         const target = this._findTarget(contents.document, targetId);
         if (!this._isCurrentContext(context)) return false;
         if (target) {
           try        { displayHref = contents.cfiFromNode(target); }
           catch (_)  {
             try {
-              const cur = context.rendition.currentLocation().start.href.split('#')[0];
+              const cur = _parseHref(context.rendition.currentLocation().start.href).sectionHref;
               displayHref = `${cur}#${targetId}`;
             } catch (_) {}
           }
           this._displayContent(this._extractContent(target), displayHref || href, context);
           return true;
         }
-      } else if (href.includes('#')) {
-        [sectionHref, targetId] = href.split('#');
       } else {
-        sectionHref = href;
+        sectionHref = parsedHref.sectionHref;
+        targetId = parsedHref.fragmentId;
       }
 
       if (cancelToken?.cancelled) return false;
@@ -530,7 +657,7 @@ const Annotations = {
         } catch (_) {}
       }
       this._displayContent(
-        '<p style="color:var(--text-muted,#888);text-align:center;padding:8px 0;">点击下方链接查看注释内容</p>',
+        '<p class="annotation-fallback-hint">点击下方链接查看注释内容</p>',
         resolvedHref,
         context
       );
@@ -579,7 +706,11 @@ const Annotations = {
   _extractContent(el) {
     if (!el) return '';
     const tag = el.tagName?.toLowerCase();
-    const BLOCK = ['p', 'div', 'li', 'aside', 'section', 'blockquote'];
+
+    if (tag === 'a') {
+      const siblingContent = _collectAfterEmptyAnchor(el);
+      if (siblingContent) return siblingContent;
+    }
 
     if (tag === 'a' || tag === 'sup' || tag === 'sub' ||
         (el.textContent || '').trim().length < 5) {
@@ -588,18 +719,24 @@ const Annotations = {
       while (p) {
         const t = p.tagName?.toLowerCase();
         if (!t || t === 'body' || t === 'html' || p.nodeType === 9) break;
-        if (BLOCK.includes(t)) break;
+        if (_BLOCK_TAGS.has(t)) break;
         p = p.parentElement || p.parentNode;
       }
 
       if (p) {
         const t = p.tagName?.toLowerCase();
-        if (t && BLOCK.includes(t))
-          return p.innerHTML || new XMLSerializer().serializeToString(p);
+        if (t && _BLOCK_TAGS.has(t))
+          return _limitFootnoteHtml(
+            p.innerHTML || new XMLSerializer().serializeToString(p),
+            p.textContent
+          );
       }
     }
 
-    return el.innerHTML || new XMLSerializer().serializeToString(el);
+    return _limitFootnoteHtml(
+      el.innerHTML || new XMLSerializer().serializeToString(el),
+      el.textContent
+    );
   },
 
   /**
@@ -623,6 +760,7 @@ const Annotations = {
     if (!this._isCurrentContext(context) || !context.book) return null;
     const activeBook = context.book;
     const activeRendition = context.rendition;
+    const activeLoad = typeof activeBook.load === 'function' ? activeBook.load.bind(activeBook) : undefined;
     try {
       let section = null;
 
@@ -643,7 +781,7 @@ const Annotations = {
 
         // Method 3
         if (!section) {
-          const filename = sectionHref.split('/').pop().split('#')[0];
+          const filename = _parseHref(sectionHref).sectionHref.split('/').pop();
           for (let i = 0; i < activeBook.spine.length; i++) {
             const s = activeBook.spine.get(i);
             if (s?.href?.split('/').pop() === filename) { section = s; break; }
@@ -652,7 +790,7 @@ const Annotations = {
       }
 
       if (section) {
-        const loaded = await section.load(activeBook.load.bind(activeBook));
+        const loaded = await section.load(activeLoad);
         if (cancelToken?.cancelled) { section.unload(); return null; }
         if (!this._isCurrentContext(context)) { section.unload(); return null; }
 
@@ -667,7 +805,10 @@ const Annotations = {
 
         const bodyEl = loaded.querySelector?.('body');
         const html   = bodyEl
-          ? (bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl))
+          ? _limitFootnoteHtml(
+              bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl),
+              bodyEl.textContent
+            )
           : '';
         section.unload();
         if (html) return { html, href: section.href };
@@ -681,7 +822,7 @@ const Annotations = {
           const s = activeBook.spine.get(i);
           if (!s) continue;
           try {
-            const loaded = await s.load(activeBook.load.bind(activeBook));
+            const loaded = await s.load(activeLoad);
             if (cancelToken?.cancelled) { s.unload(); return null; }
             if (!this._isCurrentContext(context)) { s.unload(); return null; }
             const el = this._findTarget(loaded, targetId);
@@ -731,7 +872,7 @@ const Annotations = {
         await this._compensatePaginationOffset(href, context);
       } catch (_) {
         try {
-          const base = href.split('#')[0];
+          const base = _parseHref(href).sectionHref;
           if (base && base !== href) {
             await context.rendition.display(base);
             await this._compensatePaginationOffset(href, context);
@@ -754,10 +895,10 @@ const Annotations = {
    * @param {string} href
    */
   async _compensatePaginationOffset(href, context = this._currentContext()) {
-    const fragment = href.includes('#') ? href.split('#').pop() : null;
+    const fragment = _parseHref(href).fragmentId;
     if (!fragment || !this._isCurrentContext(context) || !context.rendition) return;
 
-    await new Promise(r => setTimeout(r, 100));   // let epub.js finish painting
+    await new Promise(r => setTimeout(r, _PAGINATION_SETTLE_MS));
     if (!this._isCurrentContext(context)) return;
 
     try {

@@ -118,4 +118,22 @@ test.describe('Reader 功能模块公开契约', () => {
       assert.equal(typeof context.window[exportName], 'object', `${exportName} 应挂载到 window.${exportName}`);
     }
   });
+
+  test.it('Annotations 技术债收敛约束', () => {
+    const src = fs.readFileSync('src/reader/annotations.js', 'utf8');
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+
+    assert.match(src, /const _BLOCK_TAGS = new Set/, '_BLOCK_TAGS 应为模块级 Set');
+    assert.match(src, /const _PAGINATION_SETTLE_MS = 100/, '分页补偿等待时间应提取为具名常量');
+    assert.match(src, /const _MAX_FOOTNOTE_TEXT = 2000/, '注释内容安全阀应保持模块级常量');
+    assert.match(src, /const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set/, '空锚点收集边界应保持模块级 Set');
+    assert.match(src, /function _hasSup\(link\)/, 'sup 判断应集中到 _hasSup');
+    assert.match(src, /function _parseHref\(href\)/, 'href 片段解析应集中到 _parseHref');
+    assert.match(src, /function _collectAfterEmptyAnchor\(anchor\)/, '空锚点内容收集应集中到辅助函数');
+    assert.equal((src.match(/split\('#'\)/g) || []).length, 0, '不得在 _parseHref 外散落 split("#")');
+    assert.ok(!src.includes('<p style='), '注释 fallback 提示不得使用 inline style');
+    assert.ok(!src.includes('setTimeout(r, 100)'), '不得直接散落分页补偿魔法数字');
+    assert.ok(src.includes('annotation-fallback-hint'), 'fallback 提示应使用 CSS class');
+    assert.ok(css.includes('.annotation-fallback-hint'), 'reader.css 应定义 fallback 提示样式');
+  });
 });

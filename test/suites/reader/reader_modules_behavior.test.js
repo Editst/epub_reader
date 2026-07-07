@@ -362,6 +362,136 @@ test.describe('Reader 模块基础行为', () => {
     assert.match(html, /src="#"/);
   });
 
+  test.it('Annotations 可识别 CSS vertical-align 上标脚注链接', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const ownerDocument = {
+      defaultView: {
+        getComputedStyle(el) {
+          return { verticalAlign: el === link ? 'super' : 'baseline' };
+        }
+      }
+    };
+    const link = {
+      textContent: 'a',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN' },
+      firstElementChild: null,
+      ownerDocument,
+      getAttribute(name) {
+        if (name === 'href') return 'notes.xhtml#target';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
+  test.it('Annotations 排除扁平段落中的孤立长链接', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const parent = { tagName: 'P', textContent: 'Long Appendix Notes' };
+    const link = {
+      textContent: 'Long Appendix Notes',
+      className: '',
+      id: '',
+      parentElement: parent,
+      firstElementChild: null,
+      ownerDocument: {
+        defaultView: {
+          getComputedStyle() {
+            return { verticalAlign: 'baseline' };
+          }
+        }
+      },
+      getAttribute(name) {
+        if (name === 'href') return 'notes.xhtml#note1';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest(selector) {
+        if (selector === 'sup' || selector === 'nav') return null;
+        if (selector === 'p, li, div, dd, td') return parent;
+        return null;
+      },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), false);
+  });
+
+  test.it('Annotations 空锚点注释沿后续 sibling 收集且遇边界停止', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const boundary = {
+      nodeType: 1,
+      tagName: 'HR',
+      textContent: '',
+      outerHTML: '<hr>'
+    };
+    const inlineNode = {
+      nodeType: 1,
+      tagName: 'SPAN',
+      textContent: '第二句',
+      outerHTML: '<span>第二句</span>',
+      nextSibling: boundary
+    };
+    const textNode = {
+      nodeType: 3,
+      nodeValue: '第一句',
+      textContent: '第一句',
+      nextSibling: inlineNode
+    };
+    const anchor = {
+      nodeType: 1,
+      tagName: 'A',
+      textContent: '',
+      innerHTML: '',
+      nextSibling: textNode,
+      parentElement: { tagName: 'BODY' }
+    };
+
+    const html = Annotations._extractContent(anchor);
+
+    assert.equal(html, '第一句<span>第二句</span>');
+    assert.doesNotMatch(html, /<hr>/);
+  });
+
+  test.it('Annotations 超长注释内容会截断并追加提示', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const longText = '注'.repeat(2050);
+    const el = {
+      nodeType: 1,
+      tagName: 'DIV',
+      textContent: longText,
+      innerHTML: `<p>${longText}</p>`
+    };
+
+    const html = Annotations._extractContent(el);
+
+    assert.equal((html.match(/注/g) || []).length, 2000);
+    assert.match(html, /内容过长，请点击原文/);
+  });
+
   test.it('Annotations 切书后旧脚注异步加载结果不会显示到新书', async () => {
     const { document } = createMockDocument([
       'annotation-overlay',

@@ -25,6 +25,7 @@
 - Module-level magic numbers should be extracted as named constants at the top of the IIFE.
 - Shared helpers between `openBook` and `setLayout` live in `reader-runtime.js` as private functions (`_createRendition`, `_hookRenditionEvents`).
 - Shared utilities between reader modules live in `reader-state.js` (`findTocItem`, `buildPrefsSignature`).
+- In `annotations.js`, keep sup detection in `_hasSup()`, href fragment parsing in `_parseHref()`, block tags/timing thresholds as module-level constants, and fallback hint styling in `.annotation-fallback-hint`; do not reintroduce scattered `split('#')` parsing or inline fallback styles. CSS `vertical-align: super/sub/top/bottom` is a footnote signal only after cheap gates pass, isolated long links that dominate their parent block must remain excluded to avoid flat TOC false positives, and `_extractContent()` must keep the 2000-character safety valve plus empty-anchor sibling boundary scan.
 
 ## Critical Loading Order
 - In `reader.html`: libraries first (`jszip`, `epub`), then utils (`db-gateway`, `utils`, `storage`), then feature modules, then `reader-state`, `reader-ui`, `reader-persistence`, `reader-runtime`, and finally `reader.js`.

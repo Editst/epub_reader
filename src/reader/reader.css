@@ -1005,6 +1005,12 @@ html, body {
   margin-bottom: 0;
 }
 
+.annotation-fallback-hint {
+  color: var(--text-muted, #888);
+  text-align: center;
+  padding: 8px 0;
+}
+
 /* --- Drag & Drop Overlay --- */
 .drag-overlay.hidden {
   display: none;
