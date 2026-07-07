@@ -132,9 +132,10 @@ function _sanitizePopupHtml(html) {
 // ── Click handler factory ─────────────────────────────────────────────────────
 // One function instance per section load, shared across all footnote links.
 // Links are identified by their data attribute — zero false positives.
-function _makeDocCaptureHandler(mod, contents, cancelToken) {
+function _makeDocCaptureHandler(mod, contents, cancelToken, context) {
   return function _epubFnCaptureHandler(e) {
     if (cancelToken.cancelled) return;
+    if (!mod._isCurrentContext(context)) return;
 
     // e.target may be <sup> or other child inside the <a> — walk up
     const link = e.target.closest('a');
@@ -148,7 +149,7 @@ function _makeDocCaptureHandler(mod, contents, cancelToken) {
     e.stopPropagation();
     e.stopImmediatePropagation();
 
-    mod.showFootnote(href, contents, cancelToken);
+    mod.showFootnote(href, contents, cancelToken, context);
   };
 }
 
@@ -162,6 +163,7 @@ const Annotations = {
   book     : null,
   rendition: null,
   _boundDocument: null,
+  _contextSeq: 0,
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -195,15 +197,38 @@ const Annotations = {
   },
 
   unmount() {
+    this._contextSeq++;
     this.book = null;
     this.rendition = null;
+    this.close();
     if (this._onKeyDown) {
       document.removeEventListener('keydown', this._onKeyDown);
       this._isKeyDownBound = false;
     }
   },
 
-  setBook(book) { this.book = book; },
+  setBook(book) {
+    if (this.book !== book) {
+      this._contextSeq++;
+      this.close();
+    }
+    this.book = book;
+  },
+
+  _currentContext() {
+    return {
+      seq: this._contextSeq,
+      book: this.book,
+      rendition: this.rendition
+    };
+  },
+
+  _isCurrentContext(context) {
+    return !!context &&
+      context.seq === this._contextSeq &&
+      context.book === this.book &&
+      context.rendition === this.rendition;
+  },
 
   _bindGlobalEvents() {
     if (!this._onKeyDown || this._isKeyDownBound) return;
@@ -454,7 +479,8 @@ const Annotations = {
    * @param {object}   cancelToken  -- { cancelled: boolean }
    * @returns {Promise<boolean>}
    */
-  async showFootnote(href, contents, cancelToken) {
+  async showFootnote(href, contents, cancelToken, context = this._currentContext()) {
+    if (!this._isCurrentContext(context)) return false;
     try {
       let targetId    = '';
       let sectionHref = '';
@@ -464,15 +490,16 @@ const Annotations = {
         // Same-document fragment
         targetId = href.substring(1);
         const target = this._findTarget(contents.document, targetId);
+        if (!this._isCurrentContext(context)) return false;
         if (target) {
           try        { displayHref = contents.cfiFromNode(target); }
           catch (_)  {
             try {
-              const cur = this.rendition.currentLocation().start.href.split('#')[0];
+              const cur = context.rendition.currentLocation().start.href.split('#')[0];
               displayHref = `${cur}#${targetId}`;
             } catch (_) {}
           }
-          this._displayContent(this._extractContent(target), displayHref || href);
+          this._displayContent(this._extractContent(target), displayHref || href, context);
           return true;
         }
       } else if (href.includes('#')) {
@@ -483,27 +510,29 @@ const Annotations = {
 
       if (cancelToken?.cancelled) return false;
 
-      const result = await this._loadFromBook(sectionHref, targetId, cancelToken);
+      const result = await this._loadFromBook(sectionHref, targetId, cancelToken, context);
       if (cancelToken?.cancelled) return false;
+      if (!this._isCurrentContext(context)) return false;
 
       if (result?.html) {
         displayHref = targetId ? `${result.href}#${targetId}` : result.href;
-        this._displayContent(result.html, displayHref);
+        this._displayContent(result.html, displayHref, context);
         return true;
       }
 
       // Last resort: popup with only the navigation link
       let resolvedHref = href;
-      if (this.rendition) {
+      if (context.rendition) {
         try {
-          const cur    = this.rendition.currentLocation()?.start?.href || '';
+          const cur    = context.rendition.currentLocation()?.start?.href || '';
           const curDir = cur.substring(0, cur.lastIndexOf('/') + 1);
           resolvedHref = curDir + href.replace(/^(\.\.\/)+/, '');
         } catch (_) {}
       }
       this._displayContent(
         '<p style="color:var(--text-muted,#888);text-align:center;padding:8px 0;">点击下方链接查看注释内容</p>',
-        resolvedHref
+        resolvedHref,
+        context
       );
       return true;
 
@@ -590,21 +619,23 @@ const Annotations = {
    * @param  {object} cancelToken
    * @returns {Promise<{html:string, href:string}|null>}
    */
-  async _loadFromBook(sectionHref, targetId, cancelToken) {
-    if (!this.book) return null;
+  async _loadFromBook(sectionHref, targetId, cancelToken, context = this._currentContext()) {
+    if (!this._isCurrentContext(context) || !context.book) return null;
+    const activeBook = context.book;
+    const activeRendition = context.rendition;
     try {
       let section = null;
 
       if (sectionHref) {
         // Method 1
-        section = this.book.spine.get(sectionHref);
+        section = activeBook.spine.get(sectionHref);
 
         // Method 2
-        if (!section && this.rendition) {
+        if (!section && activeRendition) {
           try {
-            const cur    = this.rendition.currentLocation()?.start?.href || '';
+            const cur    = activeRendition.currentLocation()?.start?.href || '';
             const curDir = cur.substring(0, cur.lastIndexOf('/') + 1);
-            section      = this.book.spine.get(
+            section      = activeBook.spine.get(
               curDir + sectionHref.replace(/^(\.\.\/)+/, '')
             );
           } catch (_) {}
@@ -613,16 +644,17 @@ const Annotations = {
         // Method 3
         if (!section) {
           const filename = sectionHref.split('/').pop().split('#')[0];
-          for (let i = 0; i < this.book.spine.length; i++) {
-            const s = this.book.spine.get(i);
+          for (let i = 0; i < activeBook.spine.length; i++) {
+            const s = activeBook.spine.get(i);
             if (s?.href?.split('/').pop() === filename) { section = s; break; }
           }
         }
       }
 
       if (section) {
-        const loaded = await section.load(this.book.load.bind(this.book));
+        const loaded = await section.load(activeBook.load.bind(activeBook));
         if (cancelToken?.cancelled) { section.unload(); return null; }
+        if (!this._isCurrentContext(context)) { section.unload(); return null; }
 
         if (targetId) {
           const el = this._findTarget(loaded, targetId);
@@ -643,13 +675,15 @@ const Annotations = {
 
       // Method 4: brute-force
       if (targetId) {
-        for (let i = 0; i < this.book.spine.length; i++) {
+        for (let i = 0; i < activeBook.spine.length; i++) {
           if (cancelToken?.cancelled) return null;
-          const s = this.book.spine.get(i);
+          if (!this._isCurrentContext(context)) return null;
+          const s = activeBook.spine.get(i);
           if (!s) continue;
           try {
-            const loaded = await s.load(this.book.load.bind(this.book));
+            const loaded = await s.load(activeBook.load.bind(activeBook));
             if (cancelToken?.cancelled) { s.unload(); return null; }
+            if (!this._isCurrentContext(context)) { s.unload(); return null; }
             const el = this._findTarget(loaded, targetId);
             if (el) {
               const html = this._extractContent(el);
@@ -674,7 +708,8 @@ const Annotations = {
    * @param {string} html  -- footnote body HTML
    * @param {string} href  -- navigation target (CFI or path#fragment)
    */
-  _displayContent(html, href) {
+  _displayContent(html, href, context = this._currentContext()) {
+    if (!this._isCurrentContext(context)) return;
     // EPUB 注释内容来自书籍包内，进入宿主扩展页前必须逐属性清洗。
     this.body.innerHTML = _sanitizePopupHtml(html);
 
@@ -688,17 +723,18 @@ const Annotations = {
     anchor.textContent = '跳转到注释位置 →';
     anchor.addEventListener('click', async (e) => {
       e.preventDefault();
+      if (!this._isCurrentContext(context)) return;
       this.close();
-      if (!this.rendition || !href) return;
+      if (!context.rendition || !href) return;
       try {
-        await this.rendition.display(href);
-        await this._compensatePaginationOffset(href);
+        await context.rendition.display(href);
+        await this._compensatePaginationOffset(href, context);
       } catch (_) {
         try {
           const base = href.split('#')[0];
           if (base && base !== href) {
-            await this.rendition.display(base);
-            await this._compensatePaginationOffset(href);
+            await context.rendition.display(base);
+            await this._compensatePaginationOffset(href, context);
           }
         } catch (__) { console.warn('Annotation: navigate failed', href); }
       }
@@ -717,25 +753,26 @@ const Annotations = {
    *
    * @param {string} href
    */
-  async _compensatePaginationOffset(href) {
+  async _compensatePaginationOffset(href, context = this._currentContext()) {
     const fragment = href.includes('#') ? href.split('#').pop() : null;
-    if (!fragment || !this.rendition) return;
+    if (!fragment || !this._isCurrentContext(context) || !context.rendition) return;
 
     await new Promise(r => setTimeout(r, 100));   // let epub.js finish painting
+    if (!this._isCurrentContext(context)) return;
 
     try {
-      const contents = this.rendition.getContents?.()?.[0];
+      const contents = context.rendition.getContents?.()?.[0];
       if (!contents?.document) return;
       if (!this._findTarget(contents.document, fragment)) {
-        await this.rendition.next?.();
+        await context.rendition.next?.();
       }
     } catch (_) {}
   },
 
   close() {
-    this.overlay.classList.remove('is-visible');
-    this.popup.classList.remove('is-visible');
-    this.body.innerHTML        = '';
+    this.overlay?.classList.remove('is-visible');
+    this.popup?.classList.remove('is-visible');
+    if (this.body) this.body.innerHTML = '';
   },
 
   // ── Rendition hook ─────────────────────────────────────────────────────────
@@ -747,20 +784,26 @@ const Annotations = {
    * @param {Rendition} rendition
    */
   hookRendition(rendition) {
+    if (this.rendition !== rendition) {
+      this._contextSeq++;
+      this.close();
+    }
     this.rendition = rendition;
     if (!rendition) return;
+    const context = this._currentContext();
 
     if (!_hookedRenditions.has(rendition)) {
       _hookedRenditions.add(rendition);
-      rendition.hooks.content.register((contents) => this._hookContents(contents));
+      rendition.hooks.content.register((contents) => this._hookContents(contents, context));
     }
 
     if (typeof rendition.getContents === 'function') {
-      rendition.getContents().forEach((contents) => this._hookContents(contents));
+      rendition.getContents().forEach((contents) => this._hookContents(contents, context));
     }
   },
 
-  _hookContents(contents) {
+  _hookContents(contents, context = this._currentContext()) {
+    if (!this._isCurrentContext(context)) return;
     const doc = contents && contents.document;
     if (!doc ||
         typeof doc.addEventListener !== 'function' ||
@@ -788,7 +831,7 @@ const Annotations = {
     // Document-level capture handler ─────────────────────────────────────────
     // Capture phase fires before any element-level listener, and before
     // epub.js's own document-level delegation.
-    const docCaptureHandler = _makeDocCaptureHandler(this, contents, cancelToken);
+    const docCaptureHandler = _makeDocCaptureHandler(this, contents, cancelToken, context);
     doc.addEventListener('click', docCaptureHandler, true);
 
     // Stamp footnote reference links ─────────────────────────────────────────

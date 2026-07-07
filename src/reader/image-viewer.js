@@ -23,6 +23,8 @@
   hookedRenditions: new WeakSet(),
   hookedDocuments: new WeakSet(),
   _boundDocument: null,
+  _contextSeq: 0,
+  _rendition: null,
 
   init() {
     this.overlay = document.getElementById('image-viewer');
@@ -121,9 +123,24 @@
   },
 
   unmount() {
+    this._contextSeq++;
+    this._rendition = null;
     this.close();
     this.hookedRenditions = new WeakSet();
     this.hookedDocuments = new WeakSet();
+  },
+
+  _currentContext() {
+    return {
+      seq: this._contextSeq,
+      rendition: this._rendition
+    };
+  },
+
+  _isCurrentContext(context) {
+    return !!context &&
+      context.seq === this._contextSeq &&
+      context.rendition === this._rendition;
   },
 
   /**
@@ -132,17 +149,23 @@
    */
   hookRendition(rendition) {
     if (!rendition) return;
+    if (this._rendition !== rendition) {
+      this._contextSeq++;
+      this._rendition = rendition;
+    }
+    const context = this._currentContext();
     if (!this.hookedRenditions.has(rendition)) {
       this.hookedRenditions.add(rendition);
-      rendition.hooks.content.register((contents) => this.bindContentImages(contents));
+      rendition.hooks.content.register((contents) => this.bindContentImages(contents, context));
     }
 
     if (typeof rendition.getContents === 'function') {
-      rendition.getContents().forEach((contents) => this.bindContentImages(contents));
+      rendition.getContents().forEach((contents) => this.bindContentImages(contents, context));
     }
   },
 
-  bindContentImages(contents) {
+  bindContentImages(contents, context = this._currentContext()) {
+    if (!this._isCurrentContext(context)) return;
     const doc = contents && contents.document;
     if (!doc || this.hookedDocuments.has(doc)) return;
     this.hookedDocuments.add(doc);
@@ -152,6 +175,7 @@
     images.forEach((img) => {
       img.classList.add('image-viewer-zoomable');
       img.addEventListener('click', (e) => {
+        if (!this._isCurrentContext(context)) return;
         e.preventDefault();
         e.stopPropagation();
 

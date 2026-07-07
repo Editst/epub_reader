@@ -8,6 +8,22 @@
 
 ---
 
+## [2.4.13] - 2026-07-07
+
+### fix
+- **ReaderRuntime 旧 rendition 事件隔离**：`relocated`、`displayed`、iframe 用户意图事件和 `display()` wrapper 均校验触发者是否仍是当前 `state.rendition`；切书或布局重建后，旧 `rendition` 的迟到事件不会写入当前书位置、抢焦点或解除恢复锚点保护。
+- **Search 切书生命周期隔离**：`Search.setBook()` 现在会先取消进行中的搜索、恢复搜索按钮，并在替换新 `rendition` 前清理旧书搜索高亮，避免搜索标记残留在旧 iframe 或误清到新书。
+- **Search 旧任务结果防回写**：搜索增量渲染携带 `searchId` 守卫，旧书搜索慢返回后不会把结果追加到新书面板；旧搜索结果项也不会在切书后驱动新书跳转。
+- **Search 章节资源收口**：章节 `load()` 成功后统一在 `finally` 中 `unload()`，即使 `find()` 抛错或切书中断也会释放章节资源。
+- **Annotations 切书上下文隔离**：脚注 hook、点击处理、异步内容加载和弹窗跳转均捕获发起时的 `book/rendition` 上下文；切书或布局重建后，旧 iframe 点击和旧脚注慢返回不会显示到新书，也不会驱动新 `rendition` 跳转。
+- **ImageViewer 切书上下文隔离**：图片 hook 和 iframe 图片点击捕获当前 `rendition` 上下文；切书或布局重建后，旧 iframe 的图片点击不会再打开当前书籍页面的图片查看器。
+- **入口脚本缓存刷新**：Reader 本地脚本 cache-buster 升级为 `?v=15`，确保 Search 生命周期修复被加载。
+
+### test
+- ReaderRuntime 测试新增旧 `rendition` 迟到事件隔离回归；Reader 模块行为测试新增 Search、Annotations 与 ImageViewer 切书竞态回归，覆盖旧搜索慢返回不回写新书结果、切书时必须清理旧 `rendition` 上的搜索高亮、旧脚注异步加载结果不得显示到新书，以及旧 iframe 图片点击不得打开新书页面的图片查看器。
+
+---
+
 ## [2.4.12] - 2026-07-07
 
 ### fix

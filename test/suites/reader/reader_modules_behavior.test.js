@@ -112,6 +112,142 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(document.getElementById('btn-do-search').disabled, false);
   });
 
+  test.it('Search 切书后旧搜索结果不会回写新书', async () => {
+    const { document } = createMockDocument([
+      'search-panel',
+      'sidebar-overlay',
+      'search-input',
+      'btn-do-search',
+      'search-results-list',
+      'search-status',
+      'btn-search',
+      'btn-search-close',
+      'sidebar',
+      'bookmarks-panel'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      setTimeout(fn) {
+        fn();
+        return 1;
+      }
+    });
+
+    let resolveOldLoad;
+    const oldItem = {
+      async load() {
+        await new Promise((resolve) => { resolveOldLoad = resolve; });
+      },
+      find() {
+        return [{ cfi: 'old-cfi', excerpt: '旧书关键词' }];
+      },
+      unload() {}
+    };
+    const oldBook = {
+      load() {},
+      spine: {
+        length: 1,
+        get() { return oldItem; }
+      }
+    };
+    const newBook = {
+      load() {},
+      spine: {
+        length: 0,
+        get() { return null; }
+      }
+    };
+
+    Search.init();
+    Search.setBook(oldBook, { annotations: { remove() {}, highlight() {} }, display() {} });
+    document.getElementById('search-input').value = '关键词';
+    document.getElementById('btn-do-search').click();
+    await Promise.resolve();
+
+    assert.equal(document.getElementById('btn-do-search').disabled, true);
+    assert.equal(typeof resolveOldLoad, 'function');
+
+    Search.setBook(newBook, { annotations: { remove() {}, highlight() {} }, display() {} });
+    resolveOldLoad();
+    await Promise.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(document.getElementById('btn-do-search').disabled, false);
+    assert.equal(document.getElementById('search-results-list').children.length, 0);
+    assert.equal(document.getElementById('search-status').textContent, '');
+  });
+
+  test.it('Search 切书时清理旧 rendition 上的搜索高亮', async () => {
+    const { document } = createMockDocument([
+      'search-panel',
+      'sidebar-overlay',
+      'search-input',
+      'btn-do-search',
+      'search-results-list',
+      'search-status',
+      'btn-search',
+      'btn-search-close',
+      'sidebar',
+      'bookmarks-panel'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      setTimeout(fn) {
+        fn();
+        return 1;
+      }
+    });
+    const removed = [];
+    const oldRendition = {
+      annotations: {
+        highlight() {},
+        remove(cfi, type) {
+          removed.push({ owner: 'old', cfi, type });
+        }
+      },
+      display() {}
+    };
+    const newRendition = {
+      annotations: {
+        highlight() {},
+        remove(cfi, type) {
+          removed.push({ owner: 'new', cfi, type });
+        }
+      },
+      display() {}
+    };
+    const oldBook = {
+      load() {},
+      spine: {
+        length: 1,
+        get() {
+          return {
+            async load() {},
+            find() {
+              return [{ cfi: 'old-cfi', excerpt: '旧书关键词' }];
+            },
+            unload() {}
+          };
+        }
+      }
+    };
+
+    Search.init();
+    Search.setBook(oldBook, oldRendition);
+    document.getElementById('search-input').value = '关键词';
+    document.getElementById('btn-do-search').click();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const resultItem = document.getElementById('search-results-list').children[0];
+    assert.ok(resultItem);
+    resultItem.click();
+
+    Search.setBook({ load() {}, spine: { length: 0, get() { return null; } } }, newRendition);
+
+    assert.deepEqual(removed, [{ owner: 'old', cfi: 'old-cfi', type: 'highlight' }]);
+  });
+
   test.it('Annotations 切书后仍可用 Escape 关闭弹窗', () => {
     const { document } = createMockDocument([
       'annotation-overlay',
@@ -226,6 +362,77 @@ test.describe('Reader 模块基础行为', () => {
     assert.match(html, /src="#"/);
   });
 
+  test.it('Annotations 切书后旧脚注异步加载结果不会显示到新书', async () => {
+    const { document } = createMockDocument([
+      'annotation-overlay',
+      'annotation-popup',
+      'annotation-body',
+      'annotation-title',
+      'annotation-close'
+    ]);
+    let resolveOldLoad;
+    const oldSection = {
+      href: 'notes.xhtml',
+      async load() {
+        await new Promise((resolve) => { resolveOldLoad = resolve; });
+        return {
+          getElementById(id) {
+            if (id !== 'fn1') return null;
+            return {
+              tagName: 'DIV',
+              textContent: '旧书注释正文',
+              innerHTML: '<p>旧书注释正文</p>'
+            };
+          }
+        };
+      },
+      unload() {}
+    };
+    const oldBook = {
+      load() {},
+      spine: {
+        length: 1,
+        get(key) {
+          return key === 'notes.xhtml' || key === 0 ? oldSection : null;
+        }
+      }
+    };
+    const newBook = {
+      load() {},
+      spine: {
+        length: 0,
+        get() { return null; }
+      }
+    };
+    const createRendition = () => ({
+      hooks: { content: { register() {} } },
+      currentLocation() {
+        return { start: { href: 'chapter.xhtml' } };
+      }
+    });
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations', {
+      document,
+      setTimeout: global.setTimeout
+    });
+
+    Annotations.init();
+    Annotations.mount({ book: oldBook, rendition: createRendition() });
+    const loadPromise = Annotations.showFootnote(
+      'notes.xhtml#fn1',
+      { document },
+      { cancelled: false }
+    );
+    await Promise.resolve();
+    assert.equal(typeof resolveOldLoad, 'function');
+
+    Annotations.mount({ book: newBook, rendition: createRendition() });
+    resolveOldLoad();
+    await loadPromise;
+
+    assert.equal(document.getElementById('annotation-popup').classList.contains('is-visible'), false);
+    assert.equal(document.getElementById('annotation-body').innerHTML, '');
+  });
+
   test.it('ImageViewer 同一个 rendition 不重复注册 hook，且补绑定当前 iframe 图片', () => {
     const ImageViewer = loadIsolatedConst('src/reader/image-viewer.js', 'ImageViewer');
     const callbacks = [];
@@ -261,6 +468,59 @@ test.describe('Reader 模块基础行为', () => {
 
     assert.equal(callbacks.length, 1);
     assert.equal(imageListeners.length, 1);
+  });
+
+  test.it('ImageViewer 切换 rendition 后旧 iframe 图片点击不会打开查看器', () => {
+    const { document } = createMockDocument([
+      'image-viewer',
+      'image-viewer-img',
+      'image-viewer-container',
+      'image-viewer-close',
+      'img-zoom-in',
+      'img-zoom-out',
+      'img-zoom-reset'
+    ]);
+    document.getElementById('image-viewer').classList.add('is-hidden');
+    const imageListeners = [];
+    const image = {
+      tagName: 'IMG',
+      src: 'blob:old-image',
+      classList: { add() {} },
+      addEventListener(type, fn) {
+        if (type === 'click') imageListeners.push(fn);
+      }
+    };
+    const oldDoc = {
+      querySelectorAll(selector) {
+        return selector === 'img, image, svg image' ? [image] : [];
+      }
+    };
+    const createRendition = (doc) => ({
+      hooks: {
+        content: {
+          register() {}
+        }
+      },
+      getContents() {
+        return doc ? [{ document: doc }] : [];
+      }
+    });
+    const ImageViewer = loadIsolatedWindowExport('src/reader/image-viewer.js', 'ImageViewer', { document });
+
+    ImageViewer.init();
+    ImageViewer.hookRendition(createRendition(oldDoc));
+    assert.equal(imageListeners.length, 1);
+
+    imageListeners[0]({ preventDefault() {}, stopPropagation() {} });
+    assert.equal(document.getElementById('image-viewer').classList.contains('is-hidden'), false);
+    assert.equal(document.getElementById('image-viewer-img').src, 'blob:old-image');
+
+    ImageViewer.close();
+    ImageViewer.hookRendition(createRendition(null));
+    imageListeners[0]({ preventDefault() {}, stopPropagation() {} });
+
+    assert.equal(document.getElementById('image-viewer').classList.contains('is-hidden'), true);
+    assert.equal(document.getElementById('image-viewer-img').src, '');
   });
 
   test.it('TOC setActive 精确匹配 href，不把 ch1 误标为 ch10', () => {

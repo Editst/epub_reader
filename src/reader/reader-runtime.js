@@ -87,8 +87,13 @@
       _hookContentUserPositionIntent(rendition);
       ui.setupRenditionKeyEvents(rendition, persistence, { next, prev });
 
-      rendition.on('relocated', (location) => persistence.onRelocated(location));
-      rendition.on('displayed', () => setTimeout(() => ui.ensureFocus(), POST_DISPLAY_FOCUS_DELAY_MS));
+      rendition.on('relocated', (location) => {
+        if (state.rendition !== rendition) return;
+        persistence.onRelocated(location);
+      });
+      rendition.on('displayed', () => setTimeout(() => {
+        if (state.rendition === rendition) ui.ensureFocus();
+      }, POST_DISPLAY_FOCUS_DELAY_MS));
     }
 
     // ── Locations ─────────────────────────────────────────────────────────────
@@ -164,6 +169,7 @@
         const doc = contents && contents.document;
         if (!doc || doc.__readerPositionIntentGuarded || typeof doc.addEventListener !== 'function') return;
         const markIntent = () => {
+          if (state.rendition !== rendition) return;
           if (!state.isRestoringPosition && !state.isResizing) _markUserPositionIntent();
         };
         doc.addEventListener('pointerdown', markIntent, { capture: true, passive: true });
@@ -179,7 +185,7 @@
       if (!rendition || typeof rendition.display !== 'function' || rendition.__readerDisplayGuarded) return;
       const originalDisplay = rendition.display.bind(rendition);
       rendition.display = function (...args) {
-        if (!state.isRestoringPosition && !state.isResizing) {
+        if (state.rendition === rendition && !state.isRestoringPosition && !state.isResizing) {
           _markUserPositionIntent();
         }
         return originalDisplay(...args);

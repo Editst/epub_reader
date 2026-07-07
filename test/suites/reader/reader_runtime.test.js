@@ -119,6 +119,178 @@ test.describe('ReaderRuntime', () => {
     assert.deepEqual(displayed, ['epubcfi(/6/10)']);
   });
 
+  test.it('旧 rendition 延迟事件不会影响当前阅读状态', async () => {
+    const { document } = createMockDocument([
+      'reader-main',
+      'book-title',
+      'chapter-title',
+      'progress-location'
+    ]);
+    global.document = document;
+    const scheduled = [];
+    global.setTimeout = (fn) => {
+      scheduled.push(fn);
+      return scheduled.length;
+    };
+    global.requestAnimationFrame = (fn) => fn();
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+    global.fetch = async () => ({ blob: async () => ({}) });
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.getLocations = async () => 'cached-locations';
+
+    const eventHandlers = {};
+    const contentHooks = [];
+    const iframeListeners = {};
+    const iframeDoc = {
+      fonts: { ready: Promise.resolve() },
+      addEventListener(type, handler) {
+        iframeListeners[type] = handler;
+      }
+    };
+    const displayed = [];
+    const rendition = {
+      hooks: {
+        content: {
+          register(fn) {
+            contentHooks.push(fn);
+          }
+        }
+      },
+      themes: { default() {}, override() {} },
+      on(type, handler) {
+        eventHandlers[type] = handler;
+      },
+      async display(cfi) {
+        displayed.push(cfi);
+      },
+      currentLocation() {
+        return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+      },
+      getContents() {
+        return [{ document: iframeDoc }];
+      },
+      destroy() {}
+    };
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 10; },
+      percentageFromCfi() { return 0.2; }
+    };
+
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      locations,
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: '旧事件测试', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const relocatedCalls = [];
+    let ensureFocusCalls = 0;
+    const state = {
+      book: null,
+      rendition: null,
+      currentBookId: '',
+      currentFileName: '',
+      isBookLoaded: false,
+      prefs: {},
+      activeReadingSeconds: 0,
+      cachedSpeed: null,
+      sessionStart: null,
+      lastProgress: 0,
+      isRestoreAnchorProtected: true
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          setReaderVisible() {},
+          clearReaderError() {},
+          setBookTitle() {},
+          setReaderDimmed() {},
+          syncPrefsToControls() {},
+          injectCustomStyleElement() {},
+          applyThemeToRendition() {},
+          setupRenditionKeyEvents() {},
+          ensureFocus() { ensureFocusCalls++; },
+          updateProgress() {},
+          showLoading() {},
+          setLocationIndexStatus() {}
+        },
+        persistence: {
+          startReadingTimer() {},
+          onRelocated(location) { relocatedCalls.push(location); }
+        },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-old-events', 'old-events.epub');
+
+      scheduled.splice(0);
+      relocatedCalls.splice(0);
+      displayed.splice(0);
+      ensureFocusCalls = 0;
+      eventHandlers.relocated({ start: { cfi: 'epubcfi(/6/current)' } });
+      assert.equal(relocatedCalls.length, 1);
+
+      eventHandlers.displayed();
+      scheduled.splice(0).forEach((fn) => fn());
+      assert.equal(ensureFocusCalls > 0, true);
+      const focusBeforeOldEvents = ensureFocusCalls;
+
+      contentHooks.forEach((fn) => fn({ document: iframeDoc }));
+      assert.equal(typeof iframeListeners.pointerdown, 'function');
+      state.isRestoreAnchorProtected = true;
+      iframeListeners.pointerdown();
+      assert.equal(state.isRestoreAnchorProtected, false);
+
+      state.isRestoreAnchorProtected = true;
+      await rendition.display('epubcfi(/6/current-display)');
+      assert.equal(state.isRestoreAnchorProtected, false);
+
+      state.rendition = { id: 'new-rendition' };
+      state.isRestoreAnchorProtected = true;
+      scheduled.splice(0);
+      eventHandlers.relocated({ start: { cfi: 'epubcfi(/6/old)' } });
+      eventHandlers.displayed();
+      scheduled.splice(0).forEach((fn) => fn());
+      iframeListeners.pointerdown();
+      await rendition.display('epubcfi(/6/old-display)');
+
+      assert.equal(relocatedCalls.length, 1);
+      assert.equal(ensureFocusCalls, focusBeforeOldEvents);
+      assert.equal(state.isRestoreAnchorProtected, true);
+      assert.deepEqual(displayed, ['epubcfi(/6/current-display)', 'epubcfi(/6/old-display)']);
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+    }
+  });
+
   test.it('openBook 通过 lifecycle 挂载 Bookmarks/Search/Highlights，不再额外直调', async () => {
     const { document } = createMockDocument([
       'reader-main',

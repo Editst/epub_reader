@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.4.12
+版本：v2.4.13
 更新：2026-07-07
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -508,6 +508,7 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 **v2.4.7 行为约束**：
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
 - `_hookRenditionEvents` 由 `openBook` 和 `setLayout` 共享，确保模块挂载逻辑一致。
+- `rendition.on('relocated')`、`displayed` 延迟聚焦、iframe 用户意图事件和 `display()` wrapper 必须校验触发者仍是当前 `state.rendition`；切书或布局重建后，旧 `rendition` 迟到事件不得写入当前书位置、抢焦点或解除恢复锚点保护。
 - `openBook()` 打开新书前必须先收口旧书：`flushPositionSave()`、保存阅读时长、`flushSpeedSession(null)`，随后 `moduleLifecycle.unmount()`、销毁旧 `rendition` 与旧 `book`，再重置阅读 session。
 - 新书加载期间必须设置 `isBookLoaded=false`、`isLayoutStable=false`、`navLock=false`，直到首屏 `display()` 和恢复逻辑完成后再允许导航和计时写入。
 - `loadFileByBookId()` 应直接把缓存 `record.data` 交给 `openBook()`，由 `normalizeBookData()` 统一处理 `ArrayBuffer` / `Blob` / `TypedArray`，避免非零 offset 视图被扩展成完整 backing buffer。
@@ -744,13 +745,14 @@ Search.init(): void
 // 注册 DOM 事件和键盘快捷键 F
 
 Search.setBook(book: Book, rendition: Rendition): void
-// 绑定新书，清空搜索结果
+// 绑定新书，取消旧搜索任务，先清理旧 rendition 上的搜索高亮，再清空搜索结果
 
 Search.togglePanel(): void
 Search.closePanel(): void
 Search.reset(): void
 // 切换书籍时调用，取消进行中的搜索
 // v2.2.3：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
+// v2.4.13：setBook/closePanel/reset 必须递增 searchId 使旧搜索失效；增量渲染和结果点击必须校验 searchId，旧书慢返回不得写入或驱动新书
 
 Search.mount(context): void
 Search.unmount(): void
@@ -770,6 +772,7 @@ ImageViewer.init(): void
 ImageViewer.hookRendition(rendition: Rendition): void
 // 在 rendition.hooks.content 中注册图片 click 拦截
 // v2.3.1：同一 rendition/document 幂等，且 late hook 时补处理当前 getContents()
+// v2.4.13：hook 与图片点击必须捕获 rendition 上下文；切书或布局重建后，旧 iframe 图片点击不得打开当前书籍页面的图片查看器
 
 ImageViewer.mount(context): void
 ImageViewer.unmount(): void
@@ -794,6 +797,7 @@ Annotations.hookRendition(rendition: Rendition): void
 Annotations.mount(context): void
 Annotations.unmount(): void
 // 注册 EPUB 内联注释链接的点击处理
+// v2.4.13：hook、点击、异步加载和弹窗跳转必须捕获 book/rendition 上下文；切书或布局重建后，旧 iframe 与旧请求不得显示到新书或驱动新 rendition
 ```
 
 **v2.2.3 行为约束**：
@@ -816,24 +820,24 @@ Annotations.unmount(): void
 <script src="../lib/epub.min.js"></script>
 
 <!-- 工具层（无依赖） -->
-<script src="../utils/db-gateway.js?v=14"></script>
-<script src="../utils/utils.js?v=14"></script>
-<script src="../utils/storage.js?v=14"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/db-gateway.js?v=15"></script>
+<script src="../utils/utils.js?v=15"></script>
+<script src="../utils/storage.js?v=15"></script>  <!-- 依赖 DbGateway -->
 
 <!-- 功能模块（依赖 EpubStorage，互不依赖） -->
-<script src="image-viewer.js?v=14"></script>
-<script src="annotations.js?v=14"></script>
-<script src="toc.js?v=14"></script>
-<script src="search.js?v=14"></script>
-<script src="bookmarks.js?v=14"></script>
-<script src="highlights.js?v=14"></script>
+<script src="image-viewer.js?v=15"></script>
+<script src="annotations.js?v=15"></script>
+<script src="toc.js?v=15"></script>
+<script src="search.js?v=15"></script>
+<script src="bookmarks.js?v=15"></script>
+<script src="highlights.js?v=15"></script>
 
 <!-- 主控制器（Orchestrator） -->
-<script src="reader-state.js?v=14"></script>
-<script src="reader-ui.js?v=14"></script>
-<script src="reader-persistence.js?v=14"></script>
-<script src="reader-runtime.js?v=14"></script>
-<script src="reader.js?v=14"></script>
+<script src="reader-state.js?v=15"></script>
+<script src="reader-ui.js?v=15"></script>
+<script src="reader-persistence.js?v=15"></script>
+<script src="reader-runtime.js?v=15"></script>
+<script src="reader.js?v=15"></script>
 ```
 
 **约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。

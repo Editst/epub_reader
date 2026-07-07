@@ -71,12 +71,19 @@ const Search = (function() {
   }
 
   function setBook(b, r) {
+    isSearching = false;
+    currentSearchId++;
+    if (searchBtn) searchBtn.disabled = false;
+    clearSearchHighlight();
+
     book = b;
     rendition = r;
     if (resultsList) resultsList.innerHTML = '';
-    if (statusEl) statusEl.textContent = '';
+    if (statusEl) {
+      statusEl.textContent = '';
+      statusEl.classList.remove('search-status-empty');
+    }
     if (searchInput) searchInput.value = '';
-    clearSearchHighlight();
   }
 
   function togglePanel() {
@@ -137,6 +144,7 @@ const Search = (function() {
     if (!book) return;
     
     const searchId = ++currentSearchId;
+    const activeBook = book;
     isSearching = true;
     resultsList.innerHTML = '';
     statusEl.textContent = '准备搜索...';
@@ -145,7 +153,7 @@ const Search = (function() {
 
     try {
       let results = [];
-      const spine = book.spine;
+      const spine = activeBook.spine;
       const MAX_RESULTS = 1000;
       
       for (let i = 0; i < spine.length; i++) {
@@ -161,22 +169,30 @@ const Search = (function() {
         if (searchId !== currentSearchId || !isSearching) break;
 
         let itemResults = [];
+        let loaded = false;
         try {
-          await item.load(book.load.bind(book));
+          await item.load(activeBook.load.bind(activeBook));
+          loaded = true;
           if (searchId !== currentSearchId || !isSearching) {
-            item.unload();
             break;
           }
           // item.find returns array of { cfi, excerpt }
           itemResults = item.find(query);
-          item.unload();
         } catch(e) {
           console.warn('Search error in chapter', i, e);
+        } finally {
+          if (loaded && typeof item.unload === 'function') {
+            try {
+              item.unload();
+            } catch (e) {
+              console.warn('Search unload error in chapter', i, e);
+            }
+          }
         }
         
         if (itemResults && itemResults.length > 0) {
           results = results.concat(itemResults);
-          renderPartialResults(itemResults, query);
+          renderPartialResults(itemResults, query, searchId);
         }
       }
 
@@ -203,8 +219,10 @@ const Search = (function() {
     }
   }
 
-  function renderPartialResults(newResults, query) {
+  function renderPartialResults(newResults, query, searchId) {
+    if (searchId !== currentSearchId || !resultsList) return;
     newResults.forEach(res => {
+      if (searchId !== currentSearchId) return;
       const itemEl = document.createElement('div');
       itemEl.className = 'bookmark-item search-result-item';
 
@@ -230,6 +248,7 @@ const Search = (function() {
       itemEl.appendChild(textEl);
 
       itemEl.addEventListener('click', () => {
+        if (searchId !== currentSearchId) return;
         const allItems = resultsList.querySelectorAll('.search-result-item');
         allItems.forEach(el => el.classList.remove('active'));
         itemEl.classList.add('active');
