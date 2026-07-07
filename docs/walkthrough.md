@@ -4,6 +4,16 @@
 
 ---
 
+## [v2.5.3] - 共享颜色白名单严格化
+
+- `Utils.sanitizeColor()` 从宽泛的 `{3,8}` hex 长度校验收窄为 CSS 有效长度 3/4/6/8 位，拒绝 `#12345`、`#1234567` 等浏览器无效颜色。
+- `Highlights.renderHighlight()` 只有显式 `transparent` 才按纯笔记处理；缺失或损坏颜色回退为默认高亮黄，避免历史数据产生不可见高亮。
+- 首页标注 badge 背景不再通过 `${color}33` 拼接透明度；颜色先经共享白名单归一化，再用 `color-mix()` 生成有效背景色。
+- Reader、home、popup 三个入口的本地脚本 cache-buster 分别升级到 `?v=23`、`?v=14`、`?v=12`，确保共享工具变更被加载。
+- Utils 测试覆盖 3/4/6/8 位合法 hex 与 5/7 位非法 hex；Highlights 行为测试覆盖损坏颜色默认可见与 `transparent` 纯笔记；首页 UI 静态契约锁住不得拼接 hex alpha 后缀。
+
+---
+
 ## [v2.5.2] - 首页 DOM 属性上下文收敛
 
 - `home.js` 书架卡片的书名、文件名和作者不再拼入 `innerHTML` 模板；模板只保留静态结构。

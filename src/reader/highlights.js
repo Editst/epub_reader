@@ -45,6 +45,15 @@ window.Highlights = (function () {
     });
   }
 
+  function isNoteOnlyHighlight(hl) {
+    return hl && hl.color === 'transparent';
+  }
+
+  function resolveHighlightColor(color) {
+    const safeColor = Utils.sanitizeColor(color);
+    return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
+  }
+
   function init() {
     if (_boundDocument === document) return;
     _boundDocument = document;
@@ -414,9 +423,9 @@ window.Highlights = (function () {
     let rendered = false;
     try {
         // 1. Always render the base highlight if it has a color
-        if (hl.color !== 'transparent') {
+        if (!isNoteOnlyHighlight(hl)) {
             // D-1-H: sanitize color before passing to epub.js SVG fill attribute
-            const safeColor = Utils.sanitizeColor(hl.color);
+            const safeColor = resolveHighlightColor(hl.color);
             _rendition.annotations.highlight(
                 hl.cfi,
                 {},
@@ -429,7 +438,7 @@ window.Highlights = (function () {
 
         // 2. If it has a note, render a dashed underline
         if (hl.note) {
-            const className = (hl.color === 'transparent') ? "epubjs-hl-note-only" : "epubjs-hl-with-note";
+            const className = isNoteOnlyHighlight(hl) ? "epubjs-hl-note-only" : "epubjs-hl-with-note";
             _rendition.annotations.underline(
                 hl.cfi,
                 {},

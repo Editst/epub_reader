@@ -129,7 +129,9 @@ function loadHighlights(storedHighlights, options = {}) {
     Utils: {
       sanitizeColor(colorStr) {
         if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
-        return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+        return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
+          ? colorStr
+          : '#ffeb3b';
       }
     },
     console
@@ -195,6 +197,34 @@ test.describe('Reader Highlights 行为', () => {
 
     assert.deepEqual(annotations, []);
     assert.match(String(warnings[0]?.[0] || ''), /load highlights failed/);
+  });
+
+  test.it('缺失或损坏的高亮颜色按默认高亮色渲染，显式 transparent 仍为纯笔记', async () => {
+    const stored = [
+      { cfi: 'epubcfi(/6/2)', text: 'missing', color: null, note: '', timestamp: 1 },
+      { cfi: 'epubcfi(/6/4)', text: 'bad', color: '#12345', note: '', timestamp: 2 },
+      { cfi: 'epubcfi(/6/6)', text: 'note', color: 'transparent', note: 'n', timestamp: 3 }
+    ];
+    const { Highlights, rendition, annotations } = loadHighlights(stored);
+
+    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+
+    const baseHighlights = annotations.filter(item => item.type === 'highlight');
+    assert.deepEqual(
+      baseHighlights.map(item => [item.cfi, item.styles.fill]),
+      [
+        ['epubcfi(/6/2)', '#ffeb3b'],
+        ['epubcfi(/6/4)', '#ffeb3b']
+      ]
+    );
+    assert.equal(
+      annotations.find(item => item.cfi === 'epubcfi(/6/6)' && item.type === 'underline')?.className,
+      'epubjs-hl-note-only'
+    );
+    assert.equal(
+      annotations.some(item => item.cfi === 'epubcfi(/6/6)' && item.type === 'highlight'),
+      false
+    );
   });
 
   test.it('切书后旧选择的高亮保存不会写入新书', async () => {

@@ -2,7 +2,7 @@
 
 > 一款强大、纯净、极具美感的 EPUB 电子书阅读器 Chrome 扩展应用。全面支持深度的中文排版、图文混排、高阶交互式标注（高亮+笔记），并且所有数据绝对处于**本地离线隐私存储**。
 
-[![Version](https://img.shields.io/badge/version-2.5.2-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.3-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## ✨ 特性 (Features)
@@ -62,6 +62,7 @@
 
 - **XSS 免疫**：全局内容边界优先采用 DOM API（`textContent` / `createElement`）构建；确需模板渲染时，外部文本只允许进入已转义的元素正文上下文，防止恶意构造的 EPUB 文件在扩展页面执行脚本。
 - **属性上下文隔离（v2.5.2）**：首页书架卡片的书名与作者不再进入 `innerHTML` 模板；正文走 `textContent`，悬浮标题走 DOM `title` 属性赋值，避免 EPUB 元数据中的引号打穿属性。
+- **样式上下文归一化（v2.5.3）**：高亮/标注颜色只接受 CSS 有效 hex 长度（3/4/6/8 位）或 `transparent`；首页标注颜色先经过白名单与默认色回退，再用于 `color-mix()` 背景生成。
 - **最小权限原则**：`web_accessible_resources` 仅向扩展自身页面开放（`chrome-extension://*/*`），第三方网页无法加载扩展内的核心库文件。
 - **资源生命周期管理**：封面 Blob URL 在 DOM 渲染完成后即时 `revokeObjectURL`，杜绝长期会话中的内存碎片累积。
 - **存储 key 中心化（v2.4.8）**：`EpubStorage` 集中声明 chrome.storage key 与 IndexedDB store 名称，避免 per-book key 字符串散落造成迁移、删除和兼容路径不一致。
@@ -107,7 +108,7 @@
 - **分页恢复锚点保存（v2.4.3）**：分页模式在 `locator.restoreCfi` 中保存从页起点向页内轻微前移的恢复锚点，关闭/刷新前会重新生成该 locator，避免重开书籍时被边界归属到上一页。
 - **恢复 locator 失效自愈（v2.4.2）**：旧版或不可比的页码快照会自动失效，恢复时保留可靠 CFI 锚点；v2.4.6 起 locator 只允许触发同 CFI 直接重放，不驱动翻页导航。
 - **内容指纹 BookId（v1.5.0）**：书籍标识符从 32-bit djb2 哈希升级为 SHA-256 前 64KB 内容指纹，消除同名同大小文件的确定性碰撞风险，阅读记录与书籍绑定关系在密码学层面可靠。
-- **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过 `#[0-9a-fA-F]{3,8}|transparent` 正则白名单过滤，防止 CSS 注入攻击。
+- **高亮颜色白名单校验**：所有高亮颜色值在写入存储和渲染时均经过有效 hex 长度（3/4/6/8 位）或 `transparent` 白名单过滤；缺失/损坏颜色回退默认高亮色，防止 CSS 注入和不可见高亮。
 - **IndexedDB 持久化保障**：存储网关 `DbGateway` 的 `put()` / `delete()` 操作现在等待 `tx.oncomplete` 信号，确保数据真正落盘后才视为写入完成。
 - **文件淘汰串行化（v2.4.0）**：`enforceFileLRU` 改为逐项串行淘汰 + per-item try/catch，避免并发读改写竞态导致书籍记录丢失。
 - **架构约束强制化（v2.4.0）**：Reader 各层严格遵守职责边界——persistence 层不持有 DOM 引用，runtime 层不直接操作视图，UI 辅助函数作为唯一 DOM 入口。

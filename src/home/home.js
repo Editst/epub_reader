@@ -78,6 +78,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  function resolveAnnotationColor(color) {
+    const safeColor = Utils.sanitizeColor(color);
+    return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
+  }
+
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(currentTheme);
@@ -313,6 +318,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const hl of flatAnnotations) {
       const isNoteOnly = hl.color === 'transparent';
+      const annotationColor = isNoteOnly ? '#64748b' : resolveAnnotationColor(hl.color);
+      const annotationBorderColor = isNoteOnly ? '#94a3b8' : annotationColor;
+      const annotationBadgeBg = isNoteOnly
+        ? 'rgba(148, 163, 184, 0.1)'
+        : `color-mix(in srgb, ${annotationColor} 20%, transparent)`;
       const item = document.createElement('div');
       item.className = 'annotation-item';
       item.innerHTML = `
@@ -322,11 +332,11 @@ document.addEventListener('DOMContentLoaded', async () => {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
               ${Utils.escapeHtml(hl._bookContext.title || hl._bookContext.filename)}
             </div>
-            <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="${isNoteOnly ? 'background-color: rgba(148, 163, 184, 0.1); color: #64748b;' : `background-color: ${Utils.sanitizeColor(hl.color)}33; color: ${Utils.sanitizeColor(hl.color)};`}">
+            <div class="annotation-type-badge ${isNoteOnly ? 'type-note' : 'type-hl'}" style="background-color: ${annotationBadgeBg}; color: ${annotationColor};">
               ${isNoteOnly ? '📝 笔记' : '🖍 标注'}
             </div>
           </div>
-          <div class="annotation-quote" style="border-left-color: ${isNoteOnly ? '#94a3b8' : Utils.sanitizeColor(hl.color)}">${Utils.escapeHtml(hl.text)}</div>
+          <div class="annotation-quote" style="border-left-color: ${annotationBorderColor}">${Utils.escapeHtml(hl.text)}</div>
           ${hl.note ? `<div class="annotation-note">${Utils.escapeHtml(hl.note)}</div>` : ''}
           <div class="annotation-footer">
             <span class="annotation-meta">创建于 ${Utils.formatDate(hl.timestamp)}</span>

@@ -82,6 +82,16 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('authorEl.textContent = bookAuthor'), '作者应通过 textContent 写入');
   });
 
+  test.it('标注颜色不得通过拼接 hex alpha 构造背景色', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+
+    assert.ok(js.includes('function resolveAnnotationColor'), '首页应集中归一化标注颜色');
+    assert.ok(js.includes("safeColor !== 'transparent' ? safeColor : '#ffeb3b'"), '损坏或透明高亮颜色应回退默认高亮色');
+    assert.ok(js.includes('color-mix(in srgb, ${annotationColor} 20%, transparent)'), '标注 badge 背景应使用有效 CSS 混色');
+    assert.ok(!js.includes('Utils.sanitizeColor(hl.color)}33'), '不得直接给 sanitizeColor 结果拼接 alpha 后缀');
+    assert.ok(!js.includes('${annotationColor}33'), '不得给任意 hex 颜色拼接 alpha 后缀');
+  });
+
   test.it('首页偏好保存失败不应产生未处理 Promise 拒绝', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
     const savePreferenceCallCount = (js.match(/EpubStorage\.savePreferences/g) || []).length;

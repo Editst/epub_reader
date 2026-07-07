@@ -81,7 +81,9 @@ const Utils = {
    */
   sanitizeColor(colorStr) {
     if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
-    return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+    return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
+      ? colorStr
+      : '#ffeb3b';
   },
 
   /**

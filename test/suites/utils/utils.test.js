@@ -12,7 +12,9 @@ const assert = require('node:assert/strict');
 // 这里的 sanitizeColor 是从源码 (highlights.js / home.js) 中提取的逻辑
 const sanitizeColor = (colorStr) => {
   if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
-  return /^#[0-9a-fA-F]{3,8}$/.test(colorStr) ? colorStr : '#ffeb3b';
+  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
+    ? colorStr
+    : '#ffeb3b';
 };
 
 test.describe('Utils 基础工具函数', () => {
@@ -106,9 +108,14 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
   });
 
   test.it('sanitizeColor: 安全性与格式拦截', () => {
+    assert.equal(sanitizeColor('#f00'), '#f00');
+    assert.equal(sanitizeColor('#f008'), '#f008');
     assert.equal(sanitizeColor('#ff0000'), '#ff0000');
+    assert.equal(sanitizeColor('#ff000080'), '#ff000080');
     assert.equal(sanitizeColor('transparent'), 'transparent');
     assert.equal(sanitizeColor(null), 'transparent');
+    assert.equal(sanitizeColor('#12345'), '#ffeb3b');
+    assert.equal(sanitizeColor('#1234567'), '#ffeb3b');
     assert.equal(sanitizeColor('red; background: url(evil)'), '#ffeb3b'); // 拦截并返回默认
     assert.equal(sanitizeColor('rgb(255,0,0)'), '#ffeb3b');
     assert.equal(sanitizeColor('expression(alert(1))'), '#ffeb3b');
