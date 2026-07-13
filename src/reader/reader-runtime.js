@@ -577,10 +577,11 @@
       _assertOpenActive(openLifecycleSeq);
 
       // ── 封面提取（fire-and-forget） ─────────────────────────────────────────
+      const activeBook = state.book;
       (async () => {
         let coverUrl = null;
         try {
-          coverUrl = await state.book.coverUrl();
+          coverUrl = await activeBook.coverUrl();
           if (coverUrl) {
             const blob = await (await fetch(coverUrl)).blob();
             await EpubStorage.saveCover(bookId, blob);

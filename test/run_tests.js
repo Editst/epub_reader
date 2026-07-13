@@ -143,6 +143,7 @@ function resetAll() {
   EpubStorage._preferencesQueue = Promise.resolve();
   EpubStorage._recentBooksQueue = Promise.resolve();
   EpubStorage._bookMetaQueue = new Map();
+  EpubStorage._bookResourceWrites = new Map();
   EpubStorage._bookDeleteTasks = new Map();
   EpubStorage._deletingBookIds = new Set();
 }

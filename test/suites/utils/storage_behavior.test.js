@@ -343,6 +343,14 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     assert.match(source, /const KEYS = Object\.freeze/);
     assert.match(source, /const STORES = Object\.freeze/);
+    assert.match(source, /_bookResourceWrites: new Map\(\)/,
+      '非 bookMeta 资源写入也必须进入同书删除协调');
+    for (const method of ['saveHighlights', 'saveBookmarks', 'saveCover', 'saveLocations', 'storeFile']) {
+      const start = source.indexOf(`async ${method}(`);
+      const end = source.indexOf('\n  },', start);
+      assert.ok(start >= 0 && source.slice(start, end).includes('_runBookResourceWrite'),
+        `${method} 必须注册同书资源写入`);
+    }
     assert.equal(count(/'bookMeta_' \+ bookId/g), 1, 'bookMeta 前缀只能出现在 KEYS 声明中');
     assert.equal(count(/'highlights_' \+ bookId/g), 1, 'highlights 前缀只能出现在 KEYS 声明中');
     assert.equal(count(/'bookmarks_' \+ bookId/g), 1, 'bookmarks 前缀只能出现在 KEYS 声明中');
@@ -372,6 +380,37 @@ test.describe('EpubStorage 行为覆盖', () => {
 
       assert.equal(await EpubStorage.getBookMeta(id), null);
     } finally {
+      EpubStorage._set = originalSet;
+    }
+  });
+
+  test.it('removeBook 会等待同书资源写入，避免删除后回写孤立高亮', async () => {
+    const id = 'book-delete-resource-write';
+    const originalSet = EpubStorage._set;
+    let releaseSet;
+    let setStartedResolve;
+    const setStarted = new Promise((resolve) => { setStartedResolve = resolve; });
+
+    EpubStorage._set = async function patchedSet(data) {
+      if (Object.prototype.hasOwnProperty.call(data, 'highlights_' + id)) {
+        setStartedResolve();
+        await new Promise((resolve) => { releaseSet = resolve; });
+      }
+      return originalSet.call(this, data);
+    };
+
+    try {
+      const writePromise = EpubStorage.saveHighlights(id, [{ cfi: 'late' }]);
+      await setStarted;
+      const deletePromise = EpubStorage.removeBook(id);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      releaseSet();
+      await Promise.all([writePromise, deletePromise]);
+
+      assert.deepEqual(await EpubStorage.getHighlights(id), []);
+    } finally {
+      if (releaseSet) releaseSet();
       EpubStorage._set = originalSet;
     }
   });
@@ -411,6 +450,9 @@ test.describe('EpubStorage 行为覆盖', () => {
       assert.equal(EpubStorage._deletingBookIds.has(id), true, '其余清理完成前删除守卫必须保留');
 
       await EpubStorage.savePosition(id, 'epubcfi(/6/8)', 80);
+      await EpubStorage.saveHighlights(id, [{ cfi: 'late' }]);
+      await EpubStorage.saveBookmarks(id, [{ cfi: 'late' }]);
+      await EpubStorage.addRecentBook({ id, title: 'late' });
       releaseFileDelete();
 
       const result = await deleteResultPromise;
@@ -418,6 +460,10 @@ test.describe('EpubStorage 行为覆盖', () => {
       assert.match(result.error.message, /simulated cover delete failure/);
       assert.equal(EpubStorage._deletingBookIds.has(id), false, '全部清理收口后应释放删除守卫');
       assert.equal(await EpubStorage.getBookMeta(id), null, '删除期间的新位置写入不得重建 bookMeta');
+      assert.deepEqual(await EpubStorage.getHighlights(id), [], '删除期间不得重建 highlights');
+      assert.deepEqual(await EpubStorage.getBookmarks(id), [], '删除期间不得重建 bookmarks');
+      assert.equal((await EpubStorage.getRecentBooks()).some((book) => book.id === id), false,
+        '删除期间不得重新加入 recentBooks');
     } finally {
       if (releaseFileDelete) releaseFileDelete();
       EpubStorage.removeCover = originalRemoveCover;

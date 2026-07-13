@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.16
+版本：v2.5.17
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -136,7 +136,7 @@ epub_reader/
 2. **阅读**：`onRelocated` → `schedulePositionSave`（首次立即写入，连续变化 300ms 后补写最终位置）→ `bookMeta_<id>`。
 3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
 4. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
-5. **清理**：用户主动删除时，`removeBook` 等待同书 `bookMeta` 写队列收尾，并行删除 7 项关联数据；自动 LRU 只删除 IndexedDB `files` 中超限的 EPUB 文件缓存，保留 recentBooks、bookMeta、highlights、bookmarks、covers 和 locations，避免误删阅读进度、书签与标注。
+5. **清理**：用户主动删除时，`removeBook` 等待同书 `bookMeta` 与其他资源写入收尾，并行删除 7 项关联数据；自动 LRU 只删除 IndexedDB `files` 中超限的 EPUB 文件缓存，保留 recentBooks、bookMeta、highlights、bookmarks、covers 和 locations，避免误删阅读进度、书签与标注。
 
 ### 4.3 存储结构
 
@@ -343,6 +343,7 @@ removeBook(bookId: string): Promise<void>
 // removeHighlights + removeLocations + removeBookmarks + removeFile
 // v2.4.7：删除期间阻止同上下文 bookMeta 队列回写孤立记录
 // v2.5.7：单项失败也等待其余清理全部 settled 后再释放守卫并传播失败；同书并发调用复用同一删除任务
+// v2.5.17：删除先等待已开始的 highlights/bookmarks/cover/locations/file 写入；守卫期间拒绝新的同书资源写入与 recentBooks 回加
 ```
 
 ### 工具

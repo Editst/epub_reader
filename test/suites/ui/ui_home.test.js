@@ -90,6 +90,7 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(!js.includes('src="${coverObjectUrl}"'), 'blob URL 不得拼入 innerHTML');
     assert.ok(js.includes('function clearRenderedBookCards()'), '重建书架前应统一回收旧卡片 Object URL');
     assert.ok(js.includes("booksContainer.querySelectorAll('[data-cover-url]')"));
+    assert.ok(js.includes('delete card.dataset.coverUrl'));
   });
 
   test.it('标注颜色不得通过拼接 hex alpha 构造背景色', () => {

@@ -47,6 +47,7 @@ const EpubStorage = {
   _preferencesQueue: Promise.resolve(),
   _recentBooksQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
+  _bookResourceWrites: new Map(),
   _bookDeleteTasks: new Map(),
   _deletingBookIds: new Set(),
 
@@ -77,7 +78,9 @@ const EpubStorage = {
   // ── Recent Books ────────────────────────────────────────────────────────────
 
   async addRecentBook(book) {
+    if (!book?.id || this._deletingBookIds.has(book.id)) return;
     return this._enqueueRecentBooksWrite((recent) => {
+      if (this._deletingBookIds.has(book.id)) return recent;
       recent = recent.filter(b => b.id !== book.id);
       recent.unshift({ ...book, lastOpened: Date.now() });
       return recent.slice(0, 20);
@@ -227,8 +230,9 @@ const EpubStorage = {
   },
 
   async saveHighlights(bookId, highlights) {
-    if (!bookId) return;
-    await this._set({ [KEYS.highlights(bookId)]: highlights });
+    return this._runBookResourceWrite(bookId, () =>
+      this._set({ [KEYS.highlights(bookId)]: highlights })
+    );
   },
 
   async removeHighlights(bookId) {
@@ -268,8 +272,9 @@ const EpubStorage = {
   },
 
   async saveBookmarks(bookId, bookmarks) {
-    if (!bookId) return;
-    await this._set({ [KEYS.bookmarks(bookId)]: bookmarks });
+    return this._runBookResourceWrite(bookId, () =>
+      this._set({ [KEYS.bookmarks(bookId)]: bookmarks })
+    );
   },
 
   async removeBookmarks(bookId) {
@@ -280,7 +285,9 @@ const EpubStorage = {
 
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
-    return DbGateway.put(STORES.covers, { bookId, blob });
+    return this._runBookResourceWrite(bookId, () =>
+      DbGateway.put(STORES.covers, { bookId, blob })
+    );
   },
 
   async getCover(bookId) {
@@ -298,7 +305,9 @@ const EpubStorage = {
 
   async saveLocations(bookId, locationsJSON) {
     if (!bookId || !locationsJSON) return;
-    return DbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() });
+    return this._runBookResourceWrite(bookId, () =>
+      DbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() })
+    );
   },
 
   async getLocations(bookId) {
@@ -316,8 +325,10 @@ const EpubStorage = {
 
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
-    await DbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
-    await this.enforceFileLRU(10);
+    return this._runBookResourceWrite(bookId, async () => {
+      await DbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
+      await this.enforceFileLRU(10);
+    });
   },
 
   async getFile(bookId) {
@@ -366,7 +377,10 @@ const EpubStorage = {
     const deleteTask = (async () => {
       this._deletingBookIds.add(bookId);
       try {
-        await this._drainBookMetaQueue(bookId);
+        await Promise.all([
+          this._drainBookMetaQueue(bookId),
+          this._drainBookResourceWrites(bookId)
+        ]);
         const results = await Promise.allSettled([
           this.removeRecentBook(bookId),
           this.removeBookMeta(bookId),
@@ -494,6 +508,29 @@ const EpubStorage = {
     });
   },
 
+  async _runBookResourceWrite(bookId, task) {
+    if (!bookId || this._deletingBookIds.has(bookId)) return undefined;
+    let writes = this._bookResourceWrites.get(bookId);
+    if (!writes) {
+      writes = new Set();
+      this._bookResourceWrites.set(bookId, writes);
+    }
+
+    const write = Promise.resolve().then(() => {
+      if (this._deletingBookIds.has(bookId)) return undefined;
+      return task();
+    });
+    writes.add(write);
+    try {
+      return await write;
+    } finally {
+      writes.delete(write);
+      if (writes.size === 0 && this._bookResourceWrites.get(bookId) === writes) {
+        this._bookResourceWrites.delete(bookId);
+      }
+    }
+  },
+
   async _enqueueBookMetaTask(bookId, task) {
     if (this._deletingBookIds.has(bookId)) return undefined;
     let result;
@@ -564,5 +601,11 @@ const EpubStorage = {
     try {
       await pending;
     } catch (_) {}
+  },
+
+  async _drainBookResourceWrites(bookId) {
+    const writes = this._bookResourceWrites.get(bookId);
+    if (!writes || writes.size === 0) return;
+    await Promise.allSettled(Array.from(writes));
   }
 };

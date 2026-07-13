@@ -92,9 +92,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return { coverBlob, meta };
   }
 
+  function releaseCoverObjectUrl(card) {
+    const objectUrl = card?.dataset?.coverUrl;
+    if (!objectUrl) return;
+    delete card.dataset.coverUrl;
+    URL.revokeObjectURL(objectUrl);
+  }
+
   function clearRenderedBookCards() {
     booksContainer.querySelectorAll('[data-cover-url]').forEach((card) => {
-      if (card.dataset.coverUrl) URL.revokeObjectURL(card.dataset.coverUrl);
+      releaseCoverObjectUrl(card);
     });
     booksContainer.innerHTML = '';
   }
@@ -240,8 +247,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const coverImg = document.createElement('img');
         coverImg.className = 'cover-img';
         coverImg.alt = 'Cover';
-        coverImg.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
-        coverImg.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        coverImg.addEventListener('load',  () => releaseCoverObjectUrl(card), { once: true });
+        coverImg.addEventListener('error', () => releaseCoverObjectUrl(card), { once: true });
         coverImg.src = coverObjectUrl;
         coverEl.appendChild(coverImg);
       } else if (coverEl) {
@@ -268,8 +275,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.stopPropagation();
         if (confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
           // 删除前显式 revoke ObjectURL，不依赖 load/error 事件。
-          const savedUrl = card.dataset.coverUrl;
-          if (savedUrl) URL.revokeObjectURL(savedUrl);
+          releaseCoverObjectUrl(card);
           try {
             await EpubStorage.removeBook(book.id);
           } catch (err) {
@@ -421,10 +427,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const a    = document.createElement('a');
         a.href = url;
         a.download = `epub_notes_${new Date().toISOString().slice(0, 10)}.md`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        try {
+          document.body.appendChild(a);
+          a.click();
+        } finally {
+          a.remove();
+          URL.revokeObjectURL(url);
+        }
       } catch (err) {
         console.warn('[Home] export annotations failed:', err);
       }

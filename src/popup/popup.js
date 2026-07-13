@@ -34,9 +34,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadRecentBooksSafely();
 
+  function releaseCoverObjectUrl(item) {
+    const objectUrl = item?.dataset?.coverUrl;
+    if (!objectUrl) return;
+    delete item.dataset.coverUrl;
+    URL.revokeObjectURL(objectUrl);
+  }
+
   function clearRenderedRecentItems() {
     recentList.querySelectorAll('[data-cover-url]').forEach((item) => {
-      if (item.dataset.coverUrl) URL.revokeObjectURL(item.dataset.coverUrl);
+      releaseCoverObjectUrl(item);
     });
     recentList.innerHTML = '';
   }
@@ -108,8 +115,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const img = document.createElement('img');
         img.className = 'cover-img';
         img.alt = 'Cover';
-        img.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
-        img.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        img.addEventListener('load',  () => releaseCoverObjectUrl(item), { once: true });
+        img.addEventListener('error', () => releaseCoverObjectUrl(item), { once: true });
         img.src = coverObjectUrl;
         iconEl.appendChild(img);
       } else {
@@ -168,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
           console.warn('[Popup] remove recent book failed:', err);
         } finally {
-          if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);
+          releaseCoverObjectUrl(item);
           await loadRecentBooksSafely();
         }
       });

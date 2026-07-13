@@ -48,7 +48,7 @@ test.describe('BUG-11: home.js Markdown export does not use escapeHtml', () => {
     const exportStart = src.indexOf('btn-export-all');
     assert.ok(exportStart !== -1, 'export button handler must exist');
 
-    const exportBlock = src.slice(exportStart, exportStart + 1000);
+    const exportBlock = src.slice(exportStart, exportStart + 2000);
 
     // The Markdown output lines should not use escapeHtml
     // Look for the specific pattern: escapeHtml(book.title) or escapeHtml(book.author)
@@ -57,5 +57,7 @@ test.describe('BUG-11: home.js Markdown export does not use escapeHtml', () => {
       !hasEscapeInMdOutput,
       'Markdown export must not use escapeHtml for title/author — HTML entities are meaningless in .md files'
     );
+    assert.match(exportBlock, /finally \{\s*a\.remove\(\);\s*URL\.revokeObjectURL\(url\);\s*\}/,
+      'Markdown download must revoke its Object URL even when click/append fails');
   });
 });

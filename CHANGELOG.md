@@ -8,6 +8,18 @@
 
 ---
 
+## [2.5.17] - 2026-07-14
+
+### fix
+- **Object URL 单一所有权释放**：Home/Popup 封面 URL 在释放前同步移除卡片 dataset 所有权，图片完成、列表重建和删除路径不再重复 revoke 同一 URL。
+- **导出与封面异步边界**：Markdown 下载使用 `finally` 保证异常路径回收临时 URL；Runtime 封面提取捕获发起时 book，避免异步代码读取可变的全局 Reader 状态。
+- **级联删除资源写入协调**：除 `bookMeta` 外，高亮、书签、封面、locations 和 EPUB 文件写入也进入同书注册表；`removeBook()` 等待已开始写入后再删除，删除守卫期间拒绝新写入及 recentBooks 回加，避免迟到任务重建孤立数据。
+
+### test
+- 更新 Home/Popup Object URL 生命周期约束，覆盖 Markdown 下载异常释放路径，以及删除与非 `bookMeta` 资源写入并发回归。
+
+---
+
 ## [2.5.16] - 2026-07-13
 
 ### fix

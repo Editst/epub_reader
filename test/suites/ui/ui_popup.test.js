@@ -70,6 +70,7 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
       '封面回收监听必须先于 src 赋值注册');
     assert.ok(js.includes('function clearRenderedRecentItems()'));
     assert.ok(js.includes('item.dataset.coverUrl = coverObjectUrl'));
+    assert.ok(js.includes('delete item.dataset.coverUrl'));
   });
 
   test.it('popup 最近阅读日期使用样式类并保持相对时间格式', () => {
@@ -120,7 +121,7 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
 
     assert.ok(js.includes("console.warn('[Popup] remove recent book failed:'"), '移除失败应被捕获并告警');
-    assert.match(js, /finally \{\s*if \(coverObjectUrl\) URL\.revokeObjectURL\(coverObjectUrl\);\s*await loadRecentBooksSafely\(\);/, '成功或失败后都应释放资源并刷新列表');
+    assert.match(js, /finally \{\s*releaseCoverObjectUrl\(item\);\s*await loadRecentBooksSafely\(\);/, '成功或失败后都应释放资源并刷新列表');
     assert.ok(!js.includes('item.remove();'), '弹窗不应维护独立 DOM 真相源');
     assert.ok(js.includes('recentList.appendChild(emptyState);'), '权威列表为空时应重新挂载空状态');
   });
