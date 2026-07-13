@@ -2,28 +2,19 @@
  * src/utils/db-gateway.js
  * IndexedDB 唯一单例接驳 + 全量 Schema 定义
  *
- * Schema 版本历史：
- *   v1  初始建表（files keyPath='name', covers keyPath='id'）
- *   v2  无 Schema 变更
- *   v3  新增 locations store（keyPath='id'）
- *   v4  [v1.6.0 破坏性变更]
- *         files:     主键从 'name'(filename) 改为 'bookId'，新增 by_filename 索引
- *         covers:    主键字段名从 'id' 统一为 'bookId'
- *         locations: 主键字段名从 'id' 统一为 'bookId'
- *       三表旧数据全部删除重建，无迁移。用户需重新导入书籍。
- *
- * D-1-E: put() / delete() 等待 tx.oncomplete，确保落盘后再 resolve。
- * v2.5.6: 缓存连接在 versionchange / close 后失效，下一次访问自动重连。
+ * DB v4 将 files / covers / locations 统一为 bookId 主键；从旧 schema
+ * 升级时三表重建，用户需重新导入 EPUB。put() / delete() 等待事务完成后
+ * 才 resolve；连接在 versionchange / close 后失效并于下次访问重建。
  */
 const DbGateway = {
   DB_NAME:      'EpubReaderDB',
   DB_VERSION:   4,
   _dbPromise:   null,
-  _retryCount:  0,       // C-1: consecutive connection failure counter
-  _retryLimit:  3,       // refuse to reconnect after this many successive failures
+  _retryCount:  0,
+  _retryLimit:  3,
 
   async connect() {
-    // C-1: refuse to hammer IDB after repeated failures (e.g. disk full, incognito limits)
+    // 磁盘满或隐身模式限制下避免持续高频重试。
     if (this._retryCount >= this._retryLimit) {
       throw new Error(`[DbGateway] IDB connection failed ${this._retryLimit} times consecutively. Refusing further retries.`);
     }
@@ -35,7 +26,7 @@ const DbGateway = {
         const db         = e.target.result;
         const oldVersion = e.oldVersion; // 0 = brand-new install
 
-        // v4: all three stores are rebuilt. Data is dropped (breaking change).
+        // 旧 schema 的 keyPath 不兼容，统一重建三个 store。
         if (oldVersion < 4) {
           if (db.objectStoreNames.contains('files'))     db.deleteObjectStore('files');
           if (db.objectStoreNames.contains('covers'))    db.deleteObjectStore('covers');
@@ -140,8 +131,7 @@ const DbGateway = {
 
   /**
    * Cursor-based metadata scan — reads only the listed fields, never loads
-   * binary 'data' blobs. Solves P1-LRU-1 where enforceFileLRU was loading
-   * full EPUB binaries (~50 MB peak) just to sort by timestamp.
+   * binary 'data' blobs，避免 LRU 排序时把 EPUB 二进制整体载入内存。
    *
    * @param {string}   storeName
    * @param {string[]} fields      field names to include (keyPath always included)

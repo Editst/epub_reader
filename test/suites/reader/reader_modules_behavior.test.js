@@ -33,7 +33,13 @@ function loadIsolatedConst(filePath, constName, context = {}) {
 
 function loadIsolatedWindowExport(filePath, exportName, context = {}) {
   const code = fs.readFileSync(filePath, 'utf8');
-  const sandbox = { result: null, console, ...context };
+  const sandbox = {
+    result: null,
+    console,
+    Utils: global.Utils,
+    ReaderState: global.ReaderState,
+    ...context
+  };
   sandbox.window = sandbox.window || sandbox;
   vm.createContext(sandbox);
   vm.runInContext(`${code}; result = window.${exportName};`, sandbox, { filename: filePath });
@@ -1193,7 +1199,23 @@ test.describe('Reader 模块基础行为', () => {
       'bookmarks-panel',
       'search-panel'
     ]);
-    const context = { document };
+    const context = {
+      document,
+      ReaderState: {
+        getTocItemLabel(item) {
+          return item && item.label != null ? String(item.label).trim() : '';
+        },
+        isTocHrefMatch(currentHref, itemHref) {
+          const currentBase = String(currentHref || '').split('#')[0];
+          const itemBase = String(itemHref || '').split('#')[0];
+          return !!currentBase && !!itemBase && (
+            currentBase === itemBase ||
+            currentBase.endsWith('/' + itemBase) ||
+            itemBase.endsWith('/' + currentBase)
+          );
+        }
+      }
+    };
     const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', context);
     TOC.init();
     TOC.build({
@@ -1809,6 +1831,41 @@ test.describe('Reader 模块基础行为', () => {
     assert.deepEqual(calls, ['new-next', 'new-next']);
   });
 
+  test.it('ReaderUi 布局按钮会收口 setLayout 异步失败', async () => {
+    const { document } = createMockDocument([]);
+    const layoutButton = document.createElement('button');
+    layoutButton.classList.add('layout-btn');
+    layoutButton.dataset.layout = 'scrolled';
+    document.querySelectorAll = (selector) => selector === '.layout-btn' ? [layoutButton] : [];
+
+    let rejectionHandled = false;
+    const context = {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      EpubStorage: { async savePreferences() {} },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {}, isBookLoaded: true } });
+    await ui.bindRuntime({
+      next() {}, prev() {}, displayPercentage() {},
+      setLayout() {
+        return {
+          then(_resolve, reject) {
+            rejectionHandled = true;
+            reject(new Error('layout failed'));
+          }
+        };
+      }
+    }, {});
+
+    layoutButton.click();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(rejectionHandled, true);
+  });
+
   test.it('ReaderUi 字体重排的旧 RAF 回调不会操作新书 rendition', async () => {
     const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
     const frames = [];
@@ -2061,7 +2118,8 @@ test.describe('Reader 模块基础行为', () => {
         async savePreferences() {}
       },
       ReaderState: {
-        findTocItem() { return { label: '章节一' }; }
+        findTocItem() { return { label: '章节一' }; },
+        getTocItemLabel(item) { return item && item.label ? item.label.trim() : ''; }
       },
       TOC: { close() {} },
       Bookmarks: {

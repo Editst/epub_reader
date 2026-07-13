@@ -7,7 +7,6 @@
 
   const Bookmarks = {
   bookId: '',
-  book: null,
   rendition: null,
   navigate: null,
   panel: null,
@@ -39,18 +38,15 @@
 
   setBook(bookId, book, rendition) {
     this.bookId = bookId;
-    this.book = book;
     this.rendition = rendition;
     this._loadBookmarksSafely();
   },
 
   async getBookmarks() {
-    // D-1-F: Delegate to EpubStorage to enforce unified storage access policy.
     return EpubStorage.getBookmarks(this.bookId);
   },
 
   async saveBookmarks(bookmarks, bookId = this.bookId) {
-    // D-1-F: Delegate to EpubStorage.
     return EpubStorage.saveBookmarks(bookId, bookmarks);
   },
 
@@ -124,7 +120,7 @@
 
       const meta = document.createElement('div');
       meta.className = 'bookmark-item-meta';
-      meta.textContent = `${bm.progress}% · ${this._formatDate(bm.timestamp)}`;
+      meta.textContent = `${bm.progress}% · ${Utils.formatDateTime(bm.timestamp)}`;
 
       info.append(chapter, meta);
 
@@ -165,10 +161,7 @@
     if (this.panel.classList.contains('open')) {
       this.closePanel();
     } else {
-      // FIX P1-C: Bookmarks previously toggled its own panel without touching
-      // the shared sidebar-overlay or closing other panels, allowing TOC, Search,
-      // and Bookmarks to all be open simultaneously with no backdrop.
-      // Close every other panel first, then show this one with the overlay.
+      // 打开前关闭其他侧栏面板，并显示共享 overlay。
       const sidebar     = document.getElementById('sidebar');
       const searchPanel = document.getElementById('search-panel');
       if (sidebar)     sidebar.classList.remove('open');
@@ -184,7 +177,7 @@
 
   closePanel() {
     this.panel.classList.remove('open');
-    // FIX P1-C: Only hide the overlay when no other panel is still open.
+    // 仅在其他共享面板均关闭时隐藏 overlay。
     const tocOpen    = document.getElementById('sidebar')?.classList.contains('open');
     const searchOpen = document.getElementById('search-panel')?.classList.contains('open');
     if (!tocOpen && !searchOpen) {
@@ -208,16 +201,9 @@
     this.closePanel();
     this._loadSeq++;
     this.bookId = '';
-    this.book = null;
     this.rendition = null;
     this.navigate = null;
     if (this.listEl) this.listEl.innerHTML = '';
-  },
-
-  _formatDate(ts) {
-    if (!ts) return '';
-    const d = new Date(ts);
-    return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   }
   };
 

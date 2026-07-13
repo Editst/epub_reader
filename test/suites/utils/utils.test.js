@@ -46,6 +46,15 @@ test.describe('Utils 基础工具函数', () => {
     assert.ok(Utils.formatDate(old).includes('-') || Utils.formatDate(old).split('/').length >= 2); // 本地日期
   });
 
+  test.it('Utils.formatDateTime: 格式化绝对日期与分钟时间', () => {
+    const timestamp = new Date(2024, 0, 2, 3, 4).getTime();
+    const expected = new Date(timestamp).toLocaleDateString('zh-CN') + ' ' +
+      new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+    assert.equal(Utils.formatDateTime(null), '');
+    assert.equal(Utils.formatDateTime(timestamp), expected);
+  });
+
   test.it('Utils.formatDuration', () => {
     assert.equal(Utils.formatDuration(0), '0秒');
     assert.equal(Utils.formatDuration(null), '0秒');
@@ -120,6 +129,13 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
     assert.equal(sanitizeColor('rgb(255,0,0)'), '#ffeb3b');
     assert.equal(sanitizeColor('expression(alert(1))'), '#ffeb3b');
     assert.equal(sanitizeColor('; display: none'), '#ffeb3b');
+  });
+
+  test.it('resolveDisplayColor: 透明、缺失和非法颜色回退为可见高亮色', () => {
+    assert.equal(Utils.resolveDisplayColor('#abc'), '#abc');
+    assert.equal(Utils.resolveDisplayColor('transparent'), '#ffeb3b');
+    assert.equal(Utils.resolveDisplayColor(null), '#ffeb3b');
+    assert.equal(Utils.resolveDisplayColor('red; display:none'), '#ffeb3b');
   });
 
   test.it('normalizePercent: 归一化脏进度输入', () => {

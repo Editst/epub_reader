@@ -132,6 +132,10 @@ function loadHighlights(storedHighlights, options = {}) {
         return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
           ? colorStr
           : '#ffeb3b';
+      },
+      resolveDisplayColor(color) {
+        const safeColor = this.sanitizeColor(color);
+        return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
       }
     },
     console
@@ -142,11 +146,15 @@ function loadHighlights(storedHighlights, options = {}) {
   if (options.console) {
     context.console = options.console;
   }
+  if (options.setTimeout) {
+    context.setTimeout = options.setTimeout;
+  }
   context.window.window = context.window;
   context.window.document = documentMock;
 
   vm.createContext(context);
   vm.runInContext(fs.readFileSync('src/reader/highlights.js', 'utf8'), context);
+  context.window.Highlights.init();
 
   return {
     Highlights: context.window.Highlights,
@@ -399,6 +407,76 @@ test.describe('Reader Highlights 行为', () => {
     contentListeners.mousedown({ target: createElement('blank-page') });
 
     assert.equal(elements.get('selection-toolbar').classList.contains('show'), false);
+  });
+
+  test.it('切书后旧 iframe 的迟到空白点击不会关闭新书悬浮栏', async () => {
+    const timers = [];
+    const { Highlights, rendition, elements } = loadHighlights([], {
+      setTimeout(fn) { timers.push(fn); }
+    });
+    const oldListeners = {};
+    const oldContents = {
+      document: {
+        addEventListener(type, fn) { oldListeners[type] = fn; }
+      },
+      window: {
+        getSelection() { return { isCollapsed: true }; }
+      }
+    };
+
+    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    rendition.hooks.content.callbacks[0](oldContents);
+    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+
+    const toolbar = elements.get('selection-toolbar');
+    toolbar.classList.add('show');
+    oldListeners.mousedown();
+    timers.splice(0).forEach((fn) => fn());
+
+    assert.equal(toolbar.classList.contains('show'), true);
+  });
+
+  test.it('切书后旧高亮点击回调不会打开新书悬浮层', async () => {
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: 'note', timestamp: 1 }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
+
+    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    const oldClick = annotations[0].cb;
+    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+
+    oldClick({
+      stopPropagation() {},
+      target: createElement('old-rendered-highlight')
+    });
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), false);
+    assert.equal(elements.get('note-popup').classList.contains('show'), false);
+  });
+
+  test.it('旧上下文内部操作计时器不会提前释放新书交互锁', async () => {
+    const timers = [];
+    const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored, {
+      setTimeout(fn) { timers.push(fn); }
+    });
+
+    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    annotations[0].cb({ stopPropagation() {}, target: createElement('old-highlight') });
+
+    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    const newClick = annotations[0].cb;
+    const contentListeners = {};
+    rendition.hooks.content.callbacks[0]({
+      document: { addEventListener(type, fn) { contentListeners[type] = fn; } },
+      window: { getSelection() { return { isCollapsed: true }; } }
+    });
+    newClick({ stopPropagation() {}, target: createElement('new-highlight') });
+
+    timers.shift()(); // 旧上下文的 INTERNAL_ACTION_LOCK timer
+    contentListeners.mousedown();
+    timers.pop()(); // 当前 iframe 空白点击的 settle timer
+
+    assert.equal(elements.get('selection-toolbar').classList.contains('show'), true);
   });
 
   test.it('更新已有高亮重渲染失败时会记录告警且保留数据保存', async () => {

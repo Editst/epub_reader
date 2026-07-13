@@ -3,7 +3,6 @@
  *
  * 职责：
  *   - openBook：完整书籍加载流程（渲染器、主题、模块挂载、位置恢复、locations 索引）
- *   - loadEpubFile：从 File 对象加载（由 UI 层 drag/open 调用）
  *   - loadFileByBookId：从 IndexedDB 缓存加载（URL 参数启动）
  *   - next / prev：翻页（含 _navLock 防连击、prev 章头特效）
  *   - displayPercentage：进度条跳转
@@ -35,7 +34,22 @@
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
     let navigationSeq = 0;
+    let layoutSeq = 0;
+    let lifecycleSeq = 0;
+    let isMounted = true;
     let openBookQueue = Promise.resolve();
+
+    function _createAbortError(message) {
+      const error = new Error(message);
+      error.name = 'AbortError';
+      return error;
+    }
+
+    function _assertOpenActive(openLifecycleSeq) {
+      if (!isMounted || openLifecycleSeq !== lifecycleSeq) {
+        throw _createAbortError('Reader runtime lifecycle ended while opening a book');
+      }
+    }
 
     // ── Rendition 工厂 ───────────────────────────────────────────────────────
     // openBook 与 setLayout 共享的 rendition 创建 + 主题 + hook 逻辑
@@ -96,6 +110,16 @@
       rendition.on('displayed', () => setTimeout(() => {
         if (state.rendition === rendition) ui.ensureFocus();
       }, POST_DISPLAY_FOCUS_DELAY_MS));
+    }
+
+    function _mountFeatureModules() {
+      moduleLifecycle.mount({
+        book: state.book,
+        rendition: state.rendition,
+        bookId: state.currentBookId,
+        fileName: state.currentFileName,
+        navigate: navigateTo
+      });
     }
 
     // ── Locations ─────────────────────────────────────────────────────────────
@@ -349,6 +373,21 @@
       return data;
     }
 
+    function _destroyActiveBookResources() {
+      try {
+        moduleLifecycle.unmount();
+      } catch (e) {
+        console.warn('[Runtime] module unmount failed:', e);
+      }
+
+      if (state.rendition && typeof state.rendition.destroy === 'function') {
+        try { state.rendition.destroy(); } catch (e) { console.warn('[Runtime] rendition destroy failed:', e); }
+      }
+      if (state.book && typeof state.book.destroy === 'function') {
+        try { state.book.destroy(); } catch (e) { console.warn('[Runtime] book destroy failed:', e); }
+      }
+    }
+
     async function _teardownActiveBookForReplacement() {
       if (!state.book && !state.rendition) {
         state.currentBookId = '';
@@ -373,18 +412,7 @@
         }
       }
 
-      try {
-        moduleLifecycle.unmount();
-      } catch (e) {
-        console.warn('[Runtime] module unmount failed:', e);
-      }
-
-      if (state.rendition && typeof state.rendition.destroy === 'function') {
-        try { state.rendition.destroy(); } catch (e) { console.warn('[Runtime] rendition destroy failed:', e); }
-      }
-      if (state.book && typeof state.book.destroy === 'function') {
-        try { state.book.destroy(); } catch (e) { console.warn('[Runtime] book destroy failed:', e); }
-      }
+      _destroyActiveBookResources();
 
       state.book = null;
       state.rendition = null;
@@ -406,20 +434,109 @@
      * @param {string} fileName
      * @param {string|null} [targetCfi]  指定跳转位置（覆盖 storage savedPos）
      */
-    async function _openBook(fileData, bookId, fileName, targetCfi = null) {
+    async function _openBook(fileData, bookId, fileName, targetCfi, openLifecycleSeq) {
       const openStartedAt = Date.now();
+      layoutSeq++;
+      _assertOpenActive(openLifecycleSeq);
 
       // ── 清理旧书 ────────────────────────────────────────────────────────────
       await _teardownActiveBookForReplacement();
+      _assertOpenActive(openLifecycleSeq);
       try {
-        return await _initializeBook(fileData, bookId, fileName, targetCfi, openStartedAt);
+        return await _initializeBook(
+          fileData, bookId, fileName, targetCfi, openStartedAt, openLifecycleSeq
+        );
       } catch (error) {
         await _teardownActiveBookForReplacement();
         throw error;
       }
     }
 
-    async function _initializeBook(fileData, bookId, fileName, targetCfi, openStartedAt) {
+    function _applyLocationsProgress(initSpeedTracking) {
+      const loc = state.rendition.currentLocation();
+      if (!loc || !loc.start) return;
+
+      const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
+        ? state.currentStableCfi
+        : loc.start.cfi;
+      const progress = state.book.locations.percentageFromCfi(progressCfi);
+      initSpeedTracking(progress);
+      const percent = Math.round(progress * 1000) / 10;
+      state.lastPercent = percent;
+      ui.updateProgress(percent);
+      if (!state.isRestoreAnchorProtected && loc.start.cfi !== state.currentStableCfi) {
+        persistence.onRelocated(loc);
+      }
+    }
+
+    function _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking) {
+      console.info('[Runtime] locations_cache_hit:', true);
+      if (!cachedLocationsLoaded) state.book.locations.load(cachedLocsJSON);
+      state.hasLocations = true;
+      state.locationsStatus = 'ready';
+      state.locationsBreak = null;
+      state.locationsError = null;
+      if (typeof ui.setLocationIndexStatus === 'function') {
+        ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
+      }
+      _applyLocationsProgress(initSpeedTracking);
+    }
+
+    function _scheduleLocationsGeneration(bookId, fileData, activeBook, initSpeedTracking) {
+      const locationsBreak = chooseLocationsBreak(fileData);
+      state.hasLocations = false;
+      state.locationsStatus = 'pending';
+      state.locationsBreak = locationsBreak;
+      state.locationsError = null;
+      if (typeof ui.setLocationIndexStatus === 'function') {
+        ui.setLocationIndexStatus('pending', '准备生成阅读定位索引...');
+      }
+
+      scheduleLocationsGeneration(async () => {
+        if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+        state.locationsStatus = 'generating';
+        if (typeof ui.setLocationIndexStatus === 'function') {
+          ui.setLocationIndexStatus('generating', '后台生成阅读定位索引...');
+        }
+
+        const generationStartedAt = Date.now();
+        try {
+          await activeBook.locations.generate(locationsBreak);
+          if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+          const locsJSON = activeBook.locations.save();
+          await EpubStorage.saveLocations(bookId, locsJSON);
+          if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+          state.hasLocations = true;
+          state.locationsStatus = 'ready';
+          state.locationsError = null;
+          console.info('[Runtime] locations_generate_duration(ms):', Date.now() - generationStartedAt);
+          _applyLocationsProgress(initSpeedTracking);
+          if (typeof ui.setLocationIndexStatus === 'function') {
+            ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
+          }
+        } catch (e) {
+          if (state.currentBookId !== bookId || state.book !== activeBook) return;
+
+          state.hasLocations = false;
+          state.locationsStatus = 'failed';
+          state.locationsError = e && e.message ? e.message : String(e);
+          console.warn('[Runtime] locations generate failed:', e);
+          if (typeof ui.setLocationIndexStatus === 'function') {
+            ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
+          }
+          if (persistence && typeof persistence.updateReadingStats === 'function') {
+            persistence.updateReadingStats();
+          }
+        }
+      });
+    }
+
+    async function _initializeBook(
+      fileData, bookId, fileName, targetCfi, openStartedAt, openLifecycleSeq
+    ) {
       ui.setReaderVisible(true);
       ui.clearReaderError();
 
@@ -431,10 +548,12 @@
 
       // ── 加载 meta & prefs ───────────────────────────────────────────────────
       const prefs = await EpubStorage.getPreferences();
+      _assertOpenActive(openLifecycleSeq);
       state.prefs = { ...state.prefs, ...(prefs || {}) };
       ui.syncPrefsToControls();
 
       const meta = await EpubStorage.getBookMeta(bookId);
+      _assertOpenActive(openLifecycleSeq);
       state.activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
       // 直接初始化内存缓存，避免再次读取同一份 bookMeta。
       state.cachedSpeed = (meta && meta.speed)
@@ -455,6 +574,7 @@
 
       // ── book.ready ──────────────────────────────────────────────────────────
       await state.book.ready;
+      _assertOpenActive(openLifecycleSeq);
 
       // ── 封面提取（fire-and-forget） ─────────────────────────────────────────
       (async () => {
@@ -471,20 +591,23 @@
 
       // ── metadata / title ────────────────────────────────────────────────────
       const bookMeta = await state.book.loaded.metadata;
+      _assertOpenActive(openLifecycleSeq);
       ui.setBookTitle(bookMeta.title || state.currentFileName);
 
       // ── TOC ─────────────────────────────────────────────────────────────────
-      const navigation = await state.book.loaded.navigation;
-      if (typeof TOC !== 'undefined') TOC.build(navigation, state.rendition);
+      await state.book.loaded.navigation;
+      _assertOpenActive(openLifecycleSeq);
 
       // ── savedPos → 进度条初始值 ─────────────────────────────────────────────
       const savedPos = await EpubStorage.getPosition(bookId);
+      _assertOpenActive(openLifecycleSeq);
       if (savedPos && savedPos.percentage !== undefined) {
         const initialPercent = Math.round(savedPos.percentage * 10) / 10;
         ui.updateProgress(initialPercent);
       }
 
       let cachedLocsJSON = await EpubStorage.getLocations(bookId);
+      _assertOpenActive(openLifecycleSeq);
       let cachedLocationsLoaded = _loadCachedLocations(cachedLocsJSON);
       if (cachedLocsJSON && !cachedLocationsLoaded) cachedLocsJSON = null;
 
@@ -507,8 +630,10 @@
         }
         if (displayCfi) await state.rendition.display(displayCfi);
         else await state.rendition.display();
+        _assertOpenActive(openLifecycleSeq);
         if (!targetCfi && savedPos && state.currentStableLocator) {
           await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator }, displayCfi);
+          _assertOpenActive(openLifecycleSeq);
         }
       } finally {
         state.isRestoringPosition = false;
@@ -523,128 +648,41 @@
         author:   bookMeta.creator || '',
         filename: state.currentFileName
       });
+      _assertOpenActive(openLifecycleSeq);
 
       // ── 子模块 mount（统一生命周期） ─────────────────────────────────────────
-      const context = {
-        book:      state.book,
-        rendition: state.rendition,
-        bookId:    state.currentBookId,
-        fileName:  state.currentFileName,
-        navigate:  navigateTo
-      };
-      moduleLifecycle.mount(context);
+      _mountFeatureModules();
 
       // ── isBookLoaded ─────────────────────────────────────────────────────────
       ui.showLoading(false);
       state.isBookLoaded = true;
 
-      setTimeout(() => ui.ensureFocus(), POST_OPEN_FOCUS_DELAY_MS);
+      const openedBook = state.book;
+      const openedRendition = state.rendition;
+      setTimeout(() => {
+        if (!isMounted || state.book !== openedBook || state.rendition !== openedRendition) return;
+        ui.ensureFocus();
+      }, POST_OPEN_FOCUS_DELAY_MS);
 
-      // ── locations 索引（idle 调度，v2.0 P-2） ───────────────────────────────
+      // ── locations 索引（idle 调度） ────────────────────────────────────────
       const initSpeedTracking = (progress) => {
         state.sessionStart = { progress, timestamp: Date.now() };
         state.lastProgress = progress;
       };
 
       if (cachedLocsJSON) {
-        console.info('[Runtime] locations_cache_hit:', true);
-        if (!cachedLocationsLoaded) state.book.locations.load(cachedLocsJSON);
-        state.hasLocations = true;
-        state.locationsStatus = 'ready';
-        state.locationsBreak = null;
-        state.locationsError = null;
-        if (typeof ui.setLocationIndexStatus === 'function') {
-          ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
-        }
-        // locations 已就绪，立即更新进度 / 速度追踪起点
-        const loc = state.rendition.currentLocation();
-        if (loc && loc.start) {
-          const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
-            ? state.currentStableCfi
-            : loc.start.cfi;
-          const p = state.book.locations.percentageFromCfi(progressCfi);
-          initSpeedTracking(p);
-          const percent = Math.round(p * 1000) / 10;
-          state.lastPercent = percent;
-          ui.updateProgress(percent);
-          // CFI 变化检测：若 currentLocation 返回的 CFI 与已保存的相同，
-          // 跳过 onRelocated 以避免用边界 CFI 覆盖正确位置。
-          if (!state.isRestoreAnchorProtected && loc.start.cfi !== state.currentStableCfi) {
-            persistence.onRelocated(loc);
-          }
-        }
-        // locations 加载完毕后，后续翻页恢复正常写入。
+        _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking);
       } else {
-        // 无缓存时 display 已完成，locations 在后台生成。
-        // locations 异步生成期间用户可能翻页，须允许正常位置保存。
-        const activeBook = state.book;
-        const locationsBreak = chooseLocationsBreak(fileData);
-        state.hasLocations = false;
-        state.locationsStatus = 'pending';
-        state.locationsBreak = locationsBreak;
-        state.locationsError = null;
-        if (typeof ui.setLocationIndexStatus === 'function') {
-          ui.setLocationIndexStatus('pending', '准备生成阅读定位索引...');
-        }
-        scheduleLocationsGeneration(async () => {
-          if (state.currentBookId !== bookId || state.book !== activeBook) return;
-
-          state.locationsStatus = 'generating';
-          if (typeof ui.setLocationIndexStatus === 'function') {
-            ui.setLocationIndexStatus('generating', '后台生成阅读定位索引...');
-          }
-
-          const generationStartedAt = Date.now();
-
-          try {
-            await state.book.locations.generate(locationsBreak);
-            if (state.currentBookId !== bookId || state.book !== activeBook) return;
-
-            const locsJSON = state.book.locations.save();
-            await EpubStorage.saveLocations(state.currentBookId, locsJSON);
-            state.hasLocations = true;
-            state.locationsStatus = 'ready';
-            state.locationsError = null;
-            console.info('[Runtime] locations_generate_duration(ms):', Date.now() - generationStartedAt);
-
-            const loc = state.rendition.currentLocation();
-            if (loc && loc.start) {
-              const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
-                ? state.currentStableCfi
-                : loc.start.cfi;
-              const p = state.book.locations.percentageFromCfi(progressCfi);
-              initSpeedTracking(p);
-              const percent = Math.round(p * 1000) / 10;
-              state.lastPercent = percent;
-              ui.updateProgress(percent);
-              if (!state.isRestoreAnchorProtected && loc.start.cfi !== state.currentStableCfi) {
-                persistence.onRelocated(loc);
-              }
-            }
-
-            if (typeof ui.setLocationIndexStatus === 'function') {
-              ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
-            }
-          } catch (e) {
-            if (state.currentBookId !== bookId || state.book !== activeBook) return;
-
-            state.hasLocations = false;
-            state.locationsStatus = 'failed';
-            state.locationsError = e && e.message ? e.message : String(e);
-            console.warn('[Runtime] locations generate failed:', e);
-            if (typeof ui.setLocationIndexStatus === 'function') {
-              ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
-            }
-            if (persistence && typeof persistence.updateReadingStats === 'function') {
-              persistence.updateReadingStats();
-            }
-          }
-        });
+        _scheduleLocationsGeneration(bookId, fileData, state.book, initSpeedTracking);
       }
     }
 
     function openBook(fileData, bookId, fileName, targetCfi = null) {
-      const task = openBookQueue.then(() => _openBook(fileData, bookId, fileName, targetCfi));
+      const openLifecycleSeq = lifecycleSeq;
+      const task = openBookQueue.then(() => {
+        _assertOpenActive(openLifecycleSeq);
+        return _openBook(fileData, bookId, fileName, targetCfi, openLifecycleSeq);
+      });
       openBookQueue = task.catch(() => {});
       return task;
     }
@@ -653,14 +691,17 @@
 
     async function loadFileByBookId(bookId, options = {}) {
       const { targetCfi = null } = options;
+      const loadLifecycleSeq = lifecycleSeq;
       try {
         ui.showLoading(true);
         const record = await EpubStorage.getFile(bookId);
+        _assertOpenActive(loadLifecycleSeq);
         if (record && record.data) {
           const fileName = record.filename || '';
           try {
             await openBook(record.data, bookId, fileName, targetCfi);
           } catch (err) {
+            if (err?.name === 'AbortError') return;
             console.error('[Runtime] loadFileByBookId: openBook failed', err);
             ui.showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
           }
@@ -668,6 +709,7 @@
           ui.showLoadError('该书籍缓存不存在或已被自动清理，请通过"打开文件"重新导入。');
         }
       } catch (e) {
+        if (e?.name === 'AbortError') return;
         console.error('[Runtime] loadFileByBookId error:', e);
         ui.showLoadError('读取缓存数据失败。请重新导入该电子书。');
       }
@@ -743,6 +785,77 @@
 
     // ── Layout Switch ─────────────────────────────────────────────────────────
 
+    function _saveLayoutPreferenceSafely(layout) {
+      EpubStorage.savePreferences({ layout }).catch((e) => {
+        console.warn('[Runtime] save layout preference failed:', e);
+      });
+    }
+
+    async function _displayLayoutRendition(rendition, cfi) {
+      if (cfi) await rendition.display(cfi);
+      else await rendition.display();
+      // 等待 relocated 事件处理完毕后再解除恢复保护。
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+    }
+
+    function _isCurrentLayoutContext(layoutId, activeBook, activeRendition) {
+      return layoutId === layoutSeq &&
+        state.book === activeBook &&
+        (!activeRendition || state.rendition === activeRendition);
+    }
+
+    function _destroyRenditionSafely(rendition, warningLabel) {
+      if (!rendition || typeof rendition.destroy !== 'function') return;
+      try {
+        rendition.destroy();
+      } catch (e) {
+        console.warn(`[Runtime] ${warningLabel}:`, e);
+      }
+    }
+
+    function _clearBrokenLayoutContext() {
+      _destroyActiveBookResources();
+      state.book = null;
+      state.rendition = null;
+      state.currentBookId = '';
+      state.currentFileName = '';
+      state.isBookLoaded = false;
+      state.navLock = false;
+      ReaderState.resetReadingSession(state);
+      if (typeof ui.showLoadError === 'function') {
+        ui.showLoadError('切换阅读布局失败，请重新打开该书籍。');
+      }
+    }
+
+    async function _rollbackLayout(
+      previousLayout, currentCfi, failedRendition, layoutId, activeBook
+    ) {
+      state.prefs.layout = previousLayout;
+      ui.syncPrefsToControls();
+      _destroyRenditionSafely(failedRendition, 'failed rendition cleanup after layout error');
+
+      let rollbackRendition = failedRendition;
+      try {
+        const rendition = _createRendition(previousLayout);
+        rollbackRendition = rendition;
+        state.rendition = rendition;
+        _hookRenditionEvents(rendition, state.prefs.theme);
+        _mountFeatureModules();
+        await _displayLayoutRendition(rendition, currentCfi);
+        return rendition;
+      } catch (e) {
+        if (_isCurrentLayoutContext(layoutId, activeBook, rollbackRendition)) {
+          console.error('[Runtime] layout rollback failed:', e);
+          _clearBrokenLayoutContext();
+        } else {
+          console.warn('[Runtime] stale layout rollback failure ignored:', e);
+        }
+        return null;
+      }
+    }
+
     /**
      * 布局切换：重建 rendition，保留当前阅读位置。
      * 不重新 openBook，避免重置当前阅读会话。
@@ -750,58 +863,89 @@
      * @param {string} layout  'paginated' | 'scrolled'
      */
     async function setLayout(layout) {
-      if (!layout || !['paginated', 'scrolled'].includes(layout)) return;
-      state.prefs.layout = layout;
-      ui.syncPrefsToControls();
-      EpubStorage.savePreferences({ layout }).catch((e) => {
-        console.warn('[Runtime] save layout preference failed:', e);
-      });
+      if (!layout || !['paginated', 'scrolled'].includes(layout)) return false;
+      if (!state.book || !state.isBookLoaded) {
+        state.prefs.layout = layout;
+        ui.syncPrefsToControls();
+        _saveLayoutPreferenceSafely(layout);
+        return true;
+      }
 
-      if (!state.book || !state.isBookLoaded) return;
+      const layoutId = ++layoutSeq;
+      const activeBook = state.book;
+      const previousLayout = state.prefs.layout;
+      const previousRendition = state.rendition;
+      let currentCfi = null;
+      try {
+        const loc = previousRendition ? previousRendition.currentLocation() : null;
+        currentCfi = loc && loc.start ? loc.start.cfi : null;
+      } catch (e) {
+        console.warn('[Runtime] layout switch could not read current location:', e);
+        return false;
+      }
 
-      const loc = state.rendition ? state.rendition.currentLocation() : null;
-      const currentCfi = loc && loc.start ? loc.start.cfi : null;
+      let activeRendition = previousRendition;
+      let layoutCompleted = false;
+      let layoutRecovered = false;
 
       state.isRestoringPosition = true;
+      state.isLayoutStable = false;
       try {
-        state.rendition.destroy();
+        if (previousRendition && typeof previousRendition.destroy === 'function') {
+          previousRendition.destroy();
+        }
+        state.prefs.layout = layout;
+        ui.syncPrefsToControls();
         state.rendition = _createRendition(layout);
+        activeRendition = state.rendition;
 
         _hookRenditionEvents(state.rendition, state.prefs.theme);
 
-        if (typeof TOC !== 'undefined') TOC.build(state.book.navigation, state.rendition);
-        if (typeof Bookmarks !== 'undefined') {
-          Bookmarks.setBook(state.currentBookId, state.book, state.rendition);
-        }
-        if (typeof Search !== 'undefined') Search.setBook(state.book, state.rendition);
-        if (typeof Highlights !== 'undefined') {
-          Highlights.setBookDetails(state.currentBookId, state.currentFileName, state.rendition);
-        }
+        _mountFeatureModules();
 
-        if (currentCfi) await state.rendition.display(currentCfi);
-        else await state.rendition.display();
-        // 布局切换完成，等待 relocated 事件处理完毕后解除保护
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        await _displayLayoutRendition(activeRendition, currentCfi);
+        if (!_isCurrentLayoutContext(layoutId, activeBook, activeRendition)) return false;
+        layoutCompleted = true;
+        _saveLayoutPreferenceSafely(layout);
+        return true;
+      } catch (e) {
+        console.warn('[Runtime] layout switch failed, restoring previous layout:', e);
+        if (!_isCurrentLayoutContext(layoutId, activeBook)) return false;
+
+        activeRendition = await _rollbackLayout(
+          previousLayout, currentCfi, activeRendition, layoutId, activeBook
+        );
+        layoutRecovered = !!activeRendition;
+        return false;
       } finally {
-        state.isRestoringPosition = false;
+        if (_isCurrentLayoutContext(layoutId, activeBook, activeRendition)) {
+          state.isRestoringPosition = false;
+          state.isLayoutStable = layoutCompleted || layoutRecovered;
+        }
       }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async function mount() {
-      // runtime 本身无需额外初始化，openBook 在调用时按需启动
+      if (!isMounted) lifecycleSeq++;
+      isMounted = true;
     }
 
     function unmount() {
-      if (state.rendition) {
-        moduleLifecycle.unmount();
-        state.rendition.destroy();
-      }
-      state.book        = null;
-      state.rendition   = null;
+      isMounted = false;
+      lifecycleSeq++;
+      layoutSeq++;
+      _destroyActiveBookResources();
+
+      state.book = null;
+      state.rendition = null;
+      state.currentBookId = '';
+      state.currentFileName = '';
       state.isBookLoaded = false;
       state.isLayoutStable = false;
+      state.navLock = false;
+      ReaderState.resetReadingSession(state);
     }
 
     return {

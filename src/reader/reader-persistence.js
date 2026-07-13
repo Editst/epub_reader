@@ -37,15 +37,12 @@
 
     // ── Position ─────────────────────────────────────────────────────────────
 
-    function _savePosition(bookId, cfi, percent, locator) {
-      if (locator !== undefined) return EpubStorage.savePosition(bookId, cfi, percent, locator);
-      return EpubStorage.savePosition(bookId, cfi, percent);
-    }
-
     function _savePositionSafely(bookId, cfi, percent, locator) {
       let write;
       try {
-        write = _savePosition(bookId, cfi, percent, locator);
+        write = locator === undefined
+          ? EpubStorage.savePosition(bookId, cfi, percent)
+          : EpubStorage.savePosition(bookId, cfi, percent, locator);
       } catch (e) {
         write = Promise.reject(e);
       }
@@ -386,11 +383,11 @@
     /**
      * 结束当前 speed session，有效样本累加到 cachedSpeed 并写入 storage。
      *
-     * 有效条件（与 reader-full.js 严格对齐）：
+     * 有效条件：
      *   deltaProgress ∈ (0.001, 0.30)  读了 0.1%–30%
      *   deltaSeconds  > 30              持续 30s 以上
      *
-     * v2.0 升级：应用 Utils.computeSessionWeight 跳读识别权重。
+     * 使用 Utils.computeSessionWeight 降低跳读样本权重。
      *
      * @param {number|null} newStartProgress  null=session 结束；数字=跳跃后续期
      */
@@ -425,7 +422,6 @@
 
     /**
      * relocated 事件主处理器。
-     * 与 reader-full.js onLocationChanged 功能完全对齐。
      *
      * @param {object} location  epub.js location 对象
      */
@@ -458,7 +454,7 @@
           state.book && state.book.navigation ? state.book.navigation.toc : [],
           currentSection
         );
-        ui.updateChapterTitle(tocItem ? tocItem.label.trim() : '');
+        ui.updateChapterTitle(ReaderState.getTocItemLabel(tocItem));
         if (typeof TOC !== 'undefined' && TOC.setActive) TOC.setActive(currentSection);
       }
 
@@ -516,7 +512,7 @@
     /**
      * 更新底部阅读统计栏（时长 + ETA）。
      *
-     * ETA 策略（v2.0 加权版，与 reader-full.js 完全对齐）：
+     * ETA 策略（加权版）：
      *   1. 历史累积速度 cachedSpeed（sampledProgress>1%, sampledSeconds>120s）
      *   2. 当前 session 实时速度（deltaSeconds>30, deltaProgress>0.3%）
      *   3. Fallback：静态估算（每 location ≈ 150字，400字/分钟）
@@ -589,7 +585,7 @@
 
     // ── Visibility ────────────────────────────────────────────────────────────
 
-    // v1.8.0 BUG-02-B：页面重新可见时重置 session 起点，排除挂机时间
+    // 页面重新可见时重置 session 起点，排除后台挂机时间。
     function _onVisibilityChange() {
       if (document.hidden) {
         if (state.currentBookId && state.isBookLoaded) {

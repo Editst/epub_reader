@@ -163,10 +163,6 @@ html, body {
   transition: transform 0.3s ease, background 0.3s ease;
 }
 
-.toolbar.hidden {
-  transform: translateY(-100%);
-}
-
 .toolbar-left, .toolbar-right {
   display: flex;
   align-items: center;
@@ -658,7 +654,7 @@ html, body {
   opacity: 0;
 }
 
-/* JS-controlled visibility helpers — replaces runtime style.display writes (D-2026-04 / v1.9.2) */
+/* JS-controlled visibility helpers */
 .welcome-screen.is-hidden  { display: none !important; }
 .reader-main.is-visible    { display: flex !important; }
 .bottom-bar.is-visible     { display: flex !important; }
@@ -1012,10 +1008,6 @@ html, body {
 }
 
 /* --- Drag & Drop Overlay --- */
-.drag-overlay.hidden {
-  display: none;
-}
-
 .drag-overlay {
   position: fixed;
   inset: 0;
@@ -1386,7 +1378,7 @@ svg.epubjs-annotation {
 .epubjs-hl-with-note line, .epubjs-hl-with-note polyline, .epubjs-hl-with-note path {
   stroke: var(--text-accent) !important;
   stroke-width: 3px !important;
-  stroke-dasharray: 12, 6 !important; /* Issue 2: Uniform Long dashed line for both */
+  stroke-dasharray: 12, 6 !important; /* 高亮与纯笔记使用一致的长虚线 */
   stroke-linecap: round !important;
   stroke-opacity: 0.9 !important;
   fill: none !important;

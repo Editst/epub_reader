@@ -9,10 +9,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const fileInput  = document.getElementById('file-input');
   const recentList = document.getElementById('recent-list');
   const emptyState = document.getElementById('empty-state');
+  let recentBooksRenderSeq = 0;
 
   // ── 打开新书 ───────────────────────────────────────────────────────────────
-  // v1.9.3: 放弃 showOpenFilePicker。
-  // showOpenFilePicker 需要"transient user activation"，在 async click handler
+  // showOpenFilePicker 需要 "transient user activation"，在 async click handler
   // 里经过任何 await（包括 loadRecentBooks 的异步等待）后激活状态即失效，
   // 导致调用静默失败（DevTools 打开时限制放宽故能通过，这是根本症状来源）。
   // fileInput.click() 在 click handler 的同步调用栈中触发，无此限制。
@@ -34,14 +34,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadRecentBooksSafely();
 
-  function showEmptyState() {
+  function clearRenderedRecentItems() {
+    recentList.querySelectorAll('[data-cover-url]').forEach((item) => {
+      if (item.dataset.coverUrl) URL.revokeObjectURL(item.dataset.coverUrl);
+    });
     recentList.innerHTML = '';
+  }
+
+  function showEmptyState() {
+    clearRenderedRecentItems();
     recentList.appendChild(emptyState);
     emptyState.style.display = 'block';
   }
 
   function loadRecentBooksSafely() {
-    return loadRecentBooks().catch((e) => {
+    const renderSeq = ++recentBooksRenderSeq;
+    return loadRecentBooks(renderSeq).catch((e) => {
+      if (renderSeq !== recentBooksRenderSeq) return;
       console.warn('[Popup] loadRecentBooks failed:', e);
       showEmptyState();
     });
@@ -64,16 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── 最近书籍列表（并行加载） ───────────────────────────────────────────────
-  async function loadRecentBooks() {
+  async function loadRecentBooks(renderSeq) {
     const books = await EpubStorage.getRecentBooks();
+    if (renderSeq !== recentBooksRenderSeq) return;
     if (books.length === 0) {
       showEmptyState();
       return;
     }
-    emptyState.style.display = 'none';
-    recentList.innerHTML = '';
 
-    // v1.9.3: 逐项容错——单本封面/元数据加载失败不影响整个列表渲染
+    // 逐项容错：单本封面/元数据加载失败不影响整个列表渲染。
     const dataList = await Promise.all(books.map(async (book) => {
       const [coverBlob, meta] = await Promise.all([
         EpubStorage.getCover(book.id).catch(() => null),
@@ -81,6 +89,10 @@ document.addEventListener('DOMContentLoaded', () => {
       ]);
       return { book, coverBlob, meta };
     }));
+    if (renderSeq !== recentBooksRenderSeq) return;
+
+    emptyState.style.display = 'none';
+    clearRenderedRecentItems();
 
     for (const { book, coverBlob, meta } of dataList) {
       const item = document.createElement('div');
@@ -92,12 +104,13 @@ document.addEventListener('DOMContentLoaded', () => {
       let coverObjectUrl = null;
       if (coverBlob) {
         coverObjectUrl = URL.createObjectURL(coverBlob);
+        item.dataset.coverUrl = coverObjectUrl;
         const img = document.createElement('img');
         img.className = 'cover-img';
         img.alt = 'Cover';
-        img.src = coverObjectUrl;
         img.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
         img.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        img.src = coverObjectUrl;
         iconEl.appendChild(img);
       } else {
         iconEl.textContent = '📖';
@@ -117,8 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
       authorEl.textContent = book.author || '未知作者';
 
       const dateEl = document.createElement('div');
-      dateEl.className = 'recent-item-date';
-      dateEl.style.marginTop = '2px';
+      dateEl.className = 'recent-item-date recent-item-opened-at';
       dateEl.textContent = Utils.formatDate(book.lastOpened, '');
 
       infoEl.append(titleEl, authorEl, dateEl);

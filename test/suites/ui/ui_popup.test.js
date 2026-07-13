@@ -45,7 +45,9 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
   test.it('P-5: popup.js loadRecentBooks 通过安全辅助函数保护', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
     assert.ok(js.includes('function loadRecentBooksSafely()'), '应通过安全辅助函数加载最近阅读');
-    assert.ok(js.includes('return loadRecentBooks().catch((e) => {'), 'loadRecentBooksSafely 应捕获加载失败');
+    assert.ok(js.includes('const renderSeq = ++recentBooksRenderSeq'), '每次刷新应递增渲染代次');
+    assert.ok(js.includes('return loadRecentBooks(renderSeq).catch((e) => {'), 'loadRecentBooksSafely 应捕获加载失败');
+    assert.ok(js.includes('if (renderSeq !== recentBooksRenderSeq) return'), '旧刷新失败不得覆盖新列表');
     assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应 have fallback');
     assert.ok(js.includes('function showEmptyState()'), '空列表与加载失败应共用空状态恢复路径');
     assert.ok(js.includes('showEmptyState();'), '加载失败应重新挂载空状态而非保留旧列表');
@@ -55,6 +57,29 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
     assert.ok(js.includes('Utils.normalizePercent(meta.pos.percentage)'), 'popup.js 应归一化 storage 中的阅读进度');
     assert.ok(js.includes("percent.toFixed(1) + '%'"), '展示文本应基于归一化后的数字格式化');
+  });
+
+  test.it('popup 最近列表忽略封面读取期间迟到的旧刷新', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    const checks = js.match(/if \(renderSeq !== recentBooksRenderSeq\) return/g) || [];
+
+    assert.ok(js.includes('let recentBooksRenderSeq = 0'));
+    assert.ok(js.includes('async function loadRecentBooks(renderSeq)'));
+    assert.ok(checks.length >= 3, '读取列表、加载卡片数据和失败回退后都应校验代次');
+    assert.ok(js.indexOf("img.addEventListener('load'") < js.indexOf('img.src = coverObjectUrl'),
+      '封面回收监听必须先于 src 赋值注册');
+    assert.ok(js.includes('function clearRenderedRecentItems()'));
+    assert.ok(js.includes('item.dataset.coverUrl = coverObjectUrl'));
+  });
+
+  test.it('popup 最近阅读日期使用样式类并保持相对时间格式', () => {
+    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
+    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
+
+    assert.ok(js.includes("dateEl.className = 'recent-item-date recent-item-opened-at'"));
+    assert.ok(js.includes("Utils.formatDate(book.lastOpened, '')"));
+    assert.ok(!js.includes("dateEl.style.marginTop = '2px'"));
+    assert.match(html, /\.recent-item-opened-at\s*\{[^}]*margin-top:\s*2px/);
   });
 
   test.it('P-3: popup.html 无外部 preconnect/prefetch 标签', () => {

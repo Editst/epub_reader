@@ -1,9 +1,7 @@
 /**
  * src/utils/utils.js
- * 共享工具函数 — 跨页面通用的纯函数集合
- *
- * v1.7.0: 从 home.js / popup.js / reader.js 提取，消除三处重复定义。
- * 依赖：无（纯函数，不依赖任何 DOM 或扩展 API）
+ * 共享工具函数 — 跨页面通用函数集合
+ * 除 escapeHtml 使用 document.createElement 外，不依赖扩展 API。
  */
 const Utils = {
 
@@ -37,6 +35,20 @@ const Utils = {
     if (diff < 86_400_000)   return Math.floor(diff / 3_600_000) + ' 小时前';
     if (diff < 604_800_000)  return Math.floor(diff / 86_400_000) + ' 天前';
     return new Date(timestamp).toLocaleDateString('zh-CN');
+  },
+
+  /**
+   * 将 Unix 时间戳格式化为绝对日期与分钟时间。
+   *
+   * @param {number} timestamp Unix ms 时间戳
+   * @param {string} [fallback] 时间戳为空时的返回值
+   * @returns {string}
+   */
+  formatDateTime(timestamp, fallback = '') {
+    if (!timestamp) return fallback;
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('zh-CN') + ' ' +
+      date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   },
 
   /**
@@ -84,6 +96,17 @@ const Utils = {
     return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
       ? colorStr
       : '#ffeb3b';
+  },
+
+  /**
+   * 将高亮颜色归一化为可见颜色；透明、缺失或非法值回退为默认黄色。
+   *
+   * @param {string} color
+   * @returns {string}
+   */
+  resolveDisplayColor(color) {
+    const safeColor = Utils.sanitizeColor(color);
+    return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
   },
 
   /**

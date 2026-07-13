@@ -11,6 +11,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 test.describe('样式与辅助类检查', () => {
+  test.it('Reader 不保留无调用方的 toolbar.hidden 旧样式', () => {
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+    assert.ok(!css.includes('.toolbar.hidden'));
+  });
 
   test.it('S-2: themes.css 提供 [data-theme="custom"] 主题变量块', () => {
     const css = fs.readFileSync('src/styles/themes.css', 'utf8');

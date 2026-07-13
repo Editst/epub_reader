@@ -1,5 +1,5 @@
 /**
- * reader.js — EPUB Reader v2.1 入口编排层
+ * reader.js — EPUB Reader 入口编排层
  *
  * 职责：仅负责按序初始化四个子模块，串联生命周期，处理 URL 参数启动。
  * 业务逻辑一律委托给各子层：
@@ -7,8 +7,6 @@
  *   - ReaderUi        : DOM 渲染与交互绑定
  *   - ReaderPersistence: 位置/时间/速度持久化
  *   - ReaderRuntime   : epub.js 生命周期与阅读行为
- *
- * v2.0 P-2：locations 生成由 runtime.scheduleLocationsGeneration 以 requestIdleCallback 调度。
  */
 (function () {
   'use strict';

@@ -78,11 +78,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  function resolveAnnotationColor(color) {
-    const safeColor = Utils.sanitizeColor(color);
-    return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
-  }
-
   async function loadBookCardData(book) {
     const [coverBlob, meta] = await Promise.all([
       EpubStorage.getCover(book.id).catch((err) => {
@@ -95,6 +90,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       })
     ]);
     return { coverBlob, meta };
+  }
+
+  function clearRenderedBookCards() {
+    booksContainer.querySelectorAll('[data-cover-url]').forEach((card) => {
+      if (card.dataset.coverUrl) URL.revokeObjectURL(card.dataset.coverUrl);
+    });
+    booksContainer.innerHTML = '';
   }
 
   btnTheme.addEventListener('click', () => {
@@ -151,7 +153,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     bookCount.textContent = `(${books.length})`;
 
     if (books.length === 0) {
-      booksContainer.innerHTML = '';
+      clearRenderedBookCards();
       shelfEmpty.classList.add('show');
       btnClearAll.classList.add('is-hidden');
       return;
@@ -159,7 +161,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     shelfEmpty.classList.remove('show');
     btnClearAll.classList.remove('is-hidden');
-    booksContainer.innerHTML = '';
     renderBookshelfSkeleton(books.length);
 
     const tasks = books.map((book, index) => streamRenderBookCard(book, index, renderSeq));
@@ -167,7 +168,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderBookshelfSkeleton(count) {
-    booksContainer.innerHTML = '';
+    clearRenderedBookCards();
     for (let i = 0; i < count; i++) {
       const skeleton = document.createElement('div');
       skeleton.className = 'book-card skeleton-card';
@@ -192,18 +193,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const card = document.createElement('div');
       card.className = 'book-card';
 
-      // v1.7.0: 保存 ObjectURL 引用到 dataset，供删除时显式 revoke
+      // 保存 ObjectURL 引用到 dataset，供删除时显式 revoke。
       let coverObjectUrl = null;
-      let coverHtml;
       if (coverBlob) {
         coverObjectUrl = URL.createObjectURL(coverBlob);
         card.dataset.coverUrl = coverObjectUrl;
-        coverHtml = `<img class="cover-img" src="${coverObjectUrl}" alt="Cover">`;
-      } else {
-        coverHtml = `<div class="placeholder">📖</div>`;
       }
 
-      // 从 bookMeta 读取 pos + time（v1.7.0 合并读取，节省一次 storage 访问）
+      // 从 bookMeta 一次读取位置与时长。
       const bookLabel = book.title || book.filename || '未知书名';
       const bookAuthor = book.author || '未知作者';
       const percent = Utils.normalizePercent(meta && meta.pos ? meta.pos.percentage : 0);
@@ -212,7 +209,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const timeHtml = Utils.formatDuration(timeInSeconds);
 
       card.innerHTML = `
-        <div class="book-cover">${coverHtml}</div>
+        <div class="book-cover"></div>
         <div class="book-info">
           <div class="book-title"></div>
           <div class="book-author"></div>
@@ -238,6 +235,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         </button>
       `;
 
+      const coverEl = card.querySelector('.book-cover');
+      if (coverEl && coverObjectUrl) {
+        const coverImg = document.createElement('img');
+        coverImg.className = 'cover-img';
+        coverImg.alt = 'Cover';
+        coverImg.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        coverImg.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
+        coverImg.src = coverObjectUrl;
+        coverEl.appendChild(coverImg);
+      } else if (coverEl) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'placeholder';
+        placeholder.textContent = '📖';
+        coverEl.appendChild(placeholder);
+      }
+
       const titleEl = card.querySelector('.book-title');
       if (titleEl) {
         titleEl.textContent = bookLabel;
@@ -250,15 +263,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (e.target.closest('.book-delete')) return;
         window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id);
       });
-
-      // FIX P1-E: revoke 仍保留 load/error 监听（图片从网络加载时机不确定）
-      if (coverObjectUrl) {
-        const coverImg = card.querySelector('.cover-img');
-        if (coverImg) {
-          coverImg.addEventListener('load',  () => URL.revokeObjectURL(coverObjectUrl), { once: true });
-          coverImg.addEventListener('error', () => URL.revokeObjectURL(coverObjectUrl), { once: true });
-        }
-      }
 
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -332,7 +336,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     for (const hl of flatAnnotations) {
       const isNoteOnly = hl.color === 'transparent';
-      const annotationColor = isNoteOnly ? '#64748b' : resolveAnnotationColor(hl.color);
+      const annotationColor = isNoteOnly ? '#64748b' : Utils.resolveDisplayColor(hl.color);
       const annotationBorderColor = isNoteOnly ? '#94a3b8' : annotationColor;
       const annotationBadgeBg = isNoteOnly
         ? 'rgba(148, 163, 184, 0.1)'

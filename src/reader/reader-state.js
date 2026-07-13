@@ -95,13 +95,18 @@
     }
   }
 
-  function _isTocHrefMatch(currentHref, itemHref) {
+  function isTocHrefMatch(currentHref, itemHref) {
     const currentBase = String(currentHref || '').split('#')[0];
     const itemBase = String(itemHref || '').split('#')[0];
     if (!currentBase || !itemBase) return false;
     return currentBase === itemBase ||
       currentBase.endsWith('/' + itemBase) ||
       itemBase.endsWith('/' + currentBase);
+  }
+
+  function getTocItemLabel(item) {
+    if (!item || item.label === null || item.label === undefined) return '';
+    return String(item.label).trim();
   }
 
   /**
@@ -113,7 +118,7 @@
   function findTocItem(items, href) {
     if (!items || !items.length) return null;
     for (const item of items) {
-      if (_isTocHrefMatch(href, item.href)) return item;
+      if (isTocHrefMatch(href, item.href)) return item;
       if (item.subitems && item.subitems.length > 0) {
         const found = findTocItem(item.subitems, href);
         if (found) return found;
@@ -141,6 +146,8 @@
   window.ReaderState = {
     createReaderState,
     resetReadingSession,
+    isTocHrefMatch,
+    getTocItemLabel,
     findTocItem,
     buildPrefsSignature
   };

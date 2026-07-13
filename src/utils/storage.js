@@ -2,7 +2,7 @@
  * src/utils/storage.js
  * 统一存储抽象层 — 所有持久化操作的唯一入口
  *
- * v1.7.0 存储结构（chrome.storage.local）：
+ * 当前存储结构（chrome.storage.local）：
  *
  *   全局：
  *     'preferences'          → { theme, fontSize, ... }
@@ -18,12 +18,9 @@
  *
  *   IndexedDB (via DbGateway)：files / covers / locations
  *
- * v1.7.0 变更摘要：
- *   [CONSOLIDATE] pos_<bookId> + time_<bookId> 合并为 bookMeta_<bookId>
- *   [NEW]         speed 字段：per-session 采样，修复中途开书/跳章的 ETA 偏差
- *   [REMOVE]      highlightKeys 索引（有不一致风险），改用 recentBooks 遍历
- *   [DESIGN]      enforceFileLRU 仅淘汰 EPUB 文件缓存，保留进度、书签和标注
- *   [MIGRATION]   getBookMeta lazy migration：自动迁移 v1.6.0 pos_/time_ 旧 key
+ * 兼容约束：getBookMeta 首次读取时迁移旧 pos_/time_ key；getAllHighlights
+ * 清理旧 highlightKeys 索引。enforceFileLRU 只淘汰 EPUB 文件缓存，保留
+ * 进度、书签、标注、封面和 locations。
  */
 const KEYS = Object.freeze({
   preferences: 'preferences',
@@ -170,12 +167,10 @@ const EpubStorage = {
     await this._remove(KEYS.legacyReadingTime(bookId));
   },
 
-  // ── Reading Speed（per-session 采样，v1.7.0 新增） ────────────────────────
+  // ── Reading Speed ────────────────────────────────────────────────────────
   //
-  // speed 结构（v2.2.0，D-2026-25 落地）：
-  //   sampledSeconds  / sampledProgress：加权累计采样，ETA 主路径
-  //   sessions: [{ seconds, progress, timestamp, isJump }]  — v2.0 新增，历史 session 列表
-  //   sessionCount: number  — 有效 session 累计数，< 3 时 ETA 显示"估算中"
+  // sampledSeconds / sampledProgress 是当前 ETA 主路径；sessions / sessionCount
+  // 作为已持久化的兼容字段保留，当前 Reader 不新增历史 session 列表。
   //
   // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
   //            remaining = secsPerUnit * (1 - currentProgress) / 60 (分钟)
@@ -188,7 +183,7 @@ const EpubStorage = {
   async saveReadingSpeed(bookId, speed) {
     if (!bookId || !speed) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
-      // speed 结构 v2.2.0：向后兼容旧 { sampledSeconds, sampledProgress }
+      // 兼容旧的 { sampledSeconds, sampledProgress } 结构。
       current.speed = {
         sampledSeconds:  speed.sampledSeconds  ?? 0,
         sampledProgress: speed.sampledProgress ?? 0,
@@ -204,7 +199,7 @@ const EpubStorage = {
     if (!meta || !meta.speed) {
       return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
     }
-    // 向后兼容：旧 speed 无 sessions/sessionCount 时补默认值
+    // 旧 speed 无 sessions/sessionCount 时补默认值。
     return {
       sampledSeconds:  meta.speed.sampledSeconds  || 0,
       sampledProgress: meta.speed.sampledProgress || 0,
@@ -243,8 +238,7 @@ const EpubStorage = {
   /**
    * 返回所有书籍的高亮，格式 { [bookId]: highlights[] }。
    *
-   * v1.7.0: 废弃 highlightKeys 索引，改为遍历 recentBooks 读取。
-   * recentBooks 是权威书籍列表，无额外维护成本，彻底消除索引不一致风险。
+   * recentBooks 与现存 highlights_* key 共同决定扫描范围，避免孤立标注丢失。
    */
   async getAllHighlights() {
     const books = await this.getRecentBooks();
@@ -342,7 +336,7 @@ const EpubStorage = {
    * 设计约束：自动淘汰只删除占空间最大的 EPUB 文件缓存。
    * recentBooks、bookMeta、highlights、bookmarks、covers、locations 均保留，
    * 以便用户重新导入同一书籍后继续使用阅读进度、书签和标注。
-   * v2.4.0 修复：改为串行执行并逐项隔离失败，避免单本淘汰失败阻塞后续清理。
+   * 淘汰串行执行并逐项隔离失败，避免单本失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
     const meta = await DbGateway.getAllMeta(STORES.files, ['timestamp']);
@@ -362,8 +356,7 @@ const EpubStorage = {
 
   /**
    * 删除一本书的全量数据（7 项并行，全部收口后再释放删除守卫）。
-   * v1.7.0: removeBookMeta 取代原 removePosition + removeReadingTime。
-   * v2.5.7: 单项失败时仍等待其余清理结束；同书并发调用复用同一删除任务。
+   * 单项失败时仍等待其余清理结束；同书并发调用复用同一删除任务。
    */
   async removeBook(bookId) {
     if (!bookId) return;

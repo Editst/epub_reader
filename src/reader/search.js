@@ -133,9 +133,7 @@
     cancelPendingFocus();
     if (panel) panel.classList.remove('open');
     if (overlay) {
-      // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
-      // Only remove it when ALL three panels are closed; otherwise the other
-      // panel's backdrop would disappear while the panel itself stays visible.
+      // overlay 由三个侧栏面板共享，仅在其他面板均关闭时隐藏。
       const tocOpen       = document.getElementById('sidebar')?.classList.contains('open');
       const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
       if (!tocOpen && !bookmarksOpen) {

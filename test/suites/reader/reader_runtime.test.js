@@ -345,7 +345,7 @@ test.describe('ReaderRuntime', () => {
 
       await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-old-events', 'old-events.epub');
 
-      scheduled.splice(0);
+      const postOpenCallbacks = scheduled.splice(0);
       relocatedCalls.splice(0);
       displayed.splice(0);
       ensureFocusCalls = 0;
@@ -370,6 +370,7 @@ test.describe('ReaderRuntime', () => {
       state.rendition = { id: 'new-rendition' };
       state.isRestoreAnchorProtected = true;
       scheduled.splice(0);
+      postOpenCallbacks.forEach((fn) => fn());
       eventHandlers.relocated({ start: { cfi: 'epubcfi(/6/old)' } });
       eventHandlers.displayed();
       scheduled.splice(0).forEach((fn) => fn());
@@ -430,12 +431,12 @@ test.describe('ReaderRuntime', () => {
       }
     });
 
-    const directCalls = { bookmarks: 0, search: 0, highlights: 0 };
+    const directCalls = { toc: 0, bookmarks: 0, search: 0, highlights: 0 };
     const mountCalls = [];
     const syncedPrefs = [];
     global.ImageViewer = { hookRendition() {} };
     global.Annotations = { setBook() {}, hookRendition() {} };
-    global.TOC = { build() {}, reset() {} };
+    global.TOC = { build() { directCalls.toc++; }, reset() {} };
     global.Bookmarks = { setBook() { directCalls.bookmarks++; }, reset() {} };
     global.Search = { setBook() { directCalls.search++; }, reset() {} };
     global.Highlights = { setBookDetails() { directCalls.highlights++; } };
@@ -507,7 +508,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(syncedPrefs[0].theme, 'custom');
     assert.equal(syncedPrefs[0].customBg, '#112233');
     assert.equal(syncedPrefs[0].customText, '#ddeeff');
-    assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
+    assert.deepEqual(directCalls, { toc: 0, bookmarks: 0, search: 0, highlights: 0 });
   });
 
   test.it('openBook 并发调用串行执行且前一任务失败不阻断后一任务', async () => {
@@ -605,6 +606,47 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.getPosition = originalGetPosition;
       EpubStorage.addRecentBook = originalAddRecentBook;
       EpubStorage.getLocations = originalGetLocations;
+    }
+  });
+
+  test.it('unmount 作废正在执行及排队的 openBook', async () => {
+    const originalGetPreferences = EpubStorage.getPreferences;
+    let releasePreferences;
+    EpubStorage.getPreferences = () => new Promise((resolve) => { releasePreferences = resolve; });
+
+    let epubCalls = 0;
+    global.ePub = () => {
+      epubCalls++;
+      throw new Error('unmount 后不应继续创建 book');
+    };
+
+    const state = ReaderState.createReaderState();
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, syncPrefsToControls() {}
+      },
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      const firstOpen = runtime.openBook(new Uint8Array([1]), 'book-first', 'first.epub');
+      const secondOpen = runtime.openBook(new Uint8Array([2]), 'book-second', 'second.epub');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      runtime.unmount();
+      releasePreferences({ layout: 'paginated' });
+
+      await assert.rejects(firstOpen, (error) => error && error.name === 'AbortError');
+      await assert.rejects(secondOpen, (error) => error && error.name === 'AbortError');
+      assert.equal(epubCalls, 0);
+      assert.equal(state.book, null);
+      assert.equal(state.currentBookId, '');
+      assert.equal(state.isBookLoaded, false);
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
     }
   });
 
@@ -757,9 +799,11 @@ test.describe('ReaderRuntime', () => {
     global.ImageViewer = { hookRendition() {} };
     global.Annotations = { setBook() {}, hookRendition() {} };
     global.TOC = { build() {}, reset() {} };
-    global.Bookmarks = { setBook() {}, reset() {} };
-    global.Search = { setBook() {}, reset() {} };
-    global.Highlights = { setBookDetails() {} };
+    const directCalls = { bookmarks: 0, search: 0, highlights: 0 };
+    let lifecycleMounts = 0;
+    global.Bookmarks = { setBook() { directCalls.bookmarks++; }, reset() {} };
+    global.Search = { setBook() { directCalls.search++; }, reset() {} };
+    global.Highlights = { setBookDetails() { directCalls.highlights++; } };
     global.fetch = async () => ({ blob: async () => ({}) });
 
     const originalGetPreferences = EpubStorage.getPreferences;
@@ -805,7 +849,7 @@ test.describe('ReaderRuntime', () => {
           setLocationIndexStatus() {}
         },
         persistence: { startReadingTimer() {}, onRelocated() {} },
-        moduleLifecycle: { mount() {}, unmount() {} }
+        moduleLifecycle: { mount() { lifecycleMounts++; }, unmount() {} }
       });
 
       await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-image-rule', 'image.epub');
@@ -820,6 +864,8 @@ test.describe('ReaderRuntime', () => {
     }
 
     assert.equal(themeDefaults.length, 2);
+    assert.equal(lifecycleMounts, 2, '打开和布局切换都应通过统一 lifecycle mount');
+    assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
     themeDefaults.forEach((rules) => {
       assert.equal(rules.img['max-width'], '100% !important');
       assert.equal(rules.image['max-width'], '100% !important');
@@ -871,7 +917,8 @@ test.describe('ReaderRuntime', () => {
       },
       currentBookId: 'book-layout-pref',
       currentFileName: 'layout.epub',
-      isBookLoaded: true
+      isBookLoaded: true,
+      isLayoutStable: true
     };
 
     try {
@@ -896,12 +943,14 @@ test.describe('ReaderRuntime', () => {
     }
 
     assert.equal(state.prefs.layout, 'scrolled');
+    assert.equal(state.isLayoutStable, true);
     assert.equal(oldDestroyed, true);
     assert.deepEqual(displayed, ['epubcfi(/6/2)']);
     assert.match(String(warnings[0]?.[0] || ''), /save layout preference failed/);
   });
 
-  test.it('setLayout 重建失败时也会释放恢复保护锁', async () => {
+  test.it('setLayout 重建失败时恢复原布局并释放恢复保护锁', async () => {
+    global.requestAnimationFrame = (fn) => fn();
     global.ImageViewer = undefined;
     global.Annotations = undefined;
     global.TOC = undefined;
@@ -917,7 +966,12 @@ test.describe('ReaderRuntime', () => {
       book: {
         navigation: { toc: [] },
         renderTo() {
-          throw new Error('should not render');
+          return {
+            hooks: { content: { register() {} } },
+            themes: { default() {}, override() {} },
+            on() {}, getContents() { return []; },
+            async display() {}, destroy() {}
+          };
         }
       },
       rendition: {
@@ -931,14 +985,16 @@ test.describe('ReaderRuntime', () => {
       currentBookId: 'book-layout-fail',
       currentFileName: 'layout.epub',
       isBookLoaded: true,
-      isRestoringPosition: false
+      isRestoringPosition: false,
+      isLayoutStable: true
     };
 
+    let syncedLayout = null;
     try {
       const runtime = ReaderRuntime.createReaderRuntime({
         state,
         ui: {
-          syncPrefsToControls() {},
+          syncPrefsToControls() { syncedLayout = state.prefs.layout; },
           injectCustomStyleElement() {},
           applyThemeToRendition() {},
           setupRenditionKeyEvents() {},
@@ -948,12 +1004,291 @@ test.describe('ReaderRuntime', () => {
         moduleLifecycle: { mount() {}, unmount() {} }
       });
 
-      await assert.rejects(() => runtime.setLayout('scrolled'), /destroy failed/);
+      const switched = await runtime.setLayout('scrolled');
+      assert.equal(switched, false);
     } finally {
       EpubStorage.savePreferences = originalSavePreferences;
     }
 
     assert.equal(state.isRestoringPosition, false);
+    assert.equal(state.isLayoutStable, true);
+    assert.equal(state.prefs.layout, 'paginated');
+    assert.equal(syncedLayout, 'paginated');
+  });
+
+  test.it('setLayout 新 rendition 显示失败时重建原布局', async () => {
+    global.requestAnimationFrame = (fn) => fn();
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    EpubStorage.savePreferences = async () => {};
+    let renderCount = 0;
+    const rollbackDisplays = [];
+    const createRendition = (display) => ({
+      hooks: { content: { register() {} } },
+      themes: { default() {}, override() {} },
+      on() {}, getContents() { return []; }, currentLocation() { return null; },
+      display, destroy() {}
+    });
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() {
+          renderCount++;
+          if (renderCount === 1) {
+            return createRendition(async () => { throw new Error('display failed'); });
+          }
+          return createRendition(async (cfi) => { rollbackDisplays.push(cfi); });
+        }
+      },
+      rendition: {
+        currentLocation() { return { start: { cfi: 'epubcfi(/6/8)' } }; },
+        destroy() {}
+      },
+      currentBookId: 'book-layout-rollback',
+      currentFileName: 'rollback.epub',
+      isBookLoaded: true,
+      isRestoringPosition: false,
+      isLayoutStable: true
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {}, injectCustomStyleElement() {},
+          applyThemeToRendition() {}, setupRenditionKeyEvents() {}, ensureFocus() {}
+        },
+        persistence: { onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      assert.equal(await runtime.setLayout('scrolled'), false);
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
+
+    assert.equal(renderCount, 2);
+    assert.deepEqual(rollbackDisplays, ['epubcfi(/6/8)']);
+    assert.equal(state.prefs.layout, 'paginated');
+    assert.equal(state.isBookLoaded, true);
+    assert.equal(state.isRestoringPosition, false);
+    assert.equal(state.isLayoutStable, true);
+  });
+
+  test.it('setLayout 回滚也失败时清空损坏上下文并显示错误', async () => {
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    EpubStorage.savePreferences = async () => {};
+    let bookDestroyed = false;
+    let loadError = '';
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() { throw new Error('render failed'); },
+        destroy() { bookDestroyed = true; }
+      },
+      rendition: {
+        currentLocation() { return { start: { cfi: 'epubcfi(/6/8)' } }; },
+        destroy() {}
+      },
+      currentBookId: 'book-layout-broken',
+      currentFileName: 'broken.epub',
+      isBookLoaded: true,
+      isRestoringPosition: false,
+      isLayoutStable: true,
+      navLock: true
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {},
+          showLoadError(message) { loadError = message; }
+        },
+        persistence: {},
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      assert.equal(await runtime.setLayout('scrolled'), false);
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
+
+    assert.equal(bookDestroyed, true);
+    assert.equal(state.book, null);
+    assert.equal(state.rendition, null);
+    assert.equal(state.currentBookId, '');
+    assert.equal(state.isBookLoaded, false);
+    assert.equal(state.isLayoutStable, false);
+    assert.equal(state.navLock, false);
+    assert.match(loadError, /重新打开/);
+  });
+
+  test.it('迟到的旧布局切换不会覆盖新布局偏好', async () => {
+    global.requestAnimationFrame = (fn) => fn();
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    const savedLayouts = [];
+    EpubStorage.savePreferences = async ({ layout }) => { savedLayouts.push(layout); };
+    let resolveFirstDisplay;
+    let renderCount = 0;
+    const makeRendition = (display) => ({
+      hooks: { content: { register() {} } },
+      themes: { default() {}, override() {} },
+      on() {}, getContents() { return []; }, currentLocation() { return null; },
+      display, destroy() {}
+    });
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() {
+          renderCount++;
+          if (renderCount === 1) {
+            return makeRendition(() => new Promise((resolve) => { resolveFirstDisplay = resolve; }));
+          }
+          return makeRendition(async () => {});
+        }
+      },
+      rendition: {
+        currentLocation() { return null; },
+        destroy() {}
+      },
+      currentBookId: 'book-layout-race',
+      currentFileName: 'race.epub',
+      isBookLoaded: true,
+      isRestoringPosition: false,
+      isLayoutStable: true
+    };
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {}, injectCustomStyleElement() {},
+          applyThemeToRendition() {}, setupRenditionKeyEvents() {}, ensureFocus() {}
+        },
+        persistence: { onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      const firstSwitch = runtime.setLayout('scrolled');
+      await Promise.resolve();
+      assert.equal(await runtime.setLayout('paginated'), true);
+      resolveFirstDisplay();
+      assert.equal(await firstSwitch, false);
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
+
+    assert.deepEqual(savedLayouts, ['paginated']);
+    assert.equal(state.prefs.layout, 'paginated');
+    assert.equal(state.isLayoutStable, true);
+  });
+
+  test.it('旧布局回滚迟到失败不会清空已完成的新布局', async () => {
+    global.requestAnimationFrame = (fn) => fn();
+    global.ImageViewer = undefined;
+    global.Annotations = undefined;
+    global.TOC = undefined;
+    global.Bookmarks = undefined;
+    global.Search = undefined;
+    global.Highlights = undefined;
+
+    const originalSavePreferences = EpubStorage.savePreferences;
+    EpubStorage.savePreferences = async () => {};
+    let rejectRollbackDisplay;
+    let renderCount = 0;
+    const renditions = [];
+    const makeRendition = (display) => {
+      const rendition = {
+        hooks: { content: { register() {} } },
+        themes: { default() {}, override() {} },
+        on() {}, getContents() { return []; }, currentLocation() { return null; },
+        display, destroy() {}
+      };
+      renditions.push(rendition);
+      return rendition;
+    };
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', theme: 'light', paragraphIndent: true },
+      book: {
+        navigation: { toc: [] },
+        renderTo() {
+          renderCount++;
+          if (renderCount === 1) {
+            return makeRendition(async () => { throw new Error('first layout failed'); });
+          }
+          if (renderCount === 2) {
+            return makeRendition(() => new Promise((_resolve, reject) => {
+              rejectRollbackDisplay = reject;
+            }));
+          }
+          return makeRendition(async () => {});
+        },
+        destroy() {}
+      },
+      rendition: {
+        currentLocation() { return null; },
+        destroy() {}
+      },
+      currentBookId: 'book-layout-stale-rollback',
+      currentFileName: 'stale-rollback.epub',
+      isBookLoaded: true,
+      isRestoringPosition: false,
+      isLayoutStable: true
+    };
+    let loadErrors = 0;
+
+    try {
+      const runtime = ReaderRuntime.createReaderRuntime({
+        state,
+        ui: {
+          syncPrefsToControls() {}, injectCustomStyleElement() {},
+          applyThemeToRendition() {}, setupRenditionKeyEvents() {}, ensureFocus() {},
+          showLoadError() { loadErrors++; }
+        },
+        persistence: { onRelocated() {} },
+        moduleLifecycle: { mount() {}, unmount() {} }
+      });
+
+      const staleSwitch = runtime.setLayout('scrolled');
+      while (!rejectRollbackDisplay) await Promise.resolve();
+
+      assert.equal(await runtime.setLayout('scrolled'), true);
+      const currentRendition = state.rendition;
+      rejectRollbackDisplay(new Error('stale rollback failed'));
+      assert.equal(await staleSwitch, false);
+
+      assert.equal(state.book !== null, true);
+      assert.equal(state.rendition, currentRendition);
+      assert.equal(state.isBookLoaded, true);
+      assert.equal(state.isLayoutStable, true);
+      assert.equal(loadErrors, 0);
+    } finally {
+      EpubStorage.savePreferences = originalSavePreferences;
+    }
   });
 
   test.it('openBook 提取封面后会释放 Blob URL', async () => {
@@ -1935,6 +2270,39 @@ test.describe('ReaderRuntime', () => {
     assert.match(messages[0], /重新导入/);
   });
 
+  test.it('unmount 后忽略迟到的缓存文件读取结果', async () => {
+    const originalGetFile = EpubStorage.getFile;
+    let resolveFile;
+    EpubStorage.getFile = () => new Promise((resolve) => { resolveFile = resolve; });
+    let loadErrors = 0;
+    let epubCalls = 0;
+    global.ePub = () => { epubCalls++; };
+
+    const state = ReaderState.createReaderState();
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        showLoading() {},
+        showLoadError() { loadErrors++; }
+      },
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      const loadTask = runtime.loadFileByBookId('late-book');
+      runtime.unmount();
+      resolveFile({ filename: 'late.epub', data: new Uint8Array([1, 2, 3]) });
+      await loadTask;
+    } finally {
+      EpubStorage.getFile = originalGetFile;
+    }
+
+    assert.equal(epubCalls, 0);
+    assert.equal(loadErrors, 0);
+    assert.equal(state.currentBookId, '');
+  });
+
   test.it('loadFileByBookId 重新打开缓存时保留 Uint8Array 视图边界', async () => {
     const { document } = createMockDocument(['reader-main', 'book-title', 'chapter-title', 'progress-location']);
     global.document = document;
@@ -2169,6 +2537,7 @@ test.describe('ReaderRuntime', () => {
   });
 
   test.it('unmount 销毁 rendition 并清空关键状态', () => {
+    let bookDestroyed = false;
     const state = {
       rendition: {
         destroyed: false,
@@ -2176,8 +2545,15 @@ test.describe('ReaderRuntime', () => {
           this.destroyed = true;
         }
       },
-      book: { id: 'b' },
-      isBookLoaded: true
+      book: { id: 'b', destroy() { bookDestroyed = true; } },
+      currentBookId: 'book-unmount',
+      currentFileName: 'unmount.epub',
+      isBookLoaded: true,
+      isLayoutStable: true,
+      navLock: true,
+      activeReadingSeconds: 10,
+      hasLocations: true,
+      locationsStatus: 'ready'
     };
     let unmounted = 0;
     const runtime = ReaderRuntime.createReaderRuntime({
@@ -2190,9 +2566,17 @@ test.describe('ReaderRuntime', () => {
     runtime.unmount();
 
     assert.equal(unmounted, 1);
+    assert.equal(bookDestroyed, true);
     assert.equal(state.book, null);
     assert.equal(state.rendition, null);
+    assert.equal(state.currentBookId, '');
+    assert.equal(state.currentFileName, '');
     assert.equal(state.isBookLoaded, false);
+    assert.equal(state.isLayoutStable, false);
+    assert.equal(state.navLock, false);
+    assert.equal(state.activeReadingSeconds, 0);
+    assert.equal(state.hasLocations, false);
+    assert.equal(state.locationsStatus, 'idle');
   });
 
   test.it('isLayoutStable 为 false 时 next/prev 不执行导航', () => {

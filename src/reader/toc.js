@@ -11,7 +11,6 @@
   overlay: null,
   rendition: null,
   navigate: null,
-  currentHref: '',
   _boundDocument: null,
 
   init() {
@@ -26,10 +25,7 @@
     document.getElementById('btn-toc')?.addEventListener('click', () => this.toggle());
     document.getElementById('btn-toc-close')?.addEventListener('click', () => this.close());
 
-    // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
-    // Clicking it should close ALL open panels, not just TOC.
-    // We defer to closeAllPanels() (defined in reader.js) which already
-    // handles every panel and the overlay in one consistent call.
+    // overlay 由 TOC、Search 和 Bookmarks 共享，点击时统一关闭全部面板。
     this.overlay?.addEventListener('click', () => {
       if (typeof closeAllPanels === 'function') closeAllPanels();
       else this.close(); // fallback if called before reader.js initialises
@@ -87,7 +83,7 @@
     items.forEach((item) => {
       const el = document.createElement('div');
       el.className = `toc-item toc-item-level-${Math.min(level, 3)}`;
-      el.textContent = item.label.trim();
+      el.textContent = ReaderState.getTocItemLabel(item);
       el.dataset.href = item.href;
 
       el.addEventListener('click', () => {
@@ -111,16 +107,12 @@
    * @param {string} href - Current section href
    */
   setActive(href) {
-    this.currentHref = href;
     const items = this.container.querySelectorAll('.toc-item');
 
     items.forEach((item) => {
       item.classList.remove('active');
-      // Match by href (may contain #fragment)
       const itemHref = item.dataset.href;
-      const hrefBase = href.split('#')[0];
-      const itemBase = itemHref.split('#')[0];
-      if (itemHref === href || hrefBase === itemBase || hrefBase.endsWith('/' + itemBase) || itemBase.endsWith('/' + hrefBase)) {
+      if (ReaderState.isTocHrefMatch(href, itemHref)) {
         item.classList.add('active');
       }
     });
@@ -145,9 +137,7 @@
 
   close() {
     this.sidebar.classList.remove('open');
-    // FIX P1-B: Only hide the overlay when no other panel (Search, Bookmarks)
-    // is still open.  Removing it unconditionally would leave Search/Bookmarks
-    // panels floating without a backdrop.
+    // 仅在其他共享面板均关闭时隐藏 overlay。
     const searchOpen    = document.getElementById('search-panel')?.classList.contains('open');
     const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
     if (!searchOpen && !bookmarksOpen) {

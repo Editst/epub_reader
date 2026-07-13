@@ -27,6 +27,22 @@ test.describe('项目工程完整性检查', () => {
     assert.ok(!js.includes("require('./suites/release_checks.test.js')"));
   });
 
+  test.it('架构文档版本与当前接口保持同步', () => {
+    const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
+    const architecture = fs.readFileSync('docs/architecture.md', 'utf8');
+    const roadmap = fs.readFileSync('docs/ROADMAP.md', 'utf8');
+
+    assert.ok(architecture.includes(`版本：v${manifest.version}`));
+    assert.ok(roadmap.includes(`（v${manifest.version}）`));
+    assert.ok(architecture.includes('isTocHrefMatch(currentHref: string, itemHref: string): boolean'));
+    assert.ok(architecture.includes('Utils.formatDateTime(timestamp: number, fallback?: string): string'));
+    assert.ok(!architecture.includes('onLocationChanged'));
+  });
+
+  test.it('入口未加载的旧 Popup 样式文件不应继续保留', () => {
+    assert.equal(fs.existsSync('src/popup/popup.css'), false);
+  });
+
   test.it('全项目 style.* 写入约束 (含豁免清单)', () => {
     const strictFiles = [
       'src/reader/reader.js', 'src/home/home.js',

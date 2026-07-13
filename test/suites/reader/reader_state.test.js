@@ -95,4 +95,17 @@ test.describe('ReaderState', () => {
     assert.equal(ReaderState.findTocItem(toc, 'text/ch10.xhtml#p1').label, '第十章');
     assert.equal(ReaderState.findTocItem(toc, 'OPS/appendix/a.xhtml#note').label, '附录 A');
   });
+
+  test.it('isTocHrefMatch 供目录状态与持久化共享相同路径边界规则', () => {
+    assert.equal(ReaderState.isTocHrefMatch('OPS/text/ch1.xhtml#p1', 'text/ch1.xhtml'), true);
+    assert.equal(ReaderState.isTocHrefMatch('text/ch10.xhtml', 'text/ch1.xhtml'), false);
+    assert.equal(ReaderState.isTocHrefMatch('', 'text/ch1.xhtml'), false);
+  });
+
+  test.it('getTocItemLabel 安全归一化缺失或非字符串目录标题', () => {
+    assert.equal(ReaderState.getTocItemLabel(null), '');
+    assert.equal(ReaderState.getTocItemLabel({}), '');
+    assert.equal(ReaderState.getTocItemLabel({ label: '  第一章  ' }), '第一章');
+    assert.equal(ReaderState.getTocItemLabel({ label: 12 }), '12');
+  });
 });

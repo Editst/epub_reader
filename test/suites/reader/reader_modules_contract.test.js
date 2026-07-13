@@ -100,6 +100,66 @@ function loadReaderModule(file, exportName) {
 }
 
 test.describe('Reader 功能模块公开契约', () => {
+  test.it('Highlights 延迟到 init 查询 DOM，并使用规范 IIFE 导出', () => {
+    const src = fs.readFileSync('src/reader/highlights.js', 'utf8');
+    const initIndex = src.indexOf('function init()');
+
+    assert.match(src, /^\/\*[\s\S]*?\*\/\s*\(function \(\) \{\s*'use strict';/);
+    assert.ok(src.indexOf("document.getElementById('selection-toolbar')") > initIndex);
+    assert.ok(src.includes('window.Highlights = Highlights'));
+    assert.ok(src.includes('const INTERNAL_ACTION_LOCK_MS'));
+    assert.ok(src.includes('const IFRAME_CLICK_SETTLE_MS'));
+    assert.ok(src.includes('const FLOATING_UI_GAP_PX'));
+    assert.ok(!/FIX P\d|Issue \d|v1\.\d/.test(src), '实现注释不应保留历史版本/工单标签');
+  });
+
+  test.it('ReaderUi 键盘分支、DOM 缓存与拖放显隐保持显式一致', () => {
+    const src = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+
+    assert.match(src, /case 'b':[\s\S]*?if \(!e\.ctrlKey && !e\.metaKey\)[\s\S]*?break;\s*case 'h':/);
+    assert.ok(src.includes("btnBookmark:        document.getElementById('btn-bookmark')"));
+    assert.ok(src.includes("sidebarOverlay:     document.getElementById('sidebar-overlay')"));
+    assert.ok(!src.includes("classList.add('hidden')"));
+    assert.ok(!src.includes("classList.remove('hidden')"));
+  });
+
+  test.it('ReaderRuntime 将 locations 初始化与后台生成从打开主流程拆出', () => {
+    const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
+
+    assert.ok(src.includes('function _applyLocationsProgress(initSpeedTracking)'));
+    assert.ok(src.includes('function _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking)'));
+    assert.ok(src.includes('function _scheduleLocationsGeneration(bookId, fileData, activeBook, initSpeedTracking)'));
+    assert.ok(src.includes('let layoutSeq = 0'));
+    assert.ok(src.includes('state.isLayoutStable = false'));
+    assert.ok(src.includes('layoutId === layoutSeq'));
+  });
+
+  test.it('Reader 持久化与书签复用直接依赖，源码不保留归档文件引用', () => {
+    const persistence = fs.readFileSync('src/reader/reader-persistence.js', 'utf8');
+    const bookmarks = fs.readFileSync('src/reader/bookmarks.js', 'utf8');
+    const readerSources = fs.readdirSync('src/reader')
+      .filter((name) => name.endsWith('.js'))
+      .map((name) => fs.readFileSync(`src/reader/${name}`, 'utf8'))
+      .join('\n');
+
+    assert.ok(!persistence.includes('function _savePosition('));
+    assert.ok(bookmarks.includes('Utils.formatDateTime(bm.timestamp)'));
+    assert.ok(!bookmarks.includes('_formatDate('));
+    assert.ok(!readerSources.includes('reader-full.js'));
+    assert.ok(!readerSources.includes('EPUB Reader v2.1'));
+  });
+
+  test.it('Reader 功能模块不保留从未读取的书籍上下文字段', () => {
+    const highlights = fs.readFileSync('src/reader/highlights.js', 'utf8');
+    const bookmarks = fs.readFileSync('src/reader/bookmarks.js', 'utf8');
+    const toc = fs.readFileSync('src/reader/toc.js', 'utf8');
+
+    assert.ok(!highlights.includes('let _fileName'));
+    assert.ok(!bookmarks.includes('book: null'));
+    assert.ok(!bookmarks.includes('this.book ='));
+    assert.ok(!toc.includes('currentHref'));
+    assert.ok(toc.includes('ReaderState.getTocItemLabel(item)'));
+  });
   for (const [file, exportName, methods] of expectedContracts) {
     test.it(`${file} 导出文档声明的公开接口`, () => {
       const moduleApi = loadReaderModule(file, exportName);

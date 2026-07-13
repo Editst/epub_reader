@@ -2,10 +2,18 @@
  * EPUB Reader - Highlights and Annotations Module
  * Handles text selection, colored highlights, and custom note taking.
  */
-window.Highlights = (function () {
+(function () {
+  'use strict';
+
+  const INTERNAL_ACTION_LOCK_MS = 50;
+  const IFRAME_CLICK_SETTLE_MS = 10;
+  const FLOATING_UI_GAP_PX = 10;
+  const NOTE_POPUP_FLIP_THRESHOLD_PX = 200;
+  const NOTE_POPUP_FLIP_OFFSET_PX = 60;
+  const TOOLBAR_ESTIMATED_HEIGHT_PX = 50;
+
   let _rendition = null;
   let _bookId = '';
-  let _fileName = '';
   let _currentCfiRange = null;
   let _activeHighlightCfi = null;
   let _renderedHighlightCfis = new Set();
@@ -14,23 +22,37 @@ window.Highlights = (function () {
   const _hookedRenditions = new WeakSet();
   const _hookedContentDocuments = new WeakSet();
 
-  const toolbar = document.getElementById('selection-toolbar');
-  const btnAddNote = document.getElementById('btn-add-note');
-  const btnClearHl = document.getElementById('btn-clear-hl');
-  const colorBtns = toolbar.querySelectorAll('.color-btn');
+  let toolbar = null;
+  let btnAddNote = null;
+  let btnClearHl = null;
+  let colorBtns = [];
 
-  let _pendingCfi = null; // Store CFI for note-taking before highlight is created
-  let _internalAction = false; // v1.2.0: Strict sync lock to prevent panel persistence
+  let _pendingCfi = null;
+  let _internalAction = false;
+  let _internalActionSeq = 0;
 
-  const notePopup = document.getElementById('note-popup');
-  const noteTextarea = document.getElementById('note-textarea');
-  const btnCancelNote = document.getElementById('btn-cancel-note');
-  const btnSaveNote = document.getElementById('btn-save-note');
+  let notePopup = null;
+  let noteTextarea = null;
+  let btnCancelNote = null;
+  let btnSaveNote = null;
 
   let highlights = [];
 
   function isCurrentContext(contextSeq, bookId, rendition) {
     return contextSeq === _contextSeq && bookId === _bookId && (!rendition || rendition === _rendition);
+  }
+
+  function beginInternalAction() {
+    const actionSeq = ++_internalActionSeq;
+    _internalAction = true;
+    setTimeout(() => {
+      if (actionSeq === _internalActionSeq) _internalAction = false;
+    }, INTERNAL_ACTION_LOCK_MS);
+  }
+
+  function resetInternalAction() {
+    _internalActionSeq++;
+    _internalAction = false;
   }
 
   function saveHighlightsSafely(bookId, nextHighlights) {
@@ -49,22 +71,20 @@ window.Highlights = (function () {
     return hl && hl.color === 'transparent';
   }
 
-  function resolveHighlightColor(color) {
-    const safeColor = Utils.sanitizeColor(color);
-    return safeColor && safeColor !== 'transparent' ? safeColor : '#ffeb3b';
-  }
-
   function init() {
     if (_boundDocument === document) return;
-    _boundDocument = document;
 
-    // FIX P0-C: Both the window-level mousedown handler and the btnShowToolbar
-    // click handler were previously registered inside setBookDetails(), which is
-    // called every time a book is opened AND every time the layout is switched.
-    // Because anonymous functions cannot be removed with removeEventListener,
-    // each call stacked one more handler, leading to N+1 closePanels() calls on
-    // the next user click.  By moving them here — called exactly once on startup
-    // — the accumulation is eliminated entirely.
+    toolbar = document.getElementById('selection-toolbar');
+    btnAddNote = document.getElementById('btn-add-note');
+    btnClearHl = document.getElementById('btn-clear-hl');
+    colorBtns = toolbar.querySelectorAll('.color-btn');
+    notePopup = document.getElementById('note-popup');
+    noteTextarea = document.getElementById('note-textarea');
+    btnCancelNote = document.getElementById('btn-cancel-note');
+    btnSaveNote = document.getElementById('btn-save-note');
+    bindDomEvents();
+
+    // 顶层监听只在 init 中绑定一次，避免切书或切换布局时重复累积。
 
     // Handler: close panels when the user clicks anywhere outside toolbar/popup
     // on the main (host) page.  Clicks inside the epub.js iframe are handled by
@@ -77,9 +97,9 @@ window.Highlights = (function () {
     if (btnShowToolbar) {
       btnShowToolbar.addEventListener('click', _onShowToolbarClick);
     }
+    _boundDocument = document;
   }
 
-  // Named handler — can be reasoned about and will never be duplicated.
   function _onWindowMouseDown(e) {
     if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
       if (e.target.closest('#header-bar') || e.target.closest('#sidebar') || e.target.closest('.bottom-bar')) {
@@ -89,11 +109,9 @@ window.Highlights = (function () {
     }
   }
 
-  // Named handler for the "Modify Highlight" button.
   function _onShowToolbarClick(e) {
     e.stopPropagation();
-    _internalAction = true;
-    setTimeout(() => _internalAction = false, 50);
+    beginInternalAction();
 
     const targetCfi = _activeHighlightCfi || _pendingCfi;
     if (targetCfi) {
@@ -114,10 +132,7 @@ window.Highlights = (function () {
   }
 
   async function setBookDetails(bookId, fileName, rendition) {
-    // FIX P1-2: Remove the old 'selected' listener before re-registering.
-    // setBookDetails is called both in openBook and (after P0-4 fix) in
-    // setLayout. Without this guard, each call stacks another handleSelection
-    // onto the same rendition, causing duplicate highlights and toolbar flicker.
+    // 切书或布局重建前移除旧 rendition 监听，避免重复选择处理和残留注解。
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
       clearRenderedHighlights();
@@ -125,8 +140,8 @@ window.Highlights = (function () {
 
     const contextSeq = ++_contextSeq;
     _bookId = bookId;
-    _fileName = fileName;
     _rendition = rendition;
+    resetInternalAction();
     
     // Load existing highlights
     let loadedHighlights = [];
@@ -148,24 +163,30 @@ window.Highlights = (function () {
     // iframe mousedown handlers.
     if (!_hookedRenditions.has(_rendition)) {
       _hookedRenditions.add(_rendition);
+      const hookedRendition = _rendition;
       _rendition.hooks.content.register((contents) => {
-        bindContentMouseDown(contents);
+        if (_rendition !== hookedRendition) return;
+        bindContentMouseDown(contents, _contextSeq, _bookId, hookedRendition);
       });
     }
 
     if (typeof _rendition.getContents === 'function') {
-      _rendition.getContents().forEach(bindContentMouseDown);
+      _rendition.getContents().forEach((contents) => {
+        bindContentMouseDown(contents, contextSeq, bookId, rendition);
+      });
     }
   }
 
-  function bindContentMouseDown(contents) {
+  function bindContentMouseDown(contents, contextSeq, bookId, rendition) {
     const doc = contents && contents.document;
     if (!doc || _hookedContentDocuments.has(doc)) return;
     _hookedContentDocuments.add(doc);
 
-    // v1.2.3: Use mousedown (not click) — iframe focus can swallow click events.
+    // iframe 获得焦点时可能吞掉 click，因此使用 mousedown 收口悬浮层状态。
     doc.addEventListener('mousedown', () => {
+      if (!isCurrentContext(contextSeq, bookId, rendition)) return;
       setTimeout(() => {
+        if (!isCurrentContext(contextSeq, bookId, rendition)) return;
         if (toolbar.classList.contains('show') || notePopup.classList.contains('show')) {
           if (!_internalAction) closePanels();
           return;
@@ -180,7 +201,7 @@ window.Highlights = (function () {
           if (_internalAction) return;
           closePanels();
         }
-      }, 10);
+      }, IFRAME_CLICK_SETTLE_MS);
     });
   }
 
@@ -199,13 +220,11 @@ window.Highlights = (function () {
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       
-      // FIX (v1.1.3): More robust iframe rect lookup
-      // contents is a Contents object. contents.element is the body/wrapper.
-      // contents.window.frameElement is the actual <iframe>.
+      // contents.element 是正文包装层；frameElement 才是用于换算坐标的 iframe。
       const iframe = contents.window.frameElement;
       const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
-      const top = iframeRect.top + rect.top - 10;
+      const top = iframeRect.top + rect.top - FLOATING_UI_GAP_PX;
       const left = iframeRect.left + rect.left + (rect.width / 2);
 
       toolbar.style.top = `${top}px`;
@@ -214,56 +233,60 @@ window.Highlights = (function () {
     }
   }
 
-  // Handle color selection
-  colorBtns.forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const color = btn.dataset.color;
-      const contextSeq = _contextSeq;
-      const bookId = _bookId;
-      const rendition = _rendition;
-      
-      if (_activeHighlightCfi) {
-        // Change color of existing
-        updateHighlightData(_activeHighlightCfi, { color });
-        reRenderHighlight(_activeHighlightCfi);
-        await saveHighlightsSafely(bookId, highlights);
-      } else if (_currentCfiRange) {
-        const cfiRange = _currentCfiRange;
-        // Issue 6: Prevent duplicate highlights
-        const existingIdx = highlights.findIndex(h => h.cfi === cfiRange);
-        if (existingIdx !== -1) {
-          highlights[existingIdx].color = color;
-          reRenderHighlight(cfiRange);
-        } else {
-          // Create new highlight
-          const text = await getCfiText(cfiRange, rendition);
+  function bindDomEvents() {
+    // Handle color selection
+    colorBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const color = btn.dataset.color;
+        const contextSeq = _contextSeq;
+        const bookId = _bookId;
+        const rendition = _rendition;
+
+        if (_activeHighlightCfi) {
+          updateHighlightData(_activeHighlightCfi, { color });
+          reRenderHighlight(_activeHighlightCfi);
+          await saveHighlightsSafely(bookId, highlights);
+        } else if (_currentCfiRange) {
+          const cfiRange = _currentCfiRange;
+          const existingIdx = highlights.findIndex(h => h.cfi === cfiRange);
+          if (existingIdx !== -1) {
+            highlights[existingIdx].color = color;
+            reRenderHighlight(cfiRange);
+          } else {
+            const text = await getCfiText(cfiRange, rendition);
+            if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+            const newHl = {
+              cfi: cfiRange,
+              text,
+              color,
+              note: '',
+              timestamp: Date.now()
+            };
+            highlights.push(newHl);
+            renderHighlight(newHl);
+          }
           if (!isCurrentContext(contextSeq, bookId, rendition)) return;
-          const newHl = {
-            cfi: cfiRange,
-            text: text,
-            color: color,
-            note: '',
-            timestamp: Date.now()
-          };
-          highlights.push(newHl);
-          renderHighlight(newHl);
+          await saveHighlightsSafely(bookId, highlights);
+          clearNativeSelection();
         }
-        if (!isCurrentContext(contextSeq, bookId, rendition)) return;
-        await saveHighlightsSafely(bookId, highlights);
-        clearNativeSelection();
-      }
-      closeToolbar();
+        closeToolbar();
+      });
     });
-  });
+
+    btnClearHl.addEventListener('click', handleClearHighlight);
+    btnAddNote.addEventListener('click', handleAddNote);
+    btnSaveNote.addEventListener('click', handleSaveNote);
+    btnCancelNote.addEventListener('click', closeNotePopup);
+  }
 
   // Handle click on existing highlight
-  function handleHighlightClick(e, cfiRange) {
+  function handleHighlightClick(e, cfiRange, context) {
+     if (!isCurrentContext(context.seq, context.bookId, context.rendition)) return;
      e.stopPropagation();
      
-     // v1.2.0: Lock internal action so doc click listener ignores this
-     _internalAction = true;
-     setTimeout(() => _internalAction = false, 50);
+     // 内部交互期间暂时阻止 iframe 空白点击关闭悬浮层。
+     beginInternalAction();
 
      _activeHighlightCfi = cfiRange;
      _currentCfiRange = null;
@@ -285,12 +308,11 @@ window.Highlights = (function () {
         const iframe = target.ownerDocument.defaultView.frameElement;
         const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
-        let top = iframeRect.top + rect.bottom + 10; // below highlight
+        let top = iframeRect.top + rect.bottom + FLOATING_UI_GAP_PX;
         let left = iframeRect.left + rect.left + (rect.width / 2);
 
-        // v1.2.0 Bounds Checking: Prevent toolbar offscreen bottom
-        if (top + 50 > window.innerHeight) {
-            top = iframeRect.top + rect.top - 60; // Flip above
+        if (top + TOOLBAR_ESTIMATED_HEIGHT_PX > window.innerHeight) {
+            top = iframeRect.top + rect.top - NOTE_POPUP_FLIP_OFFSET_PX;
         }
 
         toolbar.style.top = `${top}px`;
@@ -301,7 +323,10 @@ window.Highlights = (function () {
         if (hl.note) {
           // Provide bounds-checked coordinates for the note
           const anchorRect = { top: top, left: left };
-          setTimeout(() => showNotePopup(hl, anchorRect), 50);
+          setTimeout(() => {
+            if (!isCurrentContext(context.seq, context.bookId, context.rendition)) return;
+            showNotePopup(hl, anchorRect);
+          }, 50);
         }
      }
   }
@@ -312,10 +337,9 @@ window.Highlights = (function () {
       let top = anchorRect.top;
       let left = anchorRect.left;
 
-      // v1.2.3 Bounds Checking: Dynamically apply .flip class if the upper space is insufficient for the growing popup.
-      // The popup grows upwards (-100% translateY) by about 150px.
-      if (top < 200) {
-          top = anchorRect.top + 60; // Push down below selection
+      // 上方空间不足时切换为向下展开。
+      if (top < NOTE_POPUP_FLIP_THRESHOLD_PX) {
+          top = anchorRect.top + NOTE_POPUP_FLIP_OFFSET_PX;
           notePopup.classList.add('flip');
       } else {
           notePopup.classList.remove('flip');
@@ -329,8 +353,7 @@ window.Highlights = (function () {
       noteTextarea.focus();
   }
 
-  // Remove highlight
-  btnClearHl.addEventListener('click', async (e) => {
+  async function handleClearHighlight(e) {
       e.stopPropagation();
       if (_activeHighlightCfi) {
           const contextSeq = _contextSeq;
@@ -347,13 +370,11 @@ window.Highlights = (function () {
           _pendingCfi = null;
       }
       closeToolbar();
-  });
+  }
 
-  // Open note popup
-  btnAddNote.addEventListener('click', (e) => {
+  function handleAddNote(e) {
       e.stopPropagation();
-      _internalAction = true;
-      setTimeout(() => _internalAction = false, 50);
+      beginInternalAction();
 
       const targetCfi = _activeHighlightCfi || _currentCfiRange;
       if (!targetCfi) return;
@@ -361,10 +382,9 @@ window.Highlights = (function () {
       const hl = highlights.find(h => h.cfi === targetCfi);
       const tbRect = toolbar.getBoundingClientRect();
       showNotePopup(hl || { note: '' }, tbRect);
-  });
+  }
 
-  // Save note
-  btnSaveNote.addEventListener('click', async () => {
+  async function handleSaveNote() {
       const targetCfi = _activeHighlightCfi || _pendingCfi;
       if (!targetCfi) {
           closeNotePopup();
@@ -380,9 +400,9 @@ window.Highlights = (function () {
       if (hl) {
           hl.note = note;
           updateHighlightData(targetCfi, { note });
-          reRenderHighlight(targetCfi); // v1.2.2 Fix: Trigger UI redraw to show newly added note underline
+          reRenderHighlight(targetCfi); // 新增笔记后同步刷新虚线下划线
       } else if (targetCfi) {
-          // Issue 4: Save note even without highlight
+          // 允许无可见高亮的纯笔记。
           const text = await getCfiText(targetCfi, rendition);
           if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           hl = {
@@ -400,9 +420,7 @@ window.Highlights = (function () {
       if (!isCurrentContext(contextSeq, bookId, rendition)) return;
       await saveHighlightsSafely(bookId, highlights);
       closeNotePopup();
-  });
-
-  btnCancelNote.addEventListener('click', closeNotePopup);
+  }
 
   async function getCfiText(cfiRange, rendition = _rendition) {
     if (!rendition || !rendition.book) return '';
@@ -421,15 +439,20 @@ window.Highlights = (function () {
 
   function renderHighlight(hl) {
     let rendered = false;
+    const clickContext = {
+      seq: _contextSeq,
+      bookId: _bookId,
+      rendition: _rendition
+    };
     try {
         // 1. Always render the base highlight if it has a color
         if (!isNoteOnlyHighlight(hl)) {
-            // D-1-H: sanitize color before passing to epub.js SVG fill attribute
-            const safeColor = resolveHighlightColor(hl.color);
+            // 进入 epub.js SVG fill 前保证颜色合法且可见。
+            const safeColor = Utils.resolveDisplayColor(hl.color);
             _rendition.annotations.highlight(
                 hl.cfi,
                 {},
-                (e) => handleHighlightClick(e, hl.cfi),
+                (e) => handleHighlightClick(e, hl.cfi, clickContext),
                 "epubjs-hl-base",
                 { "fill": safeColor, "fill-opacity": "0.4" }
             );
@@ -442,7 +465,7 @@ window.Highlights = (function () {
             _rendition.annotations.underline(
                 hl.cfi,
                 {},
-                (e) => handleHighlightClick(e, hl.cfi),
+                (e) => handleHighlightClick(e, hl.cfi, clickContext),
                 className,
                 {} // Styles handled by CSS class
             );
@@ -493,7 +516,7 @@ window.Highlights = (function () {
      if (_rendition && _rendition.manager) {
         const views = _rendition.manager.views;
         if (views && views.length > 0) {
-           // v1.2.0 Fix: Clear selection in ALL views for multi-column layouts
+           // 多栏布局可能同时持有多个 view，必须逐一清除原生选区。
            views.forEach(v => {
                const win = v?.document?.defaultView;
                if (win && win.getSelection) {
@@ -518,7 +541,7 @@ window.Highlights = (function () {
   function closePanels() {
      closeToolbar();
      closeNotePopup();
-     // v1.2.0: Atomically destroy CFI state locking so panel refuses to repoen
+     // 原子清除 CFI 状态，避免已关闭面板被旧状态重新打开。
      _activeHighlightCfi = null;
      _currentCfiRange = null;
   }
@@ -530,6 +553,7 @@ window.Highlights = (function () {
 
   function unmount() {
     _contextSeq++;
+    resetInternalAction();
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
     }
@@ -537,15 +561,16 @@ window.Highlights = (function () {
     closePanels();
     highlights = [];
     _bookId = '';
-    _fileName = '';
     _rendition = null;
   }
 
-  return {
+  const Highlights = {
     init: init,
     setBookDetails: setBookDetails,
     closePanels: closePanels,
     mount: mount,
     unmount: unmount
   };
+
+  window.Highlights = Highlights;
 })();

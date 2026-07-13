@@ -65,7 +65,9 @@
       customThemeOptions: document.getElementById('custom-theme-options'),
       customBgColor:      document.getElementById('custom-bg-color'),
       customTextColor:    document.getElementById('custom-text-color'),
-      dragOverlay:        document.getElementById('drag-overlay')
+      dragOverlay:        document.getElementById('drag-overlay'),
+      btnBookmark:        document.getElementById('btn-bookmark'),
+      sidebarOverlay:     document.getElementById('sidebar-overlay')
     };
 
     // ── Focus ─────────────────────────────────────────────────────────────────
@@ -133,7 +135,7 @@
      * @param {boolean} isBookmarked
      */
     function updateBookmarkButtonState(isBookmarked) {
-      const btn = document.getElementById('btn-bookmark');
+      const btn = dom.btnBookmark;
       if (btn) {
         btn.classList.toggle('active', isBookmarked);
         btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
@@ -389,7 +391,7 @@
      *   3. 执行 fn()（同步，如 updateCustomStyles）
      *   4. 等两帧让 epub.js 完成重排
      *   5. display(savedCfi) 恢复位置
-     *   6. 解锁 isResizing，手动触发 onLocationChanged
+     *   6. 解锁 isResizing，手动触发 onRelocated
      *
      * @param {Function} fn  同步操作
      */
@@ -467,8 +469,7 @@
       if (typeof Bookmarks !== 'undefined' && Bookmarks.closePanel) Bookmarks.closePanel();
       if (typeof Search !== 'undefined' && Search.closePanel) Search.closePanel();
       if (typeof Highlights !== 'undefined' && Highlights.closePanels) Highlights.closePanels();
-      const overlay = document.getElementById('sidebar-overlay');
-      if (overlay) overlay.classList.remove('visible');
+      dom.sidebarOverlay?.classList.remove('visible');
     }
 
     // 供 iframe 内 click 和 persistence 的 TOC.close 调用
@@ -499,7 +500,8 @@
         case 's':
           if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); toggleSettings(); } break;
         case 'b':
-          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); _toggleBookmarkAtCurrent(); break; }
+          if (!e.ctrlKey && !e.metaKey) { e.preventDefault(); _toggleBookmarkAtCurrent(); }
+          break;
         case 'h':
           if (!e.ctrlKey && !e.metaKey) {
             e.preventDefault();
@@ -519,17 +521,12 @@
           state.book && state.book.navigation ? state.book.navigation.toc : [],
           currentSection
         );
-        const chapterName = tocItem ? tocItem.label.trim() : '';
+        const chapterName = ReaderState.getTocItemLabel(tocItem);
         const progress = (state.book && state.book.locations && state.book.locations.length())
           ? state.book.locations.percentageFromCfi(cfi) : 0;
         await Bookmarks.toggle(cfi, chapterName, progress);
-        // 刷新书签按钮状态（复用 persistence 的逻辑，这里直接操作 DOM）
-        const btn = document.getElementById('btn-bookmark');
-        if (btn) {
-          const isBookmarked = await Bookmarks.isBookmarked(cfi);
-          btn.classList.toggle('active', isBookmarked);
-          btn.title = isBookmarked ? '移除书签 (B)' : '添加书签 (B)';
-        }
+        const isBookmarked = await Bookmarks.isBookmarked(cfi);
+        updateBookmarkButtonState(isBookmarked);
       } catch (err) {
         console.warn('[ReaderUi] toggle bookmark failed:', err);
       }
@@ -603,7 +600,12 @@
 
     function bindLayoutSettings() {
       document.querySelectorAll('.layout-btn').forEach((btn) => {
-        btn.addEventListener('click', () => _runtime && _runtime.setLayout(btn.dataset.layout));
+        btn.addEventListener('click', () => {
+          if (!_runtime) return;
+          Promise.resolve(_runtime.setLayout(btn.dataset.layout)).catch((e) => {
+            console.warn('[ReaderUi] layout switch failed:', e);
+          });
+        });
       });
     }
 
@@ -688,17 +690,17 @@
       document.addEventListener('dragover', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        dom.dragOverlay?.classList.remove('hidden');
+        dom.dragOverlay?.classList.remove('is-hidden');
       });
       document.addEventListener('dragleave', (e) => {
         if (e.relatedTarget === null || e.relatedTarget === document.documentElement) {
-          dom.dragOverlay?.classList.add('hidden');
+          dom.dragOverlay?.classList.add('is-hidden');
         }
       });
       document.addEventListener('drop', async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        dom.dragOverlay?.classList.add('hidden');
+        dom.dragOverlay?.classList.add('is-hidden');
         const files = e.dataTransfer?.files;
         const file = files && files[0];
         if (!file || !file.name.toLowerCase().endsWith('.epub')) return;

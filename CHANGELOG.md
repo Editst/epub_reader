@@ -8,6 +8,43 @@
 
 ---
 
+## [2.5.16] - 2026-07-13
+
+### fix
+- **Popup 列表刷新竞态**：最近阅读刷新增加渲染代次，列表读取、封面/元数据加载和失败回退均忽略迟到旧任务，连续删除不再被旧异步结果覆盖；封面回收监听改在 `src` 赋值前注册。
+- **封面 URL 生命周期**：Home/Popup 重建列表前统一回收旧卡片保存的 Object URL，避免图片尚未完成 load/error 就被 DOM 刷新移除时遗留 Blob URL。
+- **布局切换事务回滚**：`setLayout()` 切换期间同步关闭 `isLayoutStable`；旧 rendition 销毁、重建或 display 失败时恢复原偏好与原布局，当前回滚也失败才清空损坏上下文。布局按钮显式收口 Promise，避免点击路径产生未处理拒绝；布局代次与 book/rendition 身份校验阻止旧任务迟到释放新上下文锁、覆盖新布局偏好，或以迟到的回滚失败清空新上下文。
+- **Runtime 卸载竞态**：`unmount()` 通过生命周期代次作废正在执行及排队的 `openBook()`；各异步初始化边界和缓存文件读取恢复后先校验代次，卸载完成后不会被迟到任务重新创建 book/rendition、挂载功能模块或误报 EPUB 损坏。首屏延迟聚焦同时校验 book/rendition 身份，不抢占新上下文焦点。
+- **Highlights 迟到交互隔离**：iframe 空白点击、高亮 SVG 点击、延迟笔记弹窗及内部交互锁均绑定 book/rendition 代次；切书或布局重建后，旧 iframe 和旧计时器不再关闭、打开或提前解锁新书悬浮层。
+- **异常 TOC 标题容错**：目录渲染、章节标题和书签标题统一通过 ReaderState 归一化 label，缺失或非字符串标题不再导致 `.trim()` 异常。
+
+### refactor
+- Reader 打开与布局切换统一通过 lifecycle context 挂载功能模块，移除 TOC/Bookmarks/Search/Highlights 的重复直连 wiring。
+- 删除未被任何入口加载的 `popup.css`、空 service worker 及 manifest 后台声明；清理 Highlights/Bookmarks/TOC 未读取状态和实现内历史工单注释，补齐 Highlights 命名常量。
+- Runtime 的 `unmount()` 与切书清理保持对称，统一卸载模块、销毁 rendition/book、清空书籍标识和 session；删除无调用方的 `.toolbar.hidden` 样式。
+- 收敛 DbGateway/Storage 当前设计注释，明确 legacy migration、速度兼容字段和 LRU/级联删除约束；同步 architecture 的版本、接口签名、常量和无后台架构说明。
+
+### test
+- 新增 Popup 异步刷新代次、统一模块 lifecycle、布局失败回滚及迟到回滚隔离、布局按钮拒绝收口、卸载作废打开队列、死文件/死状态、架构文档同步和空后台入口回归检查。
+
+---
+
+## [2.5.15] - 2026-07-13
+
+### fix
+- **Reader 键盘分支与 DOM 初始化**：书签快捷键分支增加显式结束，Highlights 的 DOM 查询和事件绑定延迟到 `init()`，消除模块加载阶段对 DOM 就绪的隐式依赖。
+- **首页封面 DOM 安全写入**：书架封面的 Blob URL 改由 `img.src` 属性赋值，不再拼入 `innerHTML`。
+
+### refactor
+- 共享可见高亮颜色和绝对日期时间格式化；首页、Highlights 与 Bookmarks 复用 `Utils`，Popup 日期间距移入样式类并保持原相对时间展示。
+- ReaderUi 补齐书签按钮与侧栏遮罩缓存，书签切换复用统一状态更新；TOC href 匹配复用 ReaderState 的路径边界规则；拖放遮罩统一使用 `is-hidden`。
+- Runtime 将 locations 进度应用、缓存初始化和后台生成拆为私有函数；Persistence 删除位置保存透传层，并清理已归档文件与内联版本号注释。
+
+### test
+- 新增 DOM 安全写入、延迟初始化、共享颜色/时间、TOC 匹配、ReaderUi 模式和 Runtime locations 边界测试；全量回归覆盖更新至 236 项。
+
+---
+
 ## [2.5.14] - 2026-07-13
 
 ### fix

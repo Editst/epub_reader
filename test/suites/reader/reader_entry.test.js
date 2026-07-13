@@ -40,6 +40,7 @@ test.describe('Reader 入口与装配契约', () => {
     assert.ok(!html.match(/id="reader-main"[^>]*style=/));
     assert.ok(!html.match(/id="bottom-bar"[^>]*style=/));
     assert.ok(html.includes('loading-overlay is-hidden') || html.includes('is-hidden" id="loading-overlay'));
+    assert.ok(html.includes('drag-overlay is-hidden'), '拖放遮罩应复用 is-hidden 显隐模式');
   });
 
   test.it('reader.html 本地脚本使用裸路径并保持加载顺序', () => {
