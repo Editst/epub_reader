@@ -263,15 +263,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       card.querySelector('.book-delete').addEventListener('click', async (e) => {
         e.stopPropagation();
         if (confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
+          // 删除前显式 revoke ObjectURL，不依赖 load/error 事件。
+          const savedUrl = card.dataset.coverUrl;
+          if (savedUrl) URL.revokeObjectURL(savedUrl);
           try {
-            // v1.7.0: 删除前显式 revoke ObjectURL（不依赖 load/error 事件）
-            const savedUrl = card.dataset.coverUrl;
-            if (savedUrl) URL.revokeObjectURL(savedUrl);
             await EpubStorage.removeBook(book.id);
-            card.remove();
-            await loadBookshelfSafely();
           } catch (err) {
             console.warn('[Home] remove book failed:', err);
+          } finally {
+            await loadBookshelfSafely();
           }
         }
       });
@@ -282,15 +282,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // v1.7.0: clearAll 改为 Promise.all 并行删除
+  // 所有删除任务完成后统一按权威 recentBooks 刷新，允许单本失败后继续收口。
   btnClearAll.addEventListener('click', async () => {
     if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
       try {
         const books = await EpubStorage.getRecentBooks();
-        await Promise.all(books.map(b => EpubStorage.removeBook(b.id)));
-        await loadBookshelfSafely();
+        const results = await Promise.allSettled(books.map(b => EpubStorage.removeBook(b.id)));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) console.warn('[Home] clear bookshelf failed:', failure.reason);
       } catch (err) {
         console.warn('[Home] clear bookshelf failed:', err);
+      } finally {
+        await loadBookshelfSafely();
       }
     }
   });

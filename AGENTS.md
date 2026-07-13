@@ -57,6 +57,7 @@
 - FB2/Calibre `body[name="notes"]` / `body[name="comments"]` 必须继续被识别为注释容器。
 - `search.js` 的结果上限和 timing 阈值保持模块级常量；每章结果合并前必须按 `_SEARCH_MAX_RESULTS` 裁剪。
 - `home.js` 书架卡片封面或 `bookMeta` 单本读取失败只能降级当前卡片，不得让整轮流式渲染失败或留下骨架。
+- home/popup 主动删除后无论成功失败都必须重新读取权威 `recentBooks` 并重建列表；不要同时维护手工 DOM 删除分支。
 
 ## DOM、安全与样式
 

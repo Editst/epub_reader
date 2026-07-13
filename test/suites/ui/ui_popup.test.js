@@ -47,6 +47,8 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(js.includes('function loadRecentBooksSafely()'), '应通过安全辅助函数加载最近阅读');
     assert.ok(js.includes('return loadRecentBooks().catch((e) => {'), 'loadRecentBooksSafely 应捕获加载失败');
     assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应 have fallback');
+    assert.ok(js.includes('function showEmptyState()'), '空列表与加载失败应共用空状态恢复路径');
+    assert.ok(js.includes('showEmptyState();'), '加载失败应重新挂载空状态而非保留旧列表');
   });
 
   test.it('popup.js 最近阅读进度显示前必须归一化', () => {
@@ -89,11 +91,13 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed:'"), '最近书籍加载失败应记录告警');
   });
 
-  test.it('popup.js 移除最近书籍失败不应产生未处理 Promise 拒绝', () => {
+  test.it('popup.js 移除最近书籍后始终按权威 recentBooks 重建列表', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
 
     assert.ok(js.includes("console.warn('[Popup] remove recent book failed:'"), '移除失败应被捕获并告警');
-    assert.ok(js.includes('if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);'), '移除成功时应释放封面 ObjectURL');
+    assert.match(js, /finally \{\s*if \(coverObjectUrl\) URL\.revokeObjectURL\(coverObjectUrl\);\s*await loadRecentBooksSafely\(\);/, '成功或失败后都应释放资源并刷新列表');
+    assert.ok(!js.includes('item.remove();'), '弹窗不应维护独立 DOM 真相源');
+    assert.ok(js.includes('recentList.appendChild(emptyState);'), '权威列表为空时应重新挂载空状态');
   });
 
 });

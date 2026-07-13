@@ -8,6 +8,20 @@
 
 ---
 
+## [2.5.8] - 2026-07-13
+
+### fix
+- **删除后 UI 权威状态对账**：home 单本删除、清空书架和 popup 最近书籍移除无论成功失败都会重新读取 `recentBooks` 并重建列表；部分级联删除失败时不再保留已经失效的旧卡片，清空书架也会等待所有书籍删除任务 settled 后统一刷新。
+- **Popup 空状态恢复**：最近书籍变为空时显式清空列表并重新挂载 empty state，避免列表重建后空状态节点仍处于脱离 DOM 的状态。
+
+### refactor
+- 删除 home/popup 成功路径中的 `card.remove()`、`item.remove()` 和手工 remaining 判断，统一以持久化列表为 UI 真相源；精简 popup 顶部已由 changelog 归档的旧版本流水注释，保留文件选择 transient user activation 的必要说明。
+
+### test
+- Home/Popup 静态契约新增删除成功或失败后必须刷新权威列表、清空书架使用 `Promise.allSettled`、不得维护手工 DOM 删除分支及空状态重新挂载约束。
+
+---
+
 ## [2.5.7] - 2026-07-13
 
 ### fix

@@ -1,19 +1,6 @@
 /**
  * src/popup/popup.js
  * Popup 快速入口 — 最近书籍列表 + 打开新书
- *
- * v1.8.0 变更：
- *   [BUG-01] 改用 showOpenFilePicker API，消除 Chrome popup 失焦导致的首次选文件无反应。
- *            降级策略：API 不可用时回退至隐藏 input 方案。
- *   [TD-2.4] 封面加载改为 Promise.all 并行，消除串行 for-await 导致的弹窗打开慢。
- *   DOM 构建由 innerHTML 改为显式 DOM API（配合 Utils.escapeHtml 已无必要的拼接路径）。
- *
- * v1.9.3 变更：
- *   [BUG-B] loadRecentBooks() 缺少顶层 try/catch。v1.9.2 为 storage._get/_set 加入
- *           chrome.runtime.lastError 检查后，存储操作出错会 reject 而非静默返回。
- *           若 loadRecentBooks() reject 或耗时过长，不应影响核心按钮绑定。
- *           修复：先注册打开文件/进入书架/file input 事件，再用 loadRecentBooksSafely()
- *           异步加载最近阅读，并对内部的 getCover/getBookMeta 并行加载逐项容错。
  */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -33,7 +20,6 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.click();
   });
 
-  // 降级路径
   fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -48,10 +34,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadRecentBooksSafely();
 
+  function showEmptyState() {
+    recentList.innerHTML = '';
+    recentList.appendChild(emptyState);
+    emptyState.style.display = 'block';
+  }
+
   function loadRecentBooksSafely() {
     return loadRecentBooks().catch((e) => {
       console.warn('[Popup] loadRecentBooks failed:', e);
-      emptyState.style.display = 'block';
+      showEmptyState();
     });
   }
 
@@ -75,7 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadRecentBooks() {
     const books = await EpubStorage.getRecentBooks();
     if (books.length === 0) {
-      emptyState.style.display = 'block';
+      showEmptyState();
       return;
     }
     emptyState.style.display = 'none';
@@ -161,15 +153,11 @@ document.addEventListener('DOMContentLoaded', () => {
         e.stopPropagation();
         try {
           await EpubStorage.removeBook(book.id);
-          if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);
-          item.remove();
-          const remaining = await EpubStorage.getRecentBooks();
-          if (remaining.length === 0) {
-            emptyState.style.display = 'block';
-            recentList.appendChild(emptyState);
-          }
         } catch (err) {
           console.warn('[Popup] remove recent book failed:', err);
+        } finally {
+          if (coverObjectUrl) URL.revokeObjectURL(coverObjectUrl);
+          await loadRecentBooksSafely();
         }
       });
 

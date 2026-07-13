@@ -131,4 +131,13 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('const { coverBlob, meta } = await loadBookCardData(book);'), '卡片渲染应使用降级后的数据');
   });
 
+  test.it('删除书籍成功或失败后都按权威 recentBooks 刷新书架', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    const refreshFinallyCount = (js.match(/finally \{\s*await loadBookshelfSafely\(\);/g) || []).length;
+
+    assert.equal(refreshFinallyCount, 2, '单本删除和清空书架都应在 finally 中刷新');
+    assert.ok(js.includes('Promise.allSettled(books.map(b => EpubStorage.removeBook(b.id)))'), '清空书架应等待所有删除任务收口');
+    assert.ok(!js.includes('card.remove();'), '单本删除不应维护独立 DOM 真相源');
+  });
+
 });
