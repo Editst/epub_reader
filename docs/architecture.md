@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.6
+版本：v2.5.7
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -344,6 +344,7 @@ removeBook(bookId: string): Promise<void>
 // removeRecentBook + removeBookMeta + removeCover +
 // removeHighlights + removeLocations + removeBookmarks + removeFile
 // v2.4.7：删除期间阻止同上下文 bookMeta 队列回写孤立记录
+// v2.5.7：单项失败也等待其余清理全部 settled 后再释放守卫并传播失败；同书并发调用复用同一删除任务
 ```
 
 ### 工具

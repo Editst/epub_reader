@@ -376,6 +376,95 @@ test.describe('EpubStorage 行为覆盖', () => {
     }
   });
 
+  test.it('removeBook 单项失败时等待其余清理结束再释放删除守卫', async () => {
+    const id = 'book-delete-partial-failure';
+    const originalRemoveCover = EpubStorage.removeCover;
+    const originalRemoveFile = EpubStorage.removeFile;
+    let releaseFileDelete;
+    let fileDeleteStartedResolve;
+    const fileDeleteStarted = new Promise((resolve) => { fileDeleteStartedResolve = resolve; });
+
+    EpubStorage.removeCover = async function patchedRemoveCover(bookId) {
+      if (bookId === id) throw new Error('simulated cover delete failure');
+      return originalRemoveCover.call(this, bookId);
+    };
+    EpubStorage.removeFile = async function patchedRemoveFile(bookId) {
+      if (bookId !== id) return originalRemoveFile.call(this, bookId);
+      fileDeleteStartedResolve();
+      await new Promise((resolve) => { releaseFileDelete = resolve; });
+    };
+
+    try {
+      await EpubStorage.savePosition(id, 'epubcfi(/6/2)', 10);
+
+      let deleteSettled = false;
+      const deleteResultPromise = EpubStorage.removeBook(id).then(
+        () => ({ status: 'fulfilled' }),
+        (error) => ({ status: 'rejected', error })
+      );
+      deleteResultPromise.then(() => { deleteSettled = true; });
+
+      await fileDeleteStarted;
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(deleteSettled, false, '单项失败后仍应等待其余清理任务');
+      assert.equal(EpubStorage._deletingBookIds.has(id), true, '其余清理完成前删除守卫必须保留');
+
+      await EpubStorage.savePosition(id, 'epubcfi(/6/8)', 80);
+      releaseFileDelete();
+
+      const result = await deleteResultPromise;
+      assert.equal(result.status, 'rejected');
+      assert.match(result.error.message, /simulated cover delete failure/);
+      assert.equal(EpubStorage._deletingBookIds.has(id), false, '全部清理收口后应释放删除守卫');
+      assert.equal(await EpubStorage.getBookMeta(id), null, '删除期间的新位置写入不得重建 bookMeta');
+    } finally {
+      if (releaseFileDelete) releaseFileDelete();
+      EpubStorage.removeCover = originalRemoveCover;
+      EpubStorage.removeFile = originalRemoveFile;
+      EpubStorage._deletingBookIds.delete(id);
+    }
+  });
+
+  test.it('removeBook 同书并发调用复用同一删除任务', async () => {
+    const id = 'book-delete-deduplicate';
+    const originalRemoveFile = EpubStorage.removeFile;
+    let removeFileCalls = 0;
+    let releaseFileDelete;
+    let fileDeleteStartedResolve;
+    const fileDeleteStarted = new Promise((resolve) => { fileDeleteStartedResolve = resolve; });
+    const fileDeleteGate = new Promise((resolve) => { releaseFileDelete = resolve; });
+
+    EpubStorage.removeFile = async function patchedRemoveFile(bookId) {
+      if (bookId !== id) return originalRemoveFile.call(this, bookId);
+      removeFileCalls++;
+      fileDeleteStartedResolve();
+      await fileDeleteGate;
+    };
+
+    try {
+      const firstDelete = EpubStorage.removeBook(id);
+      await fileDeleteStarted;
+      const secondDelete = EpubStorage.removeBook(id);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.equal(removeFileCalls, 1, '同一本书的并发删除不得重复执行级联任务');
+      assert.equal(EpubStorage._deletingBookIds.has(id), true, '共享删除任务完成前守卫必须保留');
+
+      releaseFileDelete();
+      await Promise.all([firstDelete, secondDelete]);
+
+      assert.equal(removeFileCalls, 1);
+      assert.equal(EpubStorage._bookDeleteTasks.has(id), false, '删除完成后应清理任务缓存');
+      assert.equal(EpubStorage._deletingBookIds.has(id), false);
+    } finally {
+      releaseFileDelete();
+      EpubStorage.removeFile = originalRemoveFile;
+      EpubStorage._bookDeleteTasks?.delete(id);
+      EpubStorage._deletingBookIds.delete(id);
+    }
+  });
+
   test.it('bookMeta 写入失败不会让内部队列 Promise 继续 reject', async () => {
     const id = 'book-queue-fail';
     const originalSet = EpubStorage._set;

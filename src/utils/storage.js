@@ -50,6 +50,7 @@ const EpubStorage = {
   _preferencesQueue: Promise.resolve(),
   _recentBooksQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
+  _bookDeleteTasks: new Map(),
   _deletingBookIds: new Set(),
 
   // ── Preferences ────────────────────────────────────────────────────────────
@@ -360,25 +361,42 @@ const EpubStorage = {
   // ── Cascading Delete ──────────────────────────────────────────────────────
 
   /**
-   * 删除一本书的全量数据（7 项并行）。
+   * 删除一本书的全量数据（7 项并行，全部收口后再释放删除守卫）。
    * v1.7.0: removeBookMeta 取代原 removePosition + removeReadingTime。
+   * v2.5.7: 单项失败时仍等待其余清理结束；同书并发调用复用同一删除任务。
    */
   async removeBook(bookId) {
     if (!bookId) return;
-    this._deletingBookIds.add(bookId);
+    const pending = this._bookDeleteTasks.get(bookId);
+    if (pending) return pending;
+
+    const deleteTask = (async () => {
+      this._deletingBookIds.add(bookId);
+      try {
+        await this._drainBookMetaQueue(bookId);
+        const results = await Promise.allSettled([
+          this.removeRecentBook(bookId),
+          this.removeBookMeta(bookId),
+          this.removeCover(bookId),
+          this.removeHighlights(bookId),
+          this.removeLocations(bookId),
+          this.removeBookmarks(bookId),
+          this.removeFile(bookId)
+        ]);
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) throw failure.reason;
+      } finally {
+        this._deletingBookIds.delete(bookId);
+      }
+    })();
+
+    this._bookDeleteTasks.set(bookId, deleteTask);
     try {
-      await this._drainBookMetaQueue(bookId);
-      await Promise.all([
-        this.removeRecentBook(bookId),
-        this.removeBookMeta(bookId),
-        this.removeCover(bookId),
-        this.removeHighlights(bookId),
-        this.removeLocations(bookId),
-        this.removeBookmarks(bookId),
-        this.removeFile(bookId)
-      ]);
+      await deleteTask;
     } finally {
-      this._deletingBookIds.delete(bookId);
+      if (this._bookDeleteTasks.get(bookId) === deleteTask) {
+        this._bookDeleteTasks.delete(bookId);
+      }
     }
   },
 
