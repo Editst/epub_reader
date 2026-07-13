@@ -8,6 +8,21 @@
 
 ---
 
+## [2.5.13] - 2026-07-13
+
+### fix
+- **Reader 并发打开串行化**：`openBook()` 的旧书 teardown、共享状态更新、rendition 创建、位置恢复和模块挂载进入实例级 Promise 队列；快速文件选择、拖放或缓存打开不再同时改写同一 Reader state、重复销毁资源或交叉挂载书籍上下文。
+- **缓存打开上下文延迟提交**：`loadFileByBookId()` 不再于真正获得打开队列所有权前预写 `currentBookId/currentFileName`，排队中的书籍不会短暂冒充当前阅读上下文。
+- **本地导入顺序稳定**：ReaderUi 从 `arrayBuffer()`、bookId 生成、文件落盘到 runtime 打开统一串行；连续选择大小不同的文件时，不再由较慢的早期读取迟到覆盖后选书籍。
+
+### refactor
+- 对外 `openBook()` 只负责排队并返回当前任务 Promise，原完整流程下沉为私有 `_openBook()`；ReaderUi 同样以轻量 wrapper 包装 `_openLocalFile()`。内部队列吸收失败后继续调度，但调用方仍收到原始异常。
+
+### test
+- ReaderRuntime 新增并发双打开故障注入：首个任务阻塞并失败时，第二个任务必须等待其 settled 后执行并成功成为唯一当前书；ReaderUi 新增慢首文件/快次文件回归，锁定读取、落盘和打开均保持用户触发顺序。
+
+---
+
 ## [2.5.12] - 2026-07-13
 
 ### fix

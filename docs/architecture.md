@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.12
+版本：v2.5.13
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -540,6 +540,12 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - `next()`、`prev()`、`displayPercentage()` 和 lifecycle context 的 `navigate(target)` 必须在 `ReaderRuntime` 内消费 rendition 的同步异常与 Promise 拒绝，并以布尔值表示是否成功；DOM 事件调用方不得留下未处理拒绝。
 - TOC、Bookmarks、Search 通过 `mount(context)` 保存 `context.navigate`，用户点击定位不得直接绕过 runtime 调用当前 rendition；仅为独立模块调用保留带错误收口的 fallback。
 - 翻页锁必须等底层导航 settled 后再进入 `NAV_DEBOUNCE_MS` 防抖释放；每次翻页携带递增代次，旧书或旧导航迟到的解锁 timer 不得解除新导航持有的锁。
+
+**v2.5.13 打开任务并发约束**：
+- `openBook()` 的 teardown、偏好与元数据读取、rendition 创建、位置恢复、recentBooks 更新和模块 mount 必须作为一个整体串行执行；多个导入、拖放或缓存打开请求不得同时写共享 Reader state。
+- 队列向每个调用方返回其真实结果，但内部队列必须吸收前一任务失败后继续调度后一任务，避免一次损坏 EPUB 使后续打开永久失效。
+- `loadFileByBookId()` 在排队前只使用局部 `fileName`；`currentBookId/currentFileName` 只能由获得队列所有权的打开任务更新，等待中的书籍不得提前冒充当前上下文。
+- ReaderUi 本地导入从 `file.arrayBuffer()` 开始串行，覆盖 bookId 生成、文件落盘和 runtime 打开；连续文件选择或拖放必须按用户触发顺序完成，不能因文件大小不同而反转最终打开顺序。
 
 ---
 

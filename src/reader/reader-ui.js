@@ -38,6 +38,7 @@
     let _runtime = null;
     let _isRuntimeBound = false;
     let _reflowSeq = 0;
+    let _openLocalFileQueue = Promise.resolve();
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -746,7 +747,7 @@
       });
     }
 
-    async function openLocalFile(file, runtime) {
+    async function _openLocalFile(file, runtime) {
       try {
         showLoading(true);
         const arrayBuffer = await file.arrayBuffer();
@@ -758,6 +759,12 @@
         console.error('[ReaderUi] failed to open local file:', err);
         showLoadError('无法加载此 EPUB 文件: ' + err.message);
       }
+    }
+
+    function openLocalFile(file, runtime) {
+      const task = _openLocalFileQueue.then(() => _openLocalFile(file, runtime));
+      _openLocalFileQueue = task.catch(() => {});
+      return task;
     }
 
     /**

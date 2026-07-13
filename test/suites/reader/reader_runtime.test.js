@@ -510,6 +510,104 @@ test.describe('ReaderRuntime', () => {
     assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
   });
 
+  test.it('openBook 并发调用串行执行且前一任务失败不阻断后一任务', async () => {
+    const { document } = createMockDocument([
+      'reader-main', 'book-title', 'chapter-title', 'progress-location'
+    ]);
+    global.document = document;
+    global.setTimeout = (fn) => { fn(); return 1; };
+
+    const openedBookIds = [];
+    global.ePub = () => {
+      const rendition = {
+        hooks: { content: { register() {} } },
+        themes: { default() {}, override() {} },
+        on() {},
+        async display() {},
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
+        },
+        getContents() {
+          return [{ document: { fonts: { ready: Promise.resolve() } } }];
+        },
+        destroy() {}
+      };
+      const locations = {
+        _length: 0,
+        length() { return this._length; },
+        load() { this._length = 1; },
+        percentageFromCfi() { return 0; }
+      };
+      return {
+        ready: Promise.resolve(),
+        locations,
+        renderTo() { return rendition; },
+        destroy() {},
+        coverUrl: async () => null,
+        loaded: {
+          metadata: Promise.resolve({ title: '并发打开', creator: '作者' }),
+          navigation: Promise.resolve({ toc: [] })
+        }
+      };
+    };
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    let rejectFirstPreferences;
+    const firstPreferences = new Promise((resolve, reject) => {
+      rejectFirstPreferences = reject;
+    });
+    let preferenceReads = 0;
+    EpubStorage.getPreferences = () => {
+      preferenceReads++;
+      if (preferenceReads === 1) return firstPreferences;
+      return Promise.resolve({ layout: 'paginated', theme: 'light' });
+    };
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async (book) => { openedBookIds.push(book.id); };
+    EpubStorage.getLocations = async () => 'cached-locations';
+
+    const state = ReaderState.createReaderState();
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {}, injectCustomStyleElement() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      const firstOpen = runtime.openBook(new Uint8Array([1]), 'book-first', 'first.epub');
+      const secondOpen = runtime.openBook(new Uint8Array([2]), 'book-second', 'second.epub');
+      await Promise.resolve();
+      await Promise.resolve();
+      const readsBeforeFirstSettled = preferenceReads;
+
+      rejectFirstPreferences(new Error('first open failed'));
+      await assert.rejects(firstOpen, /first open failed/);
+      await secondOpen;
+
+      assert.equal(readsBeforeFirstSettled, 1, '第二次打开必须等待第一次完整 settled');
+      assert.deepEqual(openedBookIds, ['book-second']);
+      assert.equal(state.currentBookId, 'book-second');
+      assert.equal(state.isBookLoaded, true);
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+    }
+  });
+
   test.it('openBook 与 setLayout 创建的 rendition 均约束 EPUB 图片尺寸', async () => {
     const { document } = createMockDocument([
       'reader-main',

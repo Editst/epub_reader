@@ -24,6 +24,7 @@
 
 - `src/reader/reader.js` 只做 orchestrator；行为放在四层：`reader-state.js`、`reader-runtime.js`、`reader-persistence.js`、`reader-ui.js`。
 - `reader-runtime.js` 负责 epub.js 生命周期、`openBook()`、文件加载、导航、布局切换和 locations 生成。
+- ReaderUi 本地导入从文件读取到 `openBook()` 按触发顺序串行；`openBook()` 全流程再通过 Runtime 内部队列串行，前一任务失败不得阻断后一任务。缓存加载等待排队期间不得提前改写 `currentBookId/currentFileName`。
 - `reader-persistence.js` 负责阅读位置、阅读时长、速度统计、`relocated`、`visibilitychange` 和 flush。
 - `reader-ui.js` 是 Reader DOM 操作入口；persistence 层不得直接持有 DOM 引用。
 - 功能模块（`annotations`、`toc`、`search`、`bookmarks`、`highlights`、`image-viewer`）通过 lifecycle context 挂载；新增模块必须同步 `reader.html` 和 `reader.js` 生命周期 wiring。

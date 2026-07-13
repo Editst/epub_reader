@@ -35,6 +35,7 @@
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
     let navigationSeq = 0;
+    let openBookQueue = Promise.resolve();
 
     // ── Rendition 工厂 ───────────────────────────────────────────────────────
     // openBook 与 setLayout 共享的 rendition 创建 + 主题 + hook 逻辑
@@ -400,7 +401,7 @@
      * @param {string} fileName
      * @param {string|null} [targetCfi]  指定跳转位置（覆盖 storage savedPos）
      */
-    async function openBook(fileData, bookId, fileName, targetCfi = null) {
+    async function _openBook(fileData, bookId, fileName, targetCfi = null) {
       const openStartedAt = Date.now();
 
       // ── 清理旧书 ────────────────────────────────────────────────────────────
@@ -629,6 +630,12 @@
       }
     }
 
+    function openBook(fileData, bookId, fileName, targetCfi = null) {
+      const task = openBookQueue.then(() => _openBook(fileData, bookId, fileName, targetCfi));
+      openBookQueue = task.catch(() => {});
+      return task;
+    }
+
     // ── Load Helpers ──────────────────────────────────────────────────────────
 
     async function loadFileByBookId(bookId, options = {}) {
@@ -637,10 +644,9 @@
         ui.showLoading(true);
         const record = await EpubStorage.getFile(bookId);
         if (record && record.data) {
-          state.currentBookId   = bookId;
-          state.currentFileName = record.filename || '';
+          const fileName = record.filename || '';
           try {
-            await openBook(record.data, bookId, state.currentFileName, targetCfi);
+            await openBook(record.data, bookId, fileName, targetCfi);
           } catch (err) {
             console.error('[Runtime] loadFileByBookId: openBook failed', err);
             ui.showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);

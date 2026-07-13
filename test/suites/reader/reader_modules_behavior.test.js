@@ -1675,6 +1675,56 @@ test.describe('Reader 模块基础行为', () => {
     assert.deepEqual(calls, ['store-start', 'store-end', 'open-book']);
   });
 
+  test.it('ReaderUi 连续选择文件会按用户触发顺序完成导入与打开', async () => {
+    const { document } = createMockDocument(['file-input']);
+    let releaseFirstRead;
+    const firstRead = new Promise((resolve) => { releaseFirstRead = resolve; });
+    const calls = [];
+    const context = {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      EpubStorage: {
+        async generateBookId(fileName) { return 'id-' + fileName; },
+        async storeFile(fileName) { calls.push(['store', fileName]); },
+        async savePreferences() {}
+      },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {}, isBookLoaded: false } });
+    await ui.bindRuntime({
+      async openBook(_data, _bookId, fileName) { calls.push(['open', fileName]); },
+      next() {}, prev() {}, setLayout() {}, displayPercentage() {}
+    }, {});
+
+    const fileInput = document.getElementById('file-input');
+    const changeHandler = fileInput.listeners.get('change')[0];
+    const firstTask = changeHandler({
+      target: {
+        files: [{ name: 'first.epub', async arrayBuffer() { return firstRead; } }],
+        value: ''
+      }
+    });
+    const secondTask = changeHandler({
+      target: {
+        files: [{ name: 'second.epub', async arrayBuffer() { return new Uint8Array([2]).buffer; } }],
+        value: ''
+      }
+    });
+
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseFirstRead(new Uint8Array([1]).buffer);
+    await Promise.all([firstTask, secondTask]);
+
+    assert.deepEqual(calls, [
+      ['store', 'first.epub'],
+      ['open', 'first.epub'],
+      ['store', 'second.epub'],
+      ['open', 'second.epub']
+    ]);
+  });
+
   test.it('ReaderUi bindRuntime 重复调用不会叠加顶层事件监听', async () => {
     const { document } = createMockDocument([
       'welcome-screen',
