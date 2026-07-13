@@ -9,6 +9,7 @@
   bookId: '',
   book: null,
   rendition: null,
+  navigate: null,
   panel: null,
   listEl: null,
   _boundDocument: null,
@@ -28,6 +29,7 @@
 
   mount(context) {
     if (!context) return;
+    this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
     this.setBook(context.bookId, context.book, context.rendition);
   },
 
@@ -135,7 +137,7 @@
 
       info.addEventListener('click', () => {
         if (this.rendition) {
-          this.rendition.display(bm.cfi);
+          this._navigateTo(bm.cfi);
           this.closePanel();
         }
       });
@@ -191,12 +193,24 @@
     }
   },
 
+  _navigateTo(target) {
+    const navigate = this.navigate || ((value) => this.rendition?.display(value));
+    try {
+      Promise.resolve(navigate(target)).catch((err) => {
+        console.warn('[Bookmarks] navigation failed:', err);
+      });
+    } catch (err) {
+      console.warn('[Bookmarks] navigation failed:', err);
+    }
+  },
+
   reset() {
     this.closePanel();
     this._loadSeq++;
     this.bookId = '';
     this.book = null;
     this.rendition = null;
+    this.navigate = null;
     if (this.listEl) this.listEl.innerHTML = '';
   },
 

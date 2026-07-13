@@ -27,6 +27,7 @@
 - `reader-persistence.js` 负责阅读位置、阅读时长、速度统计、`relocated`、`visibilitychange` 和 flush。
 - `reader-ui.js` 是 Reader DOM 操作入口；persistence 层不得直接持有 DOM 引用。
 - 功能模块（`annotations`、`toc`、`search`、`bookmarks`、`highlights`、`image-viewer`）通过 lifecycle context 挂载；新增模块必须同步 `reader.html` 和 `reader.js` 生命周期 wiring。
+- TOC、Bookmarks、Search 的用户定位统一调用 lifecycle context 注入的 `navigate(target)`；不要直接丢弃 `rendition.display()` Promise。Runtime 的用户导航必须自行收口同步异常与异步拒绝，旧导航的迟到解锁不得影响新导航锁。
 - Reader 模块统一 IIFE：`(function () { 'use strict'; ... window.XXX = XXX; })();`
 - 模块级魔法数字提取为顶部命名常量；`openBook`/`setLayout` 共享逻辑放在 `reader-runtime.js` 私有函数；跨 reader 模块共享 helper 放在 `reader-state.js`。
 

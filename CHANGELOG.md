@@ -8,6 +8,21 @@
 
 ---
 
+## [2.5.10] - 2026-07-13
+
+### fix
+- **Reader 用户导航错误收口**：翻页、进度跳转、目录、书签和搜索结果定位统一消费 epub.js 的同步异常与 Promise 拒绝，不再由 DOM 事件遗留未处理拒绝；命令以布尔值返回导航结果。
+- **跨书导航锁隔离**：翻页锁在底层导航 settled 后再进入 150ms 防抖释放，并通过递增代次忽略旧书/旧导航迟到的解锁 timer，避免它提前解除新书正在持有的导航锁。
+
+### refactor
+- TOC、Bookmarks、Search 通过 lifecycle context 注入的 `navigate(target)` 进入 `ReaderRuntime` 导航边界；各模块仅保留独立调用时带错误收口的 rendition fallback。
+- `prev()` 合并分页章头与普通路径的重复解锁逻辑，置暗恢复和锁释放统一由 `finally` 收口。
+
+### test
+- ReaderRuntime 新增同步抛错、异步拒绝、置暗恢复、锁释放及旧导航迟到 timer 隔离回归；功能模块行为测试锁定目录、书签、搜索结果必须使用 lifecycle 导航命令。
+
+---
+
 ## [2.5.9] - 2026-07-13
 
 ### fix

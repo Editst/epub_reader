@@ -34,6 +34,7 @@
 
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
+    let navigationSeq = 0;
 
     // ── Rendition 工厂 ───────────────────────────────────────────────────────
     // openBook 与 setLayout 共享的 rendition 创建 + 主题 + hook 逻辑
@@ -519,7 +520,8 @@
         book:      state.book,
         rendition: state.rendition,
         bookId:    state.currentBookId,
-        fileName:  state.currentFileName
+        fileName:  state.currentFileName,
+        navigate:  navigateTo
       };
       moduleLifecycle.mount(context);
 
@@ -659,41 +661,70 @@
 
     // ── Navigation ────────────────────────────────────────────────────────────
 
-    function next() {
-      if (state.navLock || !state.rendition || !state.isLayoutStable) return;
+    async function _performNavigation(label, operation) {
+      try {
+        await operation();
+        return true;
+      } catch (e) {
+        console.warn(`[Runtime] navigation failed (${label}):`, e);
+        return false;
+      }
+    }
+
+    function _scheduleNavigationUnlock(navigationId) {
+      setTimeout(() => {
+        if (navigationId === navigationSeq) state.navLock = false;
+      }, NAV_DEBOUNCE_MS);
+    }
+
+    async function navigateTo(target) {
+      if (!target || !state.rendition || !state.isLayoutStable) return false;
+      _markUserPositionIntent();
+      return _performNavigation('display', () => state.rendition.display(target));
+    }
+
+    async function next() {
+      if (state.navLock || !state.rendition || !state.isLayoutStable) return false;
       _markUserPositionIntent();
       state.navLock = true;
-      state.rendition.next();
-      setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
+      const navigationId = ++navigationSeq;
+      try {
+        return await _performNavigation('next', () => state.rendition.next());
+      } finally {
+        _scheduleNavigationUnlock(navigationId);
+      }
     }
 
     async function prev() {
-      if (state.navLock || !state.rendition || !state.isLayoutStable) return;
+      if (state.navLock || !state.rendition || !state.isLayoutStable) return false;
       _markUserPositionIntent();
       state.navLock = true;
-      const loc = state.rendition.currentLocation();
-      if (loc && loc.atStart && state.prefs.layout !== 'scrolled') {
-        try {
-          ui.setReaderDimmed(true);
+      const navigationId = ++navigationSeq;
+      let dimmed = false;
+      try {
+        return await _performNavigation('prev', async () => {
+          const loc = state.rendition.currentLocation();
+          dimmed = !!loc?.atStart && state.prefs.layout !== 'scrolled';
+          if (dimmed) {
+            ui.setReaderDimmed(true);
+          }
           await state.rendition.prev();
-        } finally {
+        });
+      } finally {
+        if (dimmed) {
           ui.setReaderDimmed(false);
-          setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
         }
-      } else {
-        state.rendition.prev();
-        setTimeout(() => { state.navLock = false; }, NAV_DEBOUNCE_MS);
+        _scheduleNavigationUnlock(navigationId);
       }
     }
 
-    function displayPercentage(percent) {
-      if (!state.rendition || !state.book || !state.isLayoutStable) return;
-      if (!state.book.locations || !state.book.locations.length()) return;
+    async function displayPercentage(percent) {
+      if (!state.rendition || !state.book || !state.isLayoutStable) return false;
+      if (!state.book.locations || !state.book.locations.length()) return false;
       const cfi = state.book.locations.cfiFromPercentage(percent / 100);
-      if (cfi) {
-        _markUserPositionIntent();
-        state.rendition.display(cfi);
-      }
+      if (!cfi) return false;
+      _markUserPositionIntent();
+      return _performNavigation('display percentage', () => state.rendition.display(cfi));
     }
 
     // ── Layout Switch ─────────────────────────────────────────────────────────

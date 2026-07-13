@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.9
+版本：v2.5.10
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -472,9 +472,9 @@ openBook(
 ): Promise<void>
 
 setLayout(layout: 'paginated' | 'scrolled'): Promise<void>
-next(): Promise<void>
-prev(): Promise<void>
-displayPercentage(percentage: number): Promise<void>
+next(): Promise<boolean>
+prev(): Promise<boolean>
+displayPercentage(percentage: number): Promise<boolean>
 
 scheduleLocationsGeneration(task: Function): void
 ```
@@ -536,6 +536,11 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
+
+**v2.5.10 导航边界约束**：
+- `next()`、`prev()`、`displayPercentage()` 和 lifecycle context 的 `navigate(target)` 必须在 `ReaderRuntime` 内消费 rendition 的同步异常与 Promise 拒绝，并以布尔值表示是否成功；DOM 事件调用方不得留下未处理拒绝。
+- TOC、Bookmarks、Search 通过 `mount(context)` 保存 `context.navigate`，用户点击定位不得直接绕过 runtime 调用当前 rendition；仅为独立模块调用保留带错误收口的 fallback。
+- 翻页锁必须等底层导航 settled 后再进入 `NAV_DEBOUNCE_MS` 防抖释放；每次翻页携带递增代次，旧书或旧导航迟到的解锁 timer 不得解除新导航持有的锁。
 
 ---
 

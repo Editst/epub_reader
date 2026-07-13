@@ -10,6 +10,7 @@
   sidebar: null,
   overlay: null,
   rendition: null,
+  navigate: null,
   currentHref: '',
   _boundDocument: null,
 
@@ -54,6 +55,7 @@
    */
   mount(context) {
     if (!context?.book || !context?.rendition) return;
+    this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
     this.build(context.book.navigation, context.rendition);
   },
 
@@ -90,7 +92,7 @@
 
       el.addEventListener('click', () => {
         if (this.rendition) {
-          this.rendition.display(item.href);
+          this._navigateTo(item.href);
           this.close();
         }
       });
@@ -153,10 +155,22 @@
     }
   },
 
+  _navigateTo(target) {
+    const navigate = this.navigate || ((value) => this.rendition?.display(value));
+    try {
+      Promise.resolve(navigate(target)).catch((err) => {
+        console.warn('[TOC] navigation failed:', err);
+      });
+    } catch (err) {
+      console.warn('[TOC] navigation failed:', err);
+    }
+  },
+
   reset() {
     this.close();
     if (this.container) this.container.innerHTML = '';
     this.rendition = null;
+    this.navigate = null;
   }
   };
 

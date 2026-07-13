@@ -10,6 +10,7 @@
 
   let book = null;
   let rendition = null;
+  let navigate = null;
   let panel = null;
   let overlay = null;
   let searchInput = null;
@@ -155,6 +156,7 @@
     if (searchInput) searchInput.value = '';
     book = null;
     rendition = null;
+    navigate = null;
   }
 
   async function doSearch(query) {
@@ -276,7 +278,7 @@
           clearSearchHighlight();
           rendition.annotations.highlight(res.cfi, {}, () => {}, 'epubjs-search-highlight', { fill: 'yellow', 'fill-opacity': '0.5' });
           _lastSearchAlertCfi = res.cfi;
-          rendition.display(res.cfi);
+          navigateTo(res.cfi);
         }
       });
 
@@ -293,8 +295,20 @@
     }
   }
 
+  function navigateTo(target) {
+    const navigateCommand = navigate || ((value) => rendition?.display(value));
+    try {
+      Promise.resolve(navigateCommand(target)).catch((err) => {
+        console.warn('[Search] navigation failed:', err);
+      });
+    } catch (err) {
+      console.warn('[Search] navigation failed:', err);
+    }
+  }
+
   function mount(context) {
     if (!context) return;
+    navigate = typeof context.navigate === 'function' ? context.navigate : null;
     setBook(context.book, context.rendition);
   }
 

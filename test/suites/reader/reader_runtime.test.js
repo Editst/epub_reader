@@ -52,7 +52,7 @@ test.describe('ReaderRuntime', () => {
     global.fetch = originalFetch;
   });
 
-  test.it('next 在导航锁期间不会重复翻页', () => {
+  test.it('next 在导航锁期间不会重复翻页', async () => {
     const state = {
       navLock: false,
       isLayoutStable: true,
@@ -77,11 +77,11 @@ test.describe('ReaderRuntime', () => {
       moduleLifecycle: { mount() {}, unmount() {} }
     });
 
-    runtime.next();
+    await runtime.next();
     runtime.next();
     assert.equal(state.rendition.calls, 1);
     scheduled[0]();
-    runtime.next();
+    await runtime.next();
 
     global.setTimeout = originalSetTimeout;
 
@@ -117,6 +117,104 @@ test.describe('ReaderRuntime', () => {
     runtime.displayPercentage(75);
 
     assert.deepEqual(displayed, ['epubcfi(/6/10)']);
+  });
+
+  test.it('用户导航失败会被收口并在完成后释放导航锁', async () => {
+    const scheduled = [];
+    global.setTimeout = (fn) => {
+      scheduled.push(fn);
+      return scheduled.length;
+    };
+    const warnings = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args); };
+    const state = {
+      navLock: false,
+      isLayoutStable: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 1,
+          cfiFromPercentage: () => 'epubcfi(/6/10)'
+        }
+      },
+      rendition: {
+        next() { throw new Error('next failed'); },
+        currentLocation() { return { atStart: true }; },
+        prev() { return Promise.reject(new Error('prev failed')); },
+        display() { return Promise.reject(new Error('display failed')); }
+      }
+    };
+    const dimmed = [];
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: { setReaderDimmed(value) { dimmed.push(value); } },
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      assert.equal(await runtime.next(), false);
+      assert.equal(state.navLock, true, '失败完成后仍应保留防抖锁');
+      scheduled.shift()();
+      assert.equal(state.navLock, false);
+
+      assert.equal(await runtime.prev(), false);
+      assert.deepEqual(dimmed, [true, false]);
+      scheduled.shift()();
+      assert.equal(state.navLock, false);
+
+      assert.equal(await runtime.displayPercentage(50), false);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(warnings.length, 3);
+    assert.ok(warnings.every(args => String(args[0]).includes('navigation failed')));
+  });
+
+  test.it('旧书迟到的导航完成不得解除新书导航锁', async () => {
+    const scheduled = [];
+    global.setTimeout = (fn) => {
+      scheduled.push(fn);
+      return scheduled.length;
+    };
+    let resolveOldNavigation;
+    let resolveNewNavigation;
+    const state = {
+      navLock: false,
+      isLayoutStable: true,
+      rendition: {
+        next() {
+          return new Promise((resolve) => { resolveOldNavigation = resolve; });
+        }
+      }
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {},
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    const oldNavigation = runtime.next();
+    state.navLock = false;
+    state.rendition = {
+      next() {
+        return new Promise((resolve) => { resolveNewNavigation = resolve; });
+      }
+    };
+    const newNavigation = runtime.next();
+
+    resolveOldNavigation();
+    await oldNavigation;
+    scheduled.shift()();
+    assert.equal(state.navLock, true, '旧导航 timer 不得释放新导航持有的锁');
+
+    resolveNewNavigation();
+    await newNavigation;
+    scheduled.shift()();
+    assert.equal(state.navLock, false);
   });
 
   test.it('旧 rendition 延迟事件不会影响当前阅读状态', async () => {
@@ -399,6 +497,7 @@ test.describe('ReaderRuntime', () => {
 
     assert.equal(mountCalls.length, 1);
     assert.equal(mountCalls[0].bookId, 'book-lifecycle');
+    assert.equal(typeof mountCalls[0].navigate, 'function');
     assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
   });
 
@@ -1917,7 +2016,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.rendition.calls, 0, 'isLayoutStable=false 时 next/prev 不应执行');
   });
 
-  test.it('isLayoutStable 为 true 时 next/prev 正常导航', () => {
+  test.it('isLayoutStable 为 true 时 next/prev 正常导航', async () => {
     const origDoc = global.document;
     global.document = { getElementById() { return null; } };
     const state = {
@@ -1940,10 +2039,10 @@ test.describe('ReaderRuntime', () => {
       moduleLifecycle: { mount() {}, unmount() {} }
     });
 
-    runtime.next();
+    await runtime.next();
     assert.equal(state.rendition.calls, 1, 'isLayoutStable=true 时 next 应执行');
     scheduled[0]();
-    runtime.prev();
+    await runtime.prev();
     assert.equal(state.rendition.calls, 2, 'isLayoutStable=true 时 prev 应执行');
 
     global.setTimeout = originalSetTimeout;

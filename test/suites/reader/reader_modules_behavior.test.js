@@ -1211,6 +1211,90 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(items[1].classList.contains('active'), true);
   });
 
+  test.it('目录、书签和搜索结果统一通过 lifecycle 导航命令定位', async () => {
+    const navigated = [];
+    const directDisplays = [];
+    const navigate = (target) => { navigated.push(target); };
+    const createRendition = () => ({
+      annotations: { highlight() {}, remove() {} },
+      display(target) { directDisplays.push(target); }
+    });
+
+    {
+      const { document } = createMockDocument([
+        'toc-container', 'sidebar', 'sidebar-overlay', 'btn-toc', 'btn-toc-close',
+        'bookmarks-panel', 'search-panel'
+      ]);
+      const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', { document });
+      TOC.init();
+      TOC.mount({
+        book: { navigation: { toc: [{ label: '目录章节', href: 'toc.xhtml' }] } },
+        rendition: createRendition(),
+        navigate
+      });
+      document.getElementById('toc-container').children[0].click();
+    }
+
+    {
+      const { document } = createMockDocument([
+        'bookmarks-panel', 'bookmarks-list', 'btn-bookmarks', 'btn-bookmarks-close',
+        'sidebar', 'sidebar-overlay', 'search-panel'
+      ]);
+      const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+        document,
+        EpubStorage: {
+          async getBookmarks() {
+            return [{ cfi: 'bookmark-cfi', chapter: '书签章节', progress: 20, timestamp: 1 }];
+          },
+          async saveBookmarks() {}
+        }
+      });
+      Bookmarks.init();
+      Bookmarks.mount({ bookId: 'book-1', book: {}, rendition: createRendition(), navigate });
+      await new Promise((resolve) => setImmediate(resolve));
+      document.getElementById('bookmarks-list').querySelectorAll('.bookmark-item-info')[0].click();
+    }
+
+    {
+      const { document } = createMockDocument([
+        'search-panel', 'sidebar-overlay', 'search-input', 'btn-do-search',
+        'search-results-list', 'search-status', 'btn-search', 'btn-search-close',
+        'sidebar', 'bookmarks-panel'
+      ]);
+      const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+        document,
+        setTimeout(fn) { fn(); return 1; },
+        clearTimeout() {}
+      });
+      Search.init();
+      Search.mount({
+        book: {
+          load() {},
+          spine: {
+            length: 1,
+            get() {
+              return {
+                async load() {},
+                find() { return [{ cfi: 'search-cfi', excerpt: '搜索关键词' }]; },
+                unload() {}
+              };
+            }
+          }
+        },
+        rendition: createRendition(),
+        navigate
+      });
+      document.getElementById('search-input').value = '关键词';
+      document.getElementById('btn-do-search').click();
+      await new Promise((resolve) => setImmediate(resolve));
+      document.getElementById('search-results-list').children[0].click();
+      await Promise.resolve();
+    }
+
+    assert.deepEqual(navigated, ['toc.xhtml', 'bookmark-cfi', 'search-cfi']);
+    assert.deepEqual(directDisplays, []);
+  });
+
   test.it('TOC 打开时关闭兄弟面板并显示共享遮罩', () => {
     const { document } = createMockDocument([
       'toc-container',
