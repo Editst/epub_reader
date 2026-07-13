@@ -78,6 +78,7 @@
     state.lastPercent          = null;
     state.currentStableCfi     = null;
     state.currentStableLocator = null;
+    state.isResizing           = false;
     state.isRestoringPosition  = false;
     state.isRestoreAnchorProtected = false;
     state.lastPositionSave     = null;

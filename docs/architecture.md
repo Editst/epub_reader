@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.10
+版本：v2.5.11
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -532,7 +532,6 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
 - `_correctRestoredPage` 只做章节/签名/页总数校验和同 CFI 直接重放；它不得执行翻页导航。若重放后仍无法与 locator 页码一致，保留 CFI 锚点与保护，不把短暂旧 `currentLocation()` 写回 storage。
-- `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
@@ -619,24 +618,20 @@ setupRenditionKeyEvents(rendition, persistence, nav): void
 ensureFocus(): void
 
 // 面板控制
-togglePanel(panelName: string): void
 closeAllPanels(): void
-
-// resize
-bindResize(rendition, state, persistence): void
 ```
 
 ### 命名常量（v2.4.0）
 
 | 常量 | 默认值 | 用途 |
 |------|--------|------|
-| `RESIZE_DEBOUNCE_MS` | 500 | 窗口 resize 防抖 |
+| `RESIZE_DEBOUNCE_MS` | 250 | 窗口 resize 防抖 |
 
 **v2.3.3 行为约束**：
 - `progress-location` 用于承载非阻塞定位索引状态。
 - 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到"先等索引再阅读"的旧行为。
 - `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
-- `bindResize` 监听窗口 resize，防抖 500ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。
+- `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。
 
 **v2.4.0 架构约束**：
 - 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。
@@ -644,6 +639,11 @@ bindResize(rendition, state, persistence): void
 - Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；若缓存失败，应显示加载错误，避免产生无法重新打开的书架记录。
 - `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
 - 主题、颜色、字号、行距和字体偏好保存失败时，只记录告警并保留当前 UI 更新，不得产生未处理 Promise 拒绝。
+
+**v2.5.11 reflow 生命周期约束**：
+- 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
+- 切书时 `ReaderState.resetReadingSession()` 必须同步清除 `isResizing` 与 `isRestoringPosition`；旧书迟到 RAF/timer 不得操作新 rendition，也不得改写新书保护状态。
+- 当前 reflow 完成后必须恢复捕获的 `start.cfi`，释放两类保护锁，再将当前 rendition 的位置交给 persistence。
 
 ---
 

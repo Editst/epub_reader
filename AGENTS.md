@@ -49,6 +49,7 @@
 - 恢复期不得执行 `next()` / `prev()` 页校正；fresh rendition 短暂回报旧页时只允许同一个 `displayCfi` 直接重放一次。
 - `flushPositionSave()` 保存前应按当前状态重建位置；有 pending 防抖写入时不得用滞后的 `rendition.currentLocation()` 覆盖刚翻到的新页。
 - locations 生成是后台能力；首屏渲染不得等待 `book.locations.generate()`。
+- 字号、行高、字体和窗口 resize 的延迟 reflow 必须捕获 rendition 并校验操作代次；旧书 RAF/timer 不得操作新 rendition 或释放新上下文的锁。切书重置必须清除 `isResizing` 与 `isRestoringPosition`。
 
 ## 功能模块重点
 

@@ -8,6 +8,21 @@
 
 ---
 
+## [2.5.11] - 2026-07-13
+
+### fix
+- **ReaderUi 跨书重排隔离**：字号、行高、字体变更的双 RAF 与窗口 resize 防抖 timer 现在捕获发起时 rendition，并通过共享递增代次校验；旧书迟到回调不再把旧 CFI 显示到新书、误报 relocated 或释放新上下文的保护锁。
+- **切书重排锁重置**：`ReaderState.resetReadingSession()` 补充清除 `isResizing`，与 `isRestoringPosition` 一起在切书时同步复位，避免旧 resize 尚未完成时新书位置写入被永久抑制。
+
+### refactor
+- 字体重排与窗口 resize 复用 `_beginReflow/_isCurrentReflow/_releaseReflow` 所有权逻辑；resize 全程使用捕获的 rendition，成功路径统一在释放保护后上报位置。
+- `reader-ui.js` 清理已归档 `reader-full.js`、旧版本与 BUG 编号注释，保留 start CFI 防视觉后退等当前设计理由；章节标题和统计文本更新复用既有 DOM 缓存。
+
+### test
+- ReaderUi 行为测试新增字体双 RAF 切书、resize timer 切书及当前书 resize 正常完成回归；ReaderState 测试锁定切书必须同时复位两类 reflow 保护标志。
+
+---
+
 ## [2.5.10] - 2026-07-13
 
 ### fix

@@ -10,7 +10,7 @@
  *   - 书签按钮触发（实际写入由 Bookmarks 模块完成）
  *
  * 本层不持有 book / rendition 引用，所有阅读行为通过 runtime.* 调用。
- * 所有 DOM 显隐必须使用 classList，禁止 style.* 直写（transform 豁免至 v2.2.0）。
+ * 所有 DOM 显隐必须使用 classList，禁止 style.* 直写。
  */
 (function () {
   'use strict';
@@ -20,6 +20,7 @@
   function createReaderUi({ state }) {
     let _runtime = null;
     let _isRuntimeBound = false;
+    let _reflowSeq = 0;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -106,8 +107,7 @@
      * @param {string} title
      */
     function updateChapterTitle(title) {
-      const el = document.getElementById('chapter-title');
-      if (el) el.textContent = title;
+      if (dom.chapterTitleEl) dom.chapterTitleEl.textContent = title;
     }
 
     /**
@@ -127,8 +127,7 @@
      * @param {string} text
      */
     function updateReadingStatsText(text) {
-      const el = document.getElementById('progress-time');
-      if (el) el.textContent = text;
+      if (dom.progressTime) dom.progressTime.textContent = text;
     }
 
     function showLoading(show, message = '') {
@@ -207,7 +206,7 @@
 
     // ── Theme ─────────────────────────────────────────────────────────────────
 
-    // 以下主题与对比度工具函数直接从 reader-full.js 搬运，保证颜色逻辑一致性
+    // 主题颜色进入 EPUB iframe 前先做格式与对比度校验。
     function normalizeHexColor(input) {
       if (typeof input !== 'string') return null;
       const val = input.trim();
@@ -323,7 +322,27 @@
       state.rendition.getContents().forEach(contents => injectCustomStyleElement(contents));
     }
 
-    // ── CFI Lock（v1.8.0 BUG-03-B）────────────────────────────────────────────
+    // ── CFI Lock ──────────────────────────────────────────────────────────────
+
+    function _beginReflow(rendition) {
+      const operationId = ++_reflowSeq;
+      state.isResizing = true;
+      state.isRestoringPosition = true;
+      return { operationId, rendition };
+    }
+
+    function _isCurrentReflow(context) {
+      return context.operationId === _reflowSeq &&
+        context.rendition === state.rendition &&
+        state.isBookLoaded;
+    }
+
+    function _releaseReflow(context) {
+      if (!_isCurrentReflow(context)) return false;
+      state.isResizing = false;
+      state.isRestoringPosition = false;
+      return true;
+    }
 
     /**
      * 在可能触发 epub.js 重排的同步操作前后保护当前阅读位置。
@@ -343,24 +362,33 @@
         fn();
         return;
       }
-      const loc = state.rendition.currentLocation();
+      const rendition = state.rendition;
+      const loc = rendition.currentLocation();
       const savedCfi = (loc && loc.start) ? loc.start.cfi : state.currentStableCfi;
-      state.isResizing = true;
-      state.isRestoringPosition = true;
-      fn();
+      const context = _beginReflow(rendition);
+      try {
+        fn();
+      } catch (e) {
+        _releaseReflow(context);
+        console.warn('[Ui] _withCfiLock update failed:', e);
+        return;
+      }
       requestAnimationFrame(() => {
+        if (!_isCurrentReflow(context)) return;
         requestAnimationFrame(async () => {
+          if (!_isCurrentReflow(context)) return;
           try {
-            if (savedCfi) await state.rendition.display(savedCfi);
+            if (savedCfi) await rendition.display(savedCfi);
           } catch (e) {
             console.warn('[Ui] _withCfiLock display failed:', e);
           } finally {
+            if (!_isCurrentReflow(context)) return;
             state.isResizing = false;
             // 等待 relocated 事件处理完毕后解除恢复保护
             await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-            state.isRestoringPosition = false;
+            if (!_releaseReflow(context)) return;
           }
-          const newLoc = state.rendition.currentLocation();
+          const newLoc = rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
         });
       });
@@ -370,7 +398,6 @@
 
     /**
      * 注册 rendition.hooks.content 内的键盘/滚轮事件（epub iframe 内部）。
-     * 与 reader-full.js setupRenditionKeyEvents 完全对齐。
      */
     function setupRenditionKeyEvents(rend, persistence, runtime) {
       rend.hooks.content.register((contents) => {
@@ -637,28 +664,39 @@
     function bindResize(persistence) {
       let resizeTimer;
       let preResizeCfi = null;
+      let resizeRendition = null;
       window.addEventListener('resize', () => {
         if (!state.rendition || !state.isBookLoaded) return;
-        state.isResizing = true;
+        const rendition = state.rendition;
+        if (resizeRendition !== rendition) {
+          resizeRendition = rendition;
+          preResizeCfi = null;
+        }
         if (!preResizeCfi) {
-          const loc = state.rendition.currentLocation();
-          // v1.8.0 BUG-03-A：使用 start.cfi（end.cfi 在字号放大后会视觉后退）
+          const loc = rendition.currentLocation();
+          // 使用 start.cfi；end.cfi 在重排后可能造成视觉后退。
           if (loc && loc.start) preResizeCfi = loc.start.cfi;
         }
+        const targetCfi = preResizeCfi;
+        const context = _beginReflow(rendition);
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(async () => {
-          const targetCfi = preResizeCfi;
+          if (!_isCurrentReflow(context)) return;
           preResizeCfi = null;
+          resizeRendition = null;
+          resizeTimer = null;
+          let newLoc = null;
           try {
-            state.rendition.resize();
+            rendition.resize();
             await new Promise(resolve => requestAnimationFrame(resolve));
-            if (targetCfi) await state.rendition.display(targetCfi);
+            if (!_isCurrentReflow(context)) return;
+            if (targetCfi) await rendition.display(targetCfi);
+            if (_isCurrentReflow(context)) newLoc = rendition.currentLocation();
           } catch (e) {
             console.warn('[Ui] bindResize display failed:', e);
           } finally {
-            state.isResizing = false;
+            if (!_releaseReflow(context)) return;
           }
-          const newLoc = state.rendition.currentLocation();
           if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
         }, RESIZE_DEBOUNCE_MS);
       });
@@ -669,7 +707,7 @@
         showLoading(true);
         const arrayBuffer = await file.arrayBuffer();
         const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-        // storeFile 参数顺序：(filename, data, bookId) — 对齐 reader-full.js
+        // storeFile 参数顺序：(filename, data, bookId)
         await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
         await runtime.openBook(arrayBuffer, bookId, file.name);
       } catch (err) {

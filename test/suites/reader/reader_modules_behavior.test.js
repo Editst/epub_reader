@@ -1759,6 +1759,209 @@ test.describe('Reader 模块基础行为', () => {
     assert.deepEqual(calls, ['new-next', 'new-next']);
   });
 
+  test.it('ReaderUi 字体重排的旧 RAF 回调不会操作新书 rendition', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const frames = [];
+    const oldDisplays = [];
+    const newDisplays = [];
+    const relocated = [];
+    const oldRendition = {
+      currentLocation() { return { start: { cfi: 'old-cfi' } }; },
+      getContents() { return []; },
+      display(cfi) { oldDisplays.push(cfi); return Promise.resolve(); }
+    };
+    const newRendition = {
+      currentLocation() { return { start: { cfi: 'new-cfi' } }; },
+      getContents() { return []; },
+      display(cfi) { newDisplays.push(cfi); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition: oldRendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'old-cfi'
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener() {}
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      requestAnimationFrame(fn) {
+        frames.push(fn);
+        return frames.length;
+      },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, { onRelocated(location) { relocated.push(location); } });
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '20';
+    fontSizeSlider.dispatch('input');
+    assert.equal(state.isResizing, true);
+    assert.equal(state.isRestoringPosition, true);
+
+    state.rendition = newRendition;
+    state.isResizing = false;
+    state.isRestoringPosition = false;
+
+    frames.shift()();
+    frames.shift()?.();
+    await Promise.resolve();
+
+    assert.deepEqual(oldDisplays, []);
+    assert.deepEqual(newDisplays, [], '旧书 CFI 不得显示到新 rendition');
+    assert.deepEqual(relocated, []);
+    assert.equal(state.isResizing, false);
+    assert.equal(state.isRestoringPosition, false);
+  });
+
+  test.it('ReaderUi 当前书字体重排完成后恢复 CFI、释放锁并上报位置', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const displays = [];
+    const relocated = [];
+    const rendition = {
+      currentLocation() { return { start: { cfi: 'font-cfi' } }; },
+      getContents() { return []; },
+      display(cfi) { displays.push(cfi); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'font-cfi'
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener() {}
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, { onRelocated(location) { relocated.push(location.start.cfi); } });
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '20';
+    fontSizeSlider.dispatch('input');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(displays, ['font-cfi']);
+    assert.deepEqual(relocated, ['font-cfi']);
+    assert.equal(state.isResizing, false);
+    assert.equal(state.isRestoringPosition, false);
+  });
+
+  test.it('ReaderUi 旧书 resize timer 不会操作新书 rendition', async () => {
+    const { document } = createMockDocument([]);
+    const timers = [];
+    const resizeHandlers = [];
+    const newCalls = [];
+    const relocated = [];
+    const oldRendition = {
+      currentLocation() { return { start: { cfi: 'old-resize-cfi' } }; },
+      resize() {},
+      display() { return Promise.resolve(); }
+    };
+    const newRendition = {
+      currentLocation() { return { start: { cfi: 'new-cfi' } }; },
+      resize() { newCalls.push('resize'); },
+      display(cfi) { newCalls.push(['display', cfi]); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: {},
+      rendition: oldRendition,
+      isBookLoaded: true,
+      isResizing: false
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener(type, handler) {
+        if (type === 'resize') resizeHandlers.push(handler);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      setTimeout(fn) { timers.push(fn); return timers.length; },
+      clearTimeout() {},
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, { onRelocated(location) { relocated.push(location); } });
+
+    resizeHandlers[0]();
+    assert.equal(state.isResizing, true);
+
+    state.rendition = newRendition;
+    state.isResizing = false;
+    await timers.shift()();
+
+    assert.deepEqual(newCalls, []);
+    assert.deepEqual(relocated, []);
+    assert.equal(state.isResizing, false);
+  });
+
+  test.it('ReaderUi 当前书 resize 完成后恢复 CFI、释放锁并上报位置', async () => {
+    const { document } = createMockDocument([]);
+    const timers = [];
+    const resizeHandlers = [];
+    const calls = [];
+    const relocated = [];
+    const rendition = {
+      currentLocation() { return { start: { cfi: 'current-cfi' } }; },
+      resize() { calls.push('resize'); },
+      display(cfi) { calls.push(['display', cfi]); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: {},
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener(type, handler) {
+        if (type === 'resize') resizeHandlers.push(handler);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      setTimeout(fn) { timers.push(fn); return timers.length; },
+      clearTimeout() {},
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, { onRelocated(location) { relocated.push(location.start.cfi); } });
+
+    resizeHandlers[0]();
+    assert.equal(state.isResizing, true);
+    assert.equal(state.isRestoringPosition, true);
+    await timers.shift()();
+
+    assert.deepEqual(calls, ['resize', ['display', 'current-cfi']]);
+    assert.deepEqual(relocated, ['current-cfi']);
+    assert.equal(state.isResizing, false);
+    assert.equal(state.isRestoringPosition, false);
+  });
+
   test.it('ReaderUi 书签按钮保存失败只记录告警', async () => {
     const { document } = createMockDocument([
       'welcome-screen',
