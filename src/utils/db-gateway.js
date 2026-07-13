@@ -13,6 +13,7 @@
  *       三表旧数据全部删除重建，无迁移。用户需重新导入书籍。
  *
  * D-1-E: put() / delete() 等待 tx.oncomplete，确保落盘后再 resolve。
+ * v2.5.6: 缓存连接在 versionchange / close 后失效，下一次访问自动重连。
  */
 const DbGateway = {
   DB_NAME:      'EpubReaderDB',
@@ -27,7 +28,7 @@ const DbGateway = {
       throw new Error(`[DbGateway] IDB connection failed ${this._retryLimit} times consecutively. Refusing further retries.`);
     }
     if (this._dbPromise) return this._dbPromise;
-    this._dbPromise = new Promise((resolve, reject) => {
+    const connectionPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
 
       request.onupgradeneeded = (e) => {
@@ -52,11 +53,23 @@ const DbGateway = {
       };
 
       request.onsuccess = (e) => {
+        const db = e.target.result;
+        const invalidateConnection = () => {
+          if (this._dbPromise === connectionPromise) this._dbPromise = null;
+        };
+        db.onversionchange = () => {
+          try {
+            db.close();
+          } finally {
+            invalidateConnection();
+          }
+        };
+        db.onclose = invalidateConnection;
         this._retryCount = 0; // reset on success
-        resolve(e.target.result);
+        resolve(db);
       };
       request.onerror   = (e) => {
-        this._dbPromise = null;
+        if (this._dbPromise === connectionPromise) this._dbPromise = null;
         this._retryCount++;
         // Exponential backoff: auto-reset counter after a cooling period
         // so transient failures don't permanently block future attempts.
@@ -67,7 +80,8 @@ const DbGateway = {
         reject(e.target.error);
       };
     });
-    return this._dbPromise;
+    this._dbPromise = connectionPromise;
+    return connectionPromise;
   },
 
   async get(storeName, key) {
@@ -84,7 +98,7 @@ const DbGateway = {
     });
   },
 
-    async put(storeName, data) {
+  async put(storeName, data) {
     const db = await this.connect();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(storeName)) {

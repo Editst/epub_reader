@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.5
-更新：2026-07-08
+版本：v2.5.6
+更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -363,6 +363,8 @@ IndexedDB 单例封装。通常不直接调用，通过 EpubStorage 间接使用
 ```typescript
 DbGateway.connect(): Promise<IDBDatabase>
 // 返回单例 DB 连接；连续失败 3 次后抛出错误拒绝重试
+// 当前连接收到 versionchange 时主动 close 并使缓存失效；浏览器 close 后同样失效，下一次访问自动重连
+// 连接失效必须按当前 Promise 身份校验，旧连接迟到事件不得清除已建立的新连接缓存
 
 DbGateway.get(storeName: string, key: any): Promise<any | null>
 DbGateway.put(storeName: string, data: object): Promise<void>

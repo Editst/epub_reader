@@ -37,6 +37,7 @@
 - `preferences`、`recentBooks`、同书 `bookMeta` 的读改写必须走内部队列，禁止裸 `_get` → mutate → `_set`。
 - `getBookMeta()` 的旧 `pos_` / `time_` lazy migration 必须进入同书队列；首次 patch 应先吸收 legacy 字段。
 - 自动 `enforceFileLRU` 只淘汰 IndexedDB `files` EPUB 缓存；阅读进度、标注、书签、封面和 locations 只能在主动 `removeBook()` 时级联删除。
+- `DbGateway` 缓存连接收到 `versionchange` 时必须主动关闭并失效，浏览器触发 `close` 时也必须清空当前连接缓存；旧连接迟到事件不得清除更新的连接。
 - Book ID 使用 `SHA-256(filename + first 64KB)`，不要退回文件名或弱哈希。
 
 ## 阅读位置约束

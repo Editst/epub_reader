@@ -6,8 +6,19 @@
 
 ## [Unreleased]
 
+---
+
+## [2.5.6] - 2026-07-13
+
+### fix
+- **IndexedDB 连接生命周期闭合**：`DbGateway.connect()` 缓存的连接收到 `versionchange` 时主动关闭并使缓存失效，浏览器触发 `close` 时同样失效；下一次访问会自动建立新连接，避免页面长期复用已关闭连接导致所有文件、封面和 locations 读写持续失败。
+- **迟到连接事件隔离**：连接失效按当前 Promise 身份校验，旧连接迟到的 `close` 事件不会清除已经建立的新连接缓存。
+
 ### docs
 - 精简 README 为项目入口文档，仅保留核心功能、安装、开发、架构概览、隐私安全与文档索引；细节修复和历史流水继续归档到 changelog / architecture。
+
+### test
+- DbGateway 行为测试新增 `versionchange` 主动关闭、`close` 后重连及旧连接迟到事件隔离回归；原 Schema 测试补充 `try/finally`，避免失败时污染全局 IndexedDB mock。
 
 ---
 
