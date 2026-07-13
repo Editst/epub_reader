@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.13
+版本：v2.5.14
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -546,6 +546,11 @@ _hookRenditionEvents(rendition: Rendition, theme?: string): void
 - 队列向每个调用方返回其真实结果，但内部队列必须吸收前一任务失败后继续调度后一任务，避免一次损坏 EPUB 使后续打开永久失效。
 - `loadFileByBookId()` 在排队前只使用局部 `fileName`；`currentBookId/currentFileName` 只能由获得队列所有权的打开任务更新，等待中的书籍不得提前冒充当前上下文。
 - ReaderUi 本地导入从 `file.arrayBuffer()` 开始串行，覆盖 bookId 生成、文件落盘和 runtime 打开；连续文件选择或拖放必须按用户触发顺序完成，不能因文件大小不同而反转最终打开顺序。
+
+**v2.5.14 打开失败回滚约束**：
+- `_openBook()` 是事务包装：先 teardown 旧书，再执行 `_initializeBook()`；偏好、解析、ready、metadata、navigation、位置或 display 任一步失败，都必须再次统一 teardown 后原样抛出异常。
+- 失败回滚必须 unmount 功能模块并销毁已创建的 rendition/book，最终清空 `book/rendition/currentBookId/currentFileName`、导航与恢复锁及阅读 session；不得把半初始化书籍留作当前上下文。
+- `_teardownActiveBookForReplacement()` 在尚无 book/rendition 时也必须清空标识并重置 session，覆盖创建资源前的早期失败；清理自身的告警不得替换原始打开错误。
 
 ---
 

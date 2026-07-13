@@ -351,9 +351,12 @@
 
     async function _teardownActiveBookForReplacement() {
       if (!state.book && !state.rendition) {
+        state.currentBookId = '';
+        state.currentFileName = '';
         state.isBookLoaded = false;
         state.isLayoutStable = false;
         state.navLock = false;
+        ReaderState.resetReadingSession(state);
         return;
       }
 
@@ -385,6 +388,8 @@
 
       state.book = null;
       state.rendition = null;
+      state.currentBookId = '';
+      state.currentFileName = '';
       state.isBookLoaded = false;
       state.isLayoutStable = false;
       state.navLock = false;
@@ -406,7 +411,15 @@
 
       // ── 清理旧书 ────────────────────────────────────────────────────────────
       await _teardownActiveBookForReplacement();
+      try {
+        return await _initializeBook(fileData, bookId, fileName, targetCfi, openStartedAt);
+      } catch (error) {
+        await _teardownActiveBookForReplacement();
+        throw error;
+      }
+    }
 
+    async function _initializeBook(fileData, bookId, fileName, targetCfi, openStartedAt) {
       ui.setReaderVisible(true);
       ui.clearReaderError();
 

@@ -608,6 +608,101 @@ test.describe('ReaderRuntime', () => {
     }
   });
 
+  test.it('openBook 部分初始化失败时销毁资源并恢复空 Reader 状态', async () => {
+    const { document } = createMockDocument([
+      'reader-main', 'book-title', 'chapter-title', 'progress-location'
+    ]);
+    global.document = document;
+    global.setTimeout = (fn) => { fn(); return 1; };
+
+    let renditionDestroyCount = 0;
+    let bookDestroyCount = 0;
+    const rendition = {
+      hooks: { content: { register() {} } },
+      themes: { default() {}, override() {} },
+      on() {},
+      async display() { throw new Error('display initialization failed'); },
+      currentLocation() { return null; },
+      getContents() {
+        return [{ document: { fonts: { ready: Promise.resolve() } } }];
+      },
+      destroy() { renditionDestroyCount++; }
+    };
+    const locations = {
+      _length: 0,
+      length() { return this._length; },
+      load() { this._length = 1; },
+      percentageFromCfi() { return 0; }
+    };
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      locations,
+      renderTo() { return rendition; },
+      destroy() { bookDestroyCount++; },
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: '损坏书籍', creator: '作者' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const originalGetPreferences = EpubStorage.getPreferences;
+    const originalGetBookMeta = EpubStorage.getBookMeta;
+    const originalGetPosition = EpubStorage.getPosition;
+    const originalAddRecentBook = EpubStorage.addRecentBook;
+    const originalGetLocations = EpubStorage.getLocations;
+    let recentBookWrites = 0;
+    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getBookMeta = async () => null;
+    EpubStorage.getPosition = async () => null;
+    EpubStorage.addRecentBook = async () => { recentBookWrites++; };
+    EpubStorage.getLocations = async () => 'cached-locations';
+
+    const state = ReaderState.createReaderState();
+    let moduleUnmountCount = 0;
+    let moduleMountCount = 0;
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {}, injectCustomStyleElement() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: {
+        mount() { moduleMountCount++; },
+        unmount() { moduleUnmountCount++; }
+      }
+    });
+
+    try {
+      await assert.rejects(
+        runtime.openBook(new Uint8Array([1, 2, 3]), 'book-broken', 'broken.epub'),
+        /display initialization failed/
+      );
+    } finally {
+      EpubStorage.getPreferences = originalGetPreferences;
+      EpubStorage.getBookMeta = originalGetBookMeta;
+      EpubStorage.getPosition = originalGetPosition;
+      EpubStorage.addRecentBook = originalAddRecentBook;
+      EpubStorage.getLocations = originalGetLocations;
+    }
+
+    assert.equal(renditionDestroyCount, 1);
+    assert.equal(bookDestroyCount, 1);
+    assert.equal(moduleUnmountCount, 1);
+    assert.equal(moduleMountCount, 0);
+    assert.equal(recentBookWrites, 0);
+    assert.equal(state.book, null);
+    assert.equal(state.rendition, null);
+    assert.equal(state.currentBookId, '');
+    assert.equal(state.currentFileName, '');
+    assert.equal(state.isBookLoaded, false);
+    assert.equal(state.isLayoutStable, false);
+    assert.equal(state.isRestoringPosition, false);
+  });
+
   test.it('openBook 与 setLayout 创建的 rendition 均约束 EPUB 图片尺寸', async () => {
     const { document } = createMockDocument([
       'reader-main',

@@ -8,6 +8,20 @@
 
 ---
 
+## [2.5.14] - 2026-07-13
+
+### fix
+- **Reader 打开失败事务回滚**：偏好读取、EPUB 解析、ready、metadata/navigation、位置恢复或首屏 display 任一步失败时，Runtime 现在统一卸载功能模块、销毁已创建的 rendition/book，并清空失败书标识、导航锁、恢复锁与阅读 session，再向调用方传播原始异常。
+- **早期失败空上下文清理**：尚未创建 book/rendition 的失败路径同样清除 `currentBookId/currentFileName` 并重置 session，避免损坏 EPUB 在错误页留下伪当前书或残余 timer。
+
+### refactor
+- `_openBook()` 收敛为事务包装，完整初始化主体拆为 `_initializeBook()`；正常切书与失败回滚复用 `_teardownActiveBookForReplacement()`，不在各 await 点散落资源清理。
+
+### test
+- ReaderRuntime 新增首屏 display 故障注入，验证异常原样传播、模块不挂载、unmount 与 rendition/book destroy 各执行一次、recentBooks 不写入，最终 Reader 回到完整空状态；并发队列失败恢复测试继续通过。
+
+---
+
 ## [2.5.13] - 2026-07-13
 
 ### fix
