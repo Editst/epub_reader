@@ -8,6 +8,21 @@
 
 ---
 
+## [2.5.12] - 2026-07-13
+
+### fix
+- **Reader 外观偏好完整恢复**：`openBook()` 重读 preferences 后改为完整合并，再由 UI 统一归一化；切书或外部更新后，`theme/customBg/customText` 不再因逐字段复制遗漏而与 Reader 外壳、控件或 rendition 状态分裂。
+- **持久化 CSS 输入收口**：损坏的主题、颜色、字体、字号、行距、布局和分栏偏好会回退安全默认值；自定义颜色与字体不再未经白名单进入 `themes.override()` 或 EPUB iframe `<style>`。
+
+### refactor
+- ReaderUi 集中声明外观偏好允许值、范围和默认值，控件同步、事件保存及 CSS 生成复用同一归一化逻辑；CSS sink 仍二次生成安全快照。
+- ReaderState/Runtime 清理已归档 `reader-full.js`、旧版本和 BUG 编号注释，保留恢复期抑制 relocated、start CFI 等当前设计理由。
+
+### test
+- ReaderUi 行为测试新增恶意/损坏持久化偏好故障注入，覆盖控件、epub.js theme 和 iframe CSS 三个 sink；Runtime 生命周期测试锁定每次打开书籍必须完整刷新主题与自定义颜色字段。
+
+---
+
 ## [2.5.11] - 2026-07-13
 
 ### fix

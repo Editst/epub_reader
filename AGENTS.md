@@ -66,6 +66,7 @@
 - 用户/书籍内容进 DOM 优先用 `textContent` 或 DOM 属性赋值；避免用 `innerHTML` 拼接未清洗内容。
 - `Utils.escapeHtml` 只用于元素正文上下文，不能用于带引号 HTML 属性；属性值用 DOM property 或 `setAttribute`。
 - 进入 inline style 或 CSS custom property 的颜色必须先归一化；只允许 CSS 有效 hex 长度（3/4/6/8）或 `transparent`。
+- Reader 持久化外观偏好进入控件、epub.js 或 iframe CSS 前必须统一归一化：主题/布局/分栏/字体走白名单，字号与行距限制范围，自定义主题颜色只接受 3/6 位 hex；`openBook()` 重读偏好时完整合并，禁止维护易漏字段的手工复制清单。
 - `highlights.js` 中只有显式 `color === 'transparent'` 是纯笔记；缺失或非法颜色必须回退默认可见高亮色。
 - 运行时显隐优先用 CSS class（`is-hidden`、`is-visible`、panel class）；已知例外包括图片 transform、popup 小入口和必要的动态定位。
 - `URL.createObjectURL()` 结果使用后及时 revoke。

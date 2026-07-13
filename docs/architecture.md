@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.11
+版本：v2.5.12
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -644,6 +644,11 @@ closeAllPanels(): void
 - 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
 - 切书时 `ReaderState.resetReadingSession()` 必须同步清除 `isResizing` 与 `isRestoringPosition`；旧书迟到 RAF/timer 不得操作新 rendition，也不得改写新书保护状态。
 - 当前 reflow 完成后必须恢复捕获的 `start.cfi`，释放两类保护锁，再将当前 rendition 的位置交给 persistence。
+
+**v2.5.12 外观偏好边界**：
+- `openBook()` 每次读取 preferences 后必须完整合并到 `state.prefs`，再由 `ui.syncPrefsToControls()` 统一归一化；不得维护容易遗漏 `theme/customBg/customText` 的逐字段复制清单。
+- ReaderUi 只接受已知主题、布局、分栏与字体选项；字号限制为 12-32，行距限制为 1.2-3.0，自定义颜色只接受 3/6 位 hex 并归一化为 6 位。损坏或旧数据回退默认值。
+- `generateCustomCss()` 在写入 EPUB iframe `<style>` 前必须再次使用归一化快照；持久化字体字符串和颜色不得未经白名单直接插入 CSS 或传给 `rendition.themes.override()`。
 
 ---
 

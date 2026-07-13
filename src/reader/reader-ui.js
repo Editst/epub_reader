@@ -16,6 +16,23 @@
   'use strict';
 
   const RESIZE_DEBOUNCE_MS = 250;
+  const DEFAULT_THEME = 'light';
+  const DEFAULT_CUSTOM_BG = '#ffffff';
+  const DEFAULT_CUSTOM_TEXT = '#333333';
+  const DEFAULT_FONT_SIZE = 18;
+  const DEFAULT_LINE_HEIGHT = 1.8;
+  const DEFAULT_FONT_STACK = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
+  const VALID_THEMES = new Set(['light', 'dark', 'sepia', 'green', 'custom']);
+  const VALID_LAYOUTS = new Set(['paginated', 'scrolled']);
+  const VALID_SPREADS = new Set(['auto', 'none']);
+  const VALID_FONT_FAMILIES = new Set([
+    '',
+    "'Noto Serif SC', 'Source Han Serif CN', serif",
+    "'Noto Sans SC', 'Source Han Sans CN', sans-serif",
+    "'LXGW WenKai', '楷体', KaiTi, serif",
+    'serif',
+    'sans-serif'
+  ]);
 
   function createReaderUi({ state }) {
     let _runtime = null;
@@ -217,6 +234,27 @@
       return val.toLowerCase();
     }
 
+    function normalizeNumber(value, fallback, min, max) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function normalizePreferences(prefs) {
+      const source = prefs && typeof prefs === 'object' ? prefs : {};
+      return {
+        ...source,
+        theme: VALID_THEMES.has(source.theme) ? source.theme : DEFAULT_THEME,
+        customBg: normalizeHexColor(source.customBg) || DEFAULT_CUSTOM_BG,
+        customText: normalizeHexColor(source.customText) || DEFAULT_CUSTOM_TEXT,
+        fontFamily: VALID_FONT_FAMILIES.has(source.fontFamily) ? source.fontFamily : '',
+        fontSize: normalizeNumber(source.fontSize, DEFAULT_FONT_SIZE, 12, 32),
+        lineHeight: normalizeNumber(source.lineHeight, DEFAULT_LINE_HEIGHT, 1.2, 3),
+        layout: VALID_LAYOUTS.has(source.layout) ? source.layout : 'paginated',
+        spread: VALID_SPREADS.has(source.spread) ? source.spread : 'auto',
+        paragraphIndent: typeof source.paragraphIndent === 'boolean' ? source.paragraphIndent : true
+      };
+    }
+
     function luminance(hexColor) {
       const [r, g, b] = [1, 3, 5]
         .map((idx) => parseInt(hexColor.slice(idx, idx + 2), 16) / 255)
@@ -232,14 +270,12 @@
     }
 
     function ensureReadableTheme(themeObj) {
-      if (!themeObj || !themeObj.bg || !themeObj.color) return themeObj;
-      const bg = normalizeHexColor(themeObj.bg);
-      const fg = normalizeHexColor(themeObj.color);
-      if (!bg || !fg) return themeObj;
+      const bg = normalizeHexColor(themeObj?.bg) || DEFAULT_CUSTOM_BG;
+      const fg = normalizeHexColor(themeObj?.color) || DEFAULT_CUSTOM_TEXT;
       const contrast = contrastRatio(bg, fg);
-      if (contrast >= 2.5) return themeObj;
+      if (contrast >= 2.5) return { bg, color: fg };
       const fallback = luminance(bg) > 0.5 ? '#1f2937' : '#f3f4f6';
-      return { ...themeObj, color: fallback };
+      return { bg, color: fallback };
     }
 
     function getActiveThemeColors(theme) {
@@ -249,8 +285,8 @@
         sepia:  { bg: '#f8f0dc',  color: '#3e2f1c' },
         green:  { bg: '#c7e6c1',  color: '#2b3a2b' },
         custom: {
-          bg:    state.prefs.customBg   || '#ffffff',
-          color: state.prefs.customText || '#333333'
+          bg:    state.prefs.customBg,
+          color: state.prefs.customText
         }
       };
       return ensureReadableTheme(themes[theme] || themes.light);
@@ -270,34 +306,33 @@
      * @param {boolean} save   是否持久化到 storage
      */
     function applyTheme(theme, save = true) {
-      document.documentElement.setAttribute('data-theme', theme);
-      state.prefs.theme = theme;
+      const normalizedTheme = VALID_THEMES.has(theme) ? theme : DEFAULT_THEME;
+      document.documentElement.setAttribute('data-theme', normalizedTheme);
+      state.prefs.theme = normalizedTheme;
       document.querySelectorAll('.theme-btn').forEach((btn) => {
-        btn.classList.toggle('active', btn.dataset.theme === theme);
+        btn.classList.toggle('active', btn.dataset.theme === normalizedTheme);
       });
       if (dom.customThemeOptions) {
-        dom.customThemeOptions.classList.toggle('is-visible', theme === 'custom');
+        dom.customThemeOptions.classList.toggle('is-visible', normalizedTheme === 'custom');
       }
-      applyThemeToRendition(theme);
-      if (save) _savePreferencesSafely({ theme });
+      applyThemeToRendition(normalizedTheme);
+      if (save) _savePreferencesSafely({ theme: normalizedTheme });
     }
 
     // ── Custom Styles ─────────────────────────────────────────────────────────
 
     function generateCustomCss() {
-      const fallbackFont = "'Noto Serif SC', 'Source Han Serif CN', 'SimSun', 'STSong', serif";
-      const fontFamily = state.prefs.fontFamily
-        ? `${state.prefs.fontFamily}, ${fallbackFont}`
-        : fallbackFont;
-      const activeTheme = getActiveThemeColors(state.prefs.theme || 'light');
+      const prefs = normalizePreferences(state.prefs);
+      const fontFamily = prefs.fontFamily || DEFAULT_FONT_STACK;
+      const activeTheme = getActiveThemeColors(prefs.theme);
       return `
         @namespace xmlns "http://www.w3.org/1999/xhtml";
         html, body {
           background-color: ${activeTheme.bg} !important;
           color: ${activeTheme.color} !important;
-          font-size: ${state.prefs.fontSize}px !important;
+          font-size: ${prefs.fontSize}px !important;
           font-family: ${fontFamily} !important;
-          line-height: ${state.prefs.lineHeight} !important;
+          line-height: ${prefs.lineHeight} !important;
         }
         p, div, li, h1, h2, h3, h4, h5, h6 { font-family: inherit; line-height: inherit !important; text-align: justify; }
         a { color: var(--text-accent, #0078D7) !important; }
@@ -505,6 +540,7 @@
      * 将已加载的 state.prefs 同步到 DOM 控件。
      */
     function syncPrefsToControls() {
+      state.prefs = normalizePreferences(state.prefs);
       if (dom.customBgColor)   dom.customBgColor.value   = state.prefs.customBg;
       if (dom.customTextColor) dom.customTextColor.value = state.prefs.customText;
       if (dom.fontSizeSlider) {
@@ -577,18 +613,18 @@
 
       if (dom.customBgColor && dom.customTextColor) {
         dom.customBgColor.addEventListener('input', (e) => {
-          state.prefs.customBg = e.target.value;
+          state.prefs.customBg = normalizeHexColor(e.target.value) || DEFAULT_CUSTOM_BG;
           if (state.prefs.theme === 'custom') applyThemeToRendition('custom');
         });
         dom.customBgColor.addEventListener('change', (e) => {
-          _savePreferencesSafely({ customBg: e.target.value });
+          _savePreferencesSafely({ customBg: normalizeHexColor(e.target.value) || DEFAULT_CUSTOM_BG });
         });
         dom.customTextColor.addEventListener('input', (e) => {
-          state.prefs.customText = e.target.value;
+          state.prefs.customText = normalizeHexColor(e.target.value) || DEFAULT_CUSTOM_TEXT;
           if (state.prefs.theme === 'custom') applyThemeToRendition('custom');
         });
         dom.customTextColor.addEventListener('change', (e) => {
-          _savePreferencesSafely({ customText: e.target.value });
+          _savePreferencesSafely({ customText: normalizeHexColor(e.target.value) || DEFAULT_CUSTOM_TEXT });
         });
       }
     }
@@ -597,29 +633,37 @@
       if (!dom.fontSizeSlider) return;
 
       dom.fontSizeSlider.addEventListener('input', (e) => {
-        const size = parseInt(e.target.value);
+        const size = normalizeNumber(Number(e.target.value), DEFAULT_FONT_SIZE, 12, 32);
+        e.target.value = size;
         if (dom.fontSizeValue) dom.fontSizeValue.textContent = size + 'px';
         state.prefs.fontSize = size;
         _withCfiLock(() => updateCustomStyles(), persistence);
       });
       dom.fontSizeSlider.addEventListener('change', (e) => {
-        _savePreferencesSafely({ fontSize: parseInt(e.target.value) });
+        _savePreferencesSafely({
+          fontSize: normalizeNumber(Number(e.target.value), DEFAULT_FONT_SIZE, 12, 32)
+        });
       });
 
       dom.lineHeightSlider?.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value) / 10;
+        const val = normalizeNumber(Number(e.target.value) / 10, DEFAULT_LINE_HEIGHT, 1.2, 3);
+        e.target.value = Math.round(val * 10);
         if (dom.lineHeightValue) dom.lineHeightValue.textContent = val.toFixed(1);
         state.prefs.lineHeight = val;
         _withCfiLock(() => updateCustomStyles(), persistence);
       });
       dom.lineHeightSlider?.addEventListener('change', (e) => {
-        _savePreferencesSafely({ lineHeight: parseInt(e.target.value) / 10 });
+        _savePreferencesSafely({
+          lineHeight: normalizeNumber(Number(e.target.value) / 10, DEFAULT_LINE_HEIGHT, 1.2, 3)
+        });
       });
 
       dom.fontFamilySelect?.addEventListener('change', (e) => {
-        state.prefs.fontFamily = e.target.value;
+        const fontFamily = VALID_FONT_FAMILIES.has(e.target.value) ? e.target.value : '';
+        state.prefs.fontFamily = fontFamily;
+        e.target.value = fontFamily;
         _withCfiLock(() => updateCustomStyles(), persistence);
-        _savePreferencesSafely({ fontFamily: e.target.value });
+        _savePreferencesSafely({ fontFamily });
       });
     }
 

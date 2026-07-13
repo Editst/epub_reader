@@ -2098,6 +2098,75 @@ test.describe('Reader 模块基础行为', () => {
     assert.match(String(warnings[0]?.[0] || ''), /save preferences failed/);
   });
 
+  test.it('ReaderUi 损坏的持久化外观偏好不会进入控件、epub.js 或 iframe CSS', () => {
+    const { document } = createMockDocument([
+      'font-size-slider', 'font-size-value', 'line-height-slider', 'line-height-value',
+      'font-family-select', 'custom-theme-options', 'custom-bg-color', 'custom-text-color'
+    ]);
+    const themeOverrides = [];
+    const state = {
+      prefs: {
+        theme: 'custom',
+        customBg: '#fff;} body { display:none',
+        customText: 'red; background:url(evil)',
+        fontFamily: "serif; } body { color: red",
+        fontSize: '18; color:red',
+        lineHeight: '1.8; display:none',
+        layout: 'broken-layout',
+        spread: 'broken-spread',
+        paragraphIndent: 'false'
+      },
+      rendition: {
+        themes: {
+          override(property, value) { themeOverrides.push([property, value]); }
+        },
+        getContents() { return []; }
+      }
+    };
+    const windowMock = { document, focus() {}, addEventListener() {} };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+
+    ui.syncPrefsToControls();
+
+    let styleEl = null;
+    ui.injectCustomStyleElement({
+      document: {
+        getElementById() { return styleEl; },
+        createElementNS() {
+          return { textContent: '', setAttribute() {} };
+        },
+        head: {
+          appendChild(element) { styleEl = element; }
+        }
+      }
+    });
+
+    assert.deepEqual({ ...state.prefs }, {
+      theme: 'custom',
+      customBg: '#ffffff',
+      customText: '#333333',
+      fontFamily: '',
+      fontSize: 18,
+      lineHeight: 1.8,
+      layout: 'paginated',
+      spread: 'auto',
+      paragraphIndent: true
+    });
+    assert.deepEqual(themeOverrides.slice(0, 2), [
+      ['color', '#333333'],
+      ['background', '#ffffff']
+    ]);
+    assert.ok(styleEl.textContent.includes('font-size: 18px'));
+    assert.ok(styleEl.textContent.includes('line-height: 1.8'));
+    assert.ok(!styleEl.textContent.includes('display:none'));
+    assert.ok(!styleEl.textContent.includes('background:url'));
+  });
+
   test.it('Reader 功能模块 init 重复调用不会叠加顶层监听', () => {
     const count = (el, type) => (el.listeners.get(type) || []).length;
 

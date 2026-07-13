@@ -393,7 +393,7 @@
     // ── Open Book ─────────────────────────────────────────────────────────────
 
     /**
-     * 完整书籍打开流程。与 reader-full.js openBook 严格对齐。
+     * 完整书籍打开流程。
      *
      * @param {ArrayBuffer|Uint8Array|Blob} fileData
      * @param {string} bookId
@@ -417,17 +417,12 @@
 
       // ── 加载 meta & prefs ───────────────────────────────────────────────────
       const prefs = await EpubStorage.getPreferences();
-      state.prefs.fontSize        = prefs.fontSize        || 18;
-      state.prefs.lineHeight      = prefs.lineHeight       || 1.8;
-      state.prefs.fontFamily      = prefs.fontFamily       || '';
-      state.prefs.layout          = prefs.layout           || 'paginated';
-      state.prefs.spread          = prefs.spread           || 'auto';
-      state.prefs.paragraphIndent = prefs.paragraphIndent !== false;
+      state.prefs = { ...state.prefs, ...(prefs || {}) };
       ui.syncPrefsToControls();
 
       const meta = await EpubStorage.getBookMeta(bookId);
       state.activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
-      // v1.8.0 BUG-02-A：直接初始化内存缓存，不依赖异步读取路径
+      // 直接初始化内存缓存，避免再次读取同一份 bookMeta。
       state.cachedSpeed = (meta && meta.speed)
         ? meta.speed
         : { sampledSeconds: 0, sampledProgress: 0 };
@@ -442,7 +437,7 @@
       state.rendition = _createRendition(state.prefs.layout);
 
       // ── 子模块挂钩 ──────────────────────────────────────────────────────────
-      _hookRenditionEvents(state.rendition, prefs.theme);
+      _hookRenditionEvents(state.rendition, state.prefs.theme);
 
       // ── book.ready ──────────────────────────────────────────────────────────
       await state.book.ready;
@@ -480,8 +475,8 @@
       if (cachedLocsJSON && !cachedLocationsLoaded) cachedLocsJSON = null;
 
       // ── display（位置恢复） ──────────────────────────────────────────────────
-      // v2.2.4 BUG-FIX：display 期间抑制 relocated 事件的位置回写，
-      // 防止以 null percentage / page-start CFI 覆盖已保存的正确进度。
+      // display 恢复期间抑制 relocated 回写，避免 null percentage 或
+      // page-start CFI 覆盖已保存的正确进度。
       state.isRestoringPosition = true;
       state.isLayoutStable = false;
       try {
@@ -564,9 +559,9 @@
             persistence.onRelocated(loc);
           }
         }
-        // v2.2.4：locations 加载完毕，恢复阶段结束，后续翻页正常写入
+        // locations 加载完毕后，后续翻页恢复正常写入。
       } else {
-        // v2.2.4：无缓存 locations，display 已完成，恢复阶段结束。
+        // 无缓存时 display 已完成，locations 在后台生成。
         // locations 异步生成期间用户可能翻页，须允许正常位置保存。
         const activeBook = state.book;
         const locationsBreak = chooseLocationsBreak(fileData);
@@ -731,7 +726,7 @@
 
     /**
      * 布局切换：重建 rendition，保留当前阅读位置。
-     * 与 reader-full.js setLayout 严格对齐（不重新 openBook，避免状态重置）。
+     * 不重新 openBook，避免重置当前阅读会话。
      *
      * @param {string} layout  'paginated' | 'scrolled'
      */

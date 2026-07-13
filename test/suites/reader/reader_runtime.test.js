@@ -432,6 +432,7 @@ test.describe('ReaderRuntime', () => {
 
     const directCalls = { bookmarks: 0, search: 0, highlights: 0 };
     const mountCalls = [];
+    const syncedPrefs = [];
     global.ImageViewer = { hookRendition() {} };
     global.Annotations = { setBook() {}, hookRendition() {} };
     global.TOC = { build() {}, reset() {} };
@@ -445,7 +446,12 @@ test.describe('ReaderRuntime', () => {
     const originalGetPosition = EpubStorage.getPosition;
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
-    EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
+    EpubStorage.getPreferences = async () => ({
+      layout: 'paginated',
+      theme: 'custom',
+      customBg: '#112233',
+      customText: '#ddeeff'
+    });
     EpubStorage.getBookMeta = async () => null;
     EpubStorage.getPosition = async () => null;
     EpubStorage.addRecentBook = async () => {};
@@ -471,7 +477,7 @@ test.describe('ReaderRuntime', () => {
           clearReaderError() {},
           setBookTitle() {},
           setReaderDimmed() {},
-          syncPrefsToControls() {},
+          syncPrefsToControls() { syncedPrefs.push({ ...state.prefs }); },
           applyThemeToRendition() {},
           setupRenditionKeyEvents() {},
           ensureFocus() {},
@@ -498,6 +504,9 @@ test.describe('ReaderRuntime', () => {
     assert.equal(mountCalls.length, 1);
     assert.equal(mountCalls[0].bookId, 'book-lifecycle');
     assert.equal(typeof mountCalls[0].navigate, 'function');
+    assert.equal(syncedPrefs[0].theme, 'custom');
+    assert.equal(syncedPrefs[0].customBg, '#112233');
+    assert.equal(syncedPrefs[0].customText, '#ddeeff');
     assert.deepEqual(directCalls, { bookmarks: 0, search: 0, highlights: 0 });
   });
 

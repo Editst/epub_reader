@@ -2,7 +2,6 @@
  * reader-state.js — 单一状态源（可序列化字段）
  *
  * 规则：此文件仅声明状态结构与重置工具函数，禁止引入任何 DOM 操作或业务逻辑。
- * 状态字段命名与 reader-full.js 保持一致，便于 grep 溯源。
  */
 (function () {
   'use strict';
@@ -41,7 +40,7 @@
       readingTimer:         null,
       activeReadingSeconds: 0,
 
-      // ── 速度追踪（对齐 reader-full.js 命名） ───────────────────────────────
+      // ── 速度追踪 ──────────────────────────────────────────────────────────
       cachedSpeed:  null,  // { sampledSeconds, sampledProgress }
       sessionStart: null,  // { progress: number, timestamp: number }
       lastProgress: 0,     // 上次 relocated 进度（0-1）
