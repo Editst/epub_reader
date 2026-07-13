@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.8
+版本：v2.5.9
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -761,6 +761,7 @@ Search.reset(): void
 // v2.2.3：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
 // v2.4.13：setBook/closePanel/reset 必须递增 searchId 使旧搜索失效；增量渲染和结果点击必须校验 searchId，旧书慢返回不得写入或驱动新书
 // v2.5.1：搜索结果上限必须在每章结果合并前裁剪，单章超量命中不得越过 _SEARCH_MAX_RESULTS 渲染上限
+// v2.5.9：面板关闭、切书和重新初始化必须取消待执行的聚焦 timer；迟到回调还需校验请求代次与面板 open 状态
 
 Search.mount(context): void
 Search.unmount(): void

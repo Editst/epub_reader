@@ -112,6 +112,45 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(document.getElementById('btn-do-search').disabled, false);
   });
 
+  test.it('Search 快速关闭面板后取消延迟聚焦', () => {
+    const { document } = createMockDocument([
+      'search-panel',
+      'sidebar-overlay',
+      'search-input',
+      'btn-do-search',
+      'search-results-list',
+      'search-status',
+      'btn-search',
+      'btn-search-close',
+      'sidebar',
+      'bookmarks-panel'
+    ]);
+    let delayedFocus = null;
+    const clearedTimers = [];
+    let focusCount = 0;
+    document.getElementById('search-input').focus = () => { focusCount++; };
+
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      setTimeout(fn) {
+        delayedFocus = fn;
+        return 7;
+      },
+      clearTimeout(timerId) {
+        clearedTimers.push(timerId);
+      }
+    });
+
+    Search.init();
+    Search.setBook({ spine: { length: 0 } }, {});
+    Search.togglePanel();
+    Search.closePanel();
+    delayedFocus();
+
+    assert.deepEqual(clearedTimers, [7], '关闭面板应取消待执行的聚焦 timer');
+    assert.equal(focusCount, 0, '迟到 timer 不得聚焦已关闭的搜索面板');
+  });
+
   test.it('Search 切书后旧搜索结果不会回写新书', async () => {
     const { document } = createMockDocument([
       'search-panel',

@@ -169,5 +169,9 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(!src.includes('const MAX_RESULTS = 1000'), '不得在 doSearch 内重新定义结果上限');
     assert.ok(!src.includes('setTimeout(r, 10)'), '不得散落搜索让步魔法数字');
     assert.match(src, /}, _SEARCH_FOCUS_DELAY_MS\);/, '搜索聚焦延迟应使用具名常量');
+    assert.match(src, /function cancelPendingFocus\(\)/, '搜索延迟聚焦清理应集中到辅助函数');
+    assert.match(src, /clearTimeout\(focusTimerId\)/, '关闭或切书时必须取消待执行聚焦 timer');
+    assert.match(src, /function setBook\(b, r\) \{\s*cancelPendingFocus\(\)/, '切书不得继承上一上下文的延迟聚焦');
+    assert.match(src, /function closePanel\(\) \{\s*cancelPendingFocus\(\)/, '关闭面板必须先取消延迟聚焦');
   });
 });

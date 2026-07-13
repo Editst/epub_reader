@@ -4,11 +4,10 @@
 (function () {
   'use strict';
 
-const _SEARCH_MAX_RESULTS = 1000;
-const _SEARCH_UI_YIELD_MS = 10;
-const _SEARCH_FOCUS_DELAY_MS = 100;
+  const _SEARCH_MAX_RESULTS = 1000;
+  const _SEARCH_UI_YIELD_MS = 10;
+  const _SEARCH_FOCUS_DELAY_MS = 100;
 
-const Search = (function() {
   let book = null;
   let rendition = null;
   let panel = null;
@@ -19,10 +18,21 @@ const Search = (function() {
   let statusEl = null;
   let isSearching = false;
   let currentSearchId = 0;
-  let _lastSearchAlertCfi = null; // v1.2.0: Track search highlights to prevent memory/visual leaks
+  let focusTimerId = null;
+  let focusRequestSeq = 0;
+  let _lastSearchAlertCfi = null;
   let _boundDocument = null;
 
+  function cancelPendingFocus() {
+    focusRequestSeq++;
+    if (focusTimerId !== null) {
+      clearTimeout(focusTimerId);
+      focusTimerId = null;
+    }
+  }
+
   function init() {
+    cancelPendingFocus();
     panel = document.getElementById('search-panel');
     overlay = document.getElementById('sidebar-overlay');
     searchInput = document.getElementById('search-input');
@@ -75,6 +85,7 @@ const Search = (function() {
   }
 
   function setBook(b, r) {
+    cancelPendingFocus();
     isSearching = false;
     currentSearchId++;
     if (searchBtn) searchBtn.disabled = false;
@@ -103,8 +114,13 @@ const Search = (function() {
       if (bookmarksPanel) bookmarksPanel.classList.remove('open');
       
       panel.classList.add('open');
-      if (overlay) overlay.classList.add('visible'); // v1.2.2: Standardize overlay toggling
-      setTimeout(() => {
+      if (overlay) overlay.classList.add('visible');
+      cancelPendingFocus();
+      const requestSeq = focusRequestSeq;
+      focusTimerId = setTimeout(() => {
+        if (requestSeq !== focusRequestSeq) return;
+        focusTimerId = null;
+        if (!panel?.classList.contains('open')) return;
         if (searchInput) searchInput.focus();
         // Select all text if exists
         if (searchInput && searchInput.value) searchInput.select();
@@ -113,6 +129,7 @@ const Search = (function() {
   }
 
   function closePanel() {
+    cancelPendingFocus();
     if (panel) panel.classList.remove('open');
     if (overlay) {
       // FIX P1-B: The overlay is shared by TOC, Search, and Bookmarks.
@@ -128,7 +145,7 @@ const Search = (function() {
     isSearching = false;
     currentSearchId++;
     if (searchBtn) searchBtn.disabled = false;
-    clearSearchHighlight(); // v1.2.0: Clean up search highlights on exit
+    clearSearchHighlight();
   }
 
   function reset() {
@@ -136,10 +153,6 @@ const Search = (function() {
     if (resultsList) resultsList.innerHTML = '';
     if (statusEl) statusEl.textContent = '';
     if (searchInput) searchInput.value = '';
-    isSearching = false;
-    currentSearchId++;
-    if (searchBtn) searchBtn.disabled = false;
-    clearSearchHighlight();
     book = null;
     rendition = null;
   }
@@ -272,12 +285,12 @@ const Search = (function() {
   }
 
 
-  // v1.2.0: Utility to clear the last search highlight to prevent visual/memory pollution
+  // 清理上一次结果定位产生的 rendition annotation，避免跨搜索残留。
   function clearSearchHighlight() {
-      if (_lastSearchAlertCfi && rendition && rendition.annotations) {
-          rendition.annotations.remove(_lastSearchAlertCfi, "highlight");
-          _lastSearchAlertCfi = null;
-      }
+    if (_lastSearchAlertCfi && rendition && rendition.annotations) {
+      rendition.annotations.remove(_lastSearchAlertCfi, 'highlight');
+      _lastSearchAlertCfi = null;
+    }
   }
 
   function mount(context) {
@@ -289,8 +302,7 @@ const Search = (function() {
     reset();
   }
 
-  return { init, setBook, togglePanel, closePanel, reset, mount, unmount, panel: () => panel };
-})();
+  const Search = { init, setBook, togglePanel, closePanel, reset, mount, unmount, panel: () => panel };
 
   window.Search = Search;
 })();

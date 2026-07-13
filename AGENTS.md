@@ -55,7 +55,7 @@
 - 脚注识别中，CSS `vertical-align: super/sub/top/bottom` 只能在便宜 gate 后作为强信号；孤立长链接、四位年份、同文档/跨文档目标前置等只作为误判抑制，不得覆盖显式 EPUB 语义、上标或明确 footnote 容器。
 - 跨文档注释缓存只在 book 生命周期内有效，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT` 控制，切书和 `unmount()` 必须清空。
 - FB2/Calibre `body[name="notes"]` / `body[name="comments"]` 必须继续被识别为注释容器。
-- `search.js` 的结果上限和 timing 阈值保持模块级常量；每章结果合并前必须按 `_SEARCH_MAX_RESULTS` 裁剪。
+- `search.js` 的结果上限和 timing 阈值保持模块级常量；每章结果合并前必须按 `_SEARCH_MAX_RESULTS` 裁剪。面板关闭、切书、重新初始化时必须取消待执行的延迟聚焦，迟到 timer 不得聚焦隐藏或新上下文输入框。
 - `home.js` 书架卡片封面或 `bookMeta` 单本读取失败只能降级当前卡片，不得让整轮流式渲染失败或留下骨架。
 - home/popup 主动删除后无论成功失败都必须重新读取权威 `recentBooks` 并重建列表；不要同时维护手工 DOM 删除分支。
 

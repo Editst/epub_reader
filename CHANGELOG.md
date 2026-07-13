@@ -8,6 +8,19 @@
 
 ---
 
+## [2.5.9] - 2026-07-13
+
+### fix
+- **Search 延迟聚焦生命周期**：搜索面板的 100ms 延迟聚焦现在保存 timer 句柄与请求代次；关闭面板、切书或重新初始化时主动取消，迟到回调还会校验代次和面板 open 状态，避免隐藏搜索框抢焦点或旧上下文影响新书。
+
+### refactor
+- `search.js` 移除模块 IIFE 内部仅用于返回 API 的重复 IIFE；`Search.reset()` 删除已由 `closePanel()` 完成的重复 `isSearching/currentSearchId/button/highlight` 重置。清理散落的旧版本说明，保留搜索高亮资源清理的当前职责注释。
+
+### test
+- Reader 模块行为测试新增快速开关搜索面板的 timer 故障注入；Search 契约测试锁定集中取消函数、`clearTimeout` 及切书/关闭调用点。
+
+---
+
 ## [2.5.8] - 2026-07-13
 
 ### fix
