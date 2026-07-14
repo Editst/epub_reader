@@ -14,6 +14,8 @@ test.describe('Reader 入口与装配契约', () => {
     assert.ok(src.includes('ReaderUi.createReaderUi'));
     assert.ok(src.includes('ReaderPersistence.createReaderPersistence'));
     assert.ok(src.includes('ReaderRuntime.createReaderRuntime'));
+    assert.ok(src.includes('Promise.resolve(lifecycleResult).catch'),
+      '模块 lifecycle 返回的异步失败必须统一收口');
     assert.ok(!src.includes('style.display'));
   });
 

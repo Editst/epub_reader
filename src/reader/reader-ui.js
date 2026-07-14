@@ -439,9 +439,14 @@
      */
     function setupRenditionKeyEvents(rend, persistence, runtime) {
       rend.hooks.content.register((contents) => {
+        if (state.rendition !== rend) return;
         const doc = contents.document;
-        doc.addEventListener('keydown', (e) => _handleKeyNav(e, runtime));
+        doc.addEventListener('keydown', (e) => {
+          if (state.rendition !== rend) return;
+          _handleKeyNav(e, runtime);
+        });
         doc.addEventListener('click', (e) => {
+          if (state.rendition !== rend) return;
           if (!e.target.closest('a')) {
             if (document.querySelector('.settings-panel.open, .bookmarks-panel.open, .sidebar.open')) {
               closeAllPanels();
@@ -449,7 +454,7 @@
           }
         });
         doc.addEventListener('wheel', (e) => {
-          if (!state.isBookLoaded || !state.rendition) return;
+          if (state.rendition !== rend || !state.isBookLoaded) return;
           if (state.prefs.layout === 'scrolled') return;
           e.preventDefault();
           if (e.deltaY > 0 || e.deltaX > 0) { if (runtime) runtime.next(); }

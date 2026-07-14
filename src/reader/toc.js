@@ -25,10 +25,9 @@
     document.getElementById('btn-toc')?.addEventListener('click', () => this.toggle());
     document.getElementById('btn-toc-close')?.addEventListener('click', () => this.close());
 
-    // overlay 由 TOC、Search 和 Bookmarks 共享，点击时统一关闭全部面板。
+    // ReaderUi 的 document click 会统一关闭共享面板；初始化早期先关闭 TOC 自身。
     this.overlay?.addEventListener('click', () => {
-      if (typeof closeAllPanels === 'function') closeAllPanels();
-      else this.close(); // fallback if called before reader.js initialises
+      this.close();
     });
 
     // Keyboard shortcut

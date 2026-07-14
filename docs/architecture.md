@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.17
+版本：v2.5.18
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -380,6 +380,8 @@ DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
 // by_filename 索引查询（备用路径，主路径用 bookId）
 ```
 
+`EpubStorage` 通过实例字段 `_dbGateway` 访问上述接口；生产环境默认绑定 `DbGateway`，测试注入内存实现，禁止通过覆写公开存储方法绕过生产逻辑。
+
 ---
 
 ## Utils（utils/utils.js）
@@ -694,7 +696,6 @@ Highlights.init(): void
 
 Highlights.setBookDetails(
   bookId: string,
-  fileName: string,
   rendition: Rendition
 ): Promise<void>
 // 绑定新书，加载已有高亮，注册 rendition.on('selected')
@@ -737,7 +738,7 @@ IIFE 单例，暴露为 `window.Bookmarks`。
 Bookmarks.init(): void
 // 注册面板开关事件
 
-Bookmarks.setBook(bookId: string, book: Book, rendition: Rendition): void
+Bookmarks.setBook(bookId: string, rendition: Rendition): void
 // 绑定新书，加载书签列表
 
 Bookmarks.toggle(cfi: string, chapterName: string, progress: number): Promise<void>

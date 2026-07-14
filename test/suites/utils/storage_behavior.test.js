@@ -19,6 +19,34 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(after.theme, 'light');
   });
 
+  test.it('IndexedDB 公开方法通过可注入 gateway 执行生产实现', async () => {
+    const originalGateway = EpubStorage._dbGateway;
+    const calls = [];
+    EpubStorage._dbGateway = {
+      async put(store, data) { calls.push(['put', store, data.bookId]); },
+      async get(store, key) {
+        calls.push(['get', store, key]);
+        return store === 'covers' ? { bookId: key, blob: 'cover' } : null;
+      },
+      async delete(store, key) { calls.push(['delete', store, key]); },
+      async getAllMeta() { return []; }
+    };
+
+    try {
+      await EpubStorage.saveCover('book-gateway', 'blob');
+      assert.equal(await EpubStorage.getCover('book-gateway'), 'cover');
+      await EpubStorage.removeCover('book-gateway');
+    } finally {
+      EpubStorage._dbGateway = originalGateway;
+    }
+
+    assert.deepEqual(calls, [
+      ['put', 'covers', 'book-gateway'],
+      ['get', 'covers', 'book-gateway'],
+      ['delete', 'covers', 'book-gateway']
+    ]);
+  });
+
   test.it('savePreferences 并发增量写入不会互相覆盖', async () => {
     const originalGet = EpubStorage._get;
     const originalSet = EpubStorage._set;

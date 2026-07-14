@@ -13,9 +13,9 @@ const path = require('node:path');
 
 test.describe('Manifest 配置检查', () => {
 
-  test.it('manifest 版本升级到 2.5.17', () => {
+  test.it('manifest 版本升级到 2.5.18', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join('src', 'manifest.json'), 'utf8'));
-    assert.equal(manifest.version, '2.5.17');
+    assert.equal(manifest.version, '2.5.18');
   });
 
   test.it('C-7: manifest 暂保留 unsafe-inline (image-viewer 依赖)', () => {
@@ -35,6 +35,11 @@ test.describe('Manifest 配置检查', () => {
 
     assert.equal(manifest.background, undefined);
     assert.equal(fs.existsSync('src/background/service-worker.js'), false);
+  });
+
+  test.it('仅扩展页面使用的本地库不对网页开放', () => {
+    const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
+    assert.equal(manifest.web_accessible_resources, undefined);
   });
 
 });

@@ -106,16 +106,6 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
     assert.ok(low.isEstimating);
   });
 
-  test.it('进度跳跃检测 (shouldFlush)', () => {
-    const thr = 0.05;
-    const shouldFlush = (last, next) => Math.abs(next - last) > thr;
-    assert.ok(!shouldFlush(0.10, 0.12), '正常翻页不触发');
-    assert.ok(shouldFlush(0.10, 0.80), 'TOC 跳转触发');
-    assert.ok(shouldFlush(0.50, 0.60), '进度条拖动触发');
-    // IEEE 754 精度测试: 0.55-0.50
-    assert.ok(shouldFlush(0.55, 0.50) || Math.abs(0.55-0.50) > 0.049, '浮点边界应触发');
-  });
-
   test.it('sanitizeColor: 安全性与格式拦截', () => {
     assert.equal(sanitizeColor('#f00'), '#f00');
     assert.equal(sanitizeColor('#f008'), '#f008');

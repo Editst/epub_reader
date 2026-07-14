@@ -333,6 +333,49 @@ test.describe('ReaderPersistence', () => {
     assert.equal(bookmarkState, true);
   });
 
+  test.it('onRelocated 仅在进度跳跃超过阈值时续期速度会话', () => {
+    global.TOC = { setActive() {} };
+    global.Bookmarks = { async isBookmarked() { return false; } };
+    let progress = 0.12;
+    const originalSessionStart = { progress: 0.1, timestamp: Date.now() };
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-jump-threshold',
+      currentStableCfi: null,
+      lastPercent: 10,
+      lastProgress: 0.1,
+      sessionStart: originalSessionStart,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 1,
+          percentageFromCfi: () => progress
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml' } };
+        }
+      }
+    };
+    const ui = {
+      updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {},
+      updateReadingStatsText() {}
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
+
+    persistence.onRelocated(state.rendition.currentLocation());
+    assert.equal(state.sessionStart, originalSessionStart, '正常翻页不应重启速度会话');
+
+    progress = 0.8;
+    persistence.onRelocated(state.rendition.currentLocation());
+    assert.notEqual(state.sessionStart, originalSessionStart);
+    assert.equal(state.sessionStart.progress, 0.8, '大幅跳转后应从新进度续期');
+  });
+
   test.it('onRelocated 忽略过期的书签状态查询结果', async () => {
     const { document } = createMockDocument(['btn-bookmark']);
     global.document = document;

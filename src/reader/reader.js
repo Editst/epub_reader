@@ -19,24 +19,25 @@
    */
   function createModuleLifecycle() {
     const modules = [ImageViewer, Annotations, TOC, Search, Bookmarks, Highlights];
+
+    function invoke(module, method, ...args) {
+      if (typeof module[method] !== 'function') return;
+      try {
+        const lifecycleResult = module[method](...args);
+        Promise.resolve(lifecycleResult).catch((e) => {
+          console.error(`[Lifecycle] ${method} failed for module:`, module, e);
+        });
+      } catch (e) {
+        console.error(`[Lifecycle] ${method} failed for module:`, module, e);
+      }
+    }
+
     return {
       mount(context) {
-        modules.forEach((m) => {
-          try {
-            if (typeof m.mount === 'function') m.mount(context);
-          } catch (e) {
-            console.error('[Lifecycle] mount failed for module:', m?.constructor?.name || m, e);
-          }
-        });
+        modules.forEach((module) => invoke(module, 'mount', context));
       },
       unmount() {
-        modules.forEach((m) => {
-          try {
-            if (typeof m.unmount === 'function') m.unmount();
-          } catch (e) {
-            console.error('[Lifecycle] unmount failed for module:', m?.constructor?.name || m, e);
-          }
-        });
+        modules.forEach((module) => invoke(module, 'unmount'));
       }
     };
   }

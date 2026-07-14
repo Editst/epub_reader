@@ -71,6 +71,8 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
     assert.ok(js.includes('function clearRenderedRecentItems()'));
     assert.ok(js.includes('item.dataset.coverUrl = coverObjectUrl'));
     assert.ok(js.includes('delete item.dataset.coverUrl'));
+    assert.ok(js.includes("window.addEventListener('pagehide', clearRenderedRecentItems)"),
+      'Popup 关闭时必须释放仍由列表项持有的封面 URL');
   });
 
   test.it('popup 最近阅读日期使用样式类并保持相对时间格式', () => {

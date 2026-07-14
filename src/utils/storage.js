@@ -44,6 +44,7 @@ const STORES = Object.freeze({
 });
 
 const EpubStorage = {
+  _dbGateway: DbGateway,
   _preferencesQueue: Promise.resolve(),
   _recentBooksQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
@@ -286,19 +287,19 @@ const EpubStorage = {
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
     return this._runBookResourceWrite(bookId, () =>
-      DbGateway.put(STORES.covers, { bookId, blob })
+      this._dbGateway.put(STORES.covers, { bookId, blob })
     );
   },
 
   async getCover(bookId) {
     if (!bookId) return null;
-    const record = await DbGateway.get(STORES.covers, bookId);
+    const record = await this._dbGateway.get(STORES.covers, bookId);
     return record ? record.blob : null;
   },
 
   async removeCover(bookId) {
     if (!bookId) return;
-    return DbGateway.delete(STORES.covers, bookId);
+    return this._dbGateway.delete(STORES.covers, bookId);
   },
 
   // ── Locations (IndexedDB) ─────────────────────────────────────────────────
@@ -306,19 +307,19 @@ const EpubStorage = {
   async saveLocations(bookId, locationsJSON) {
     if (!bookId || !locationsJSON) return;
     return this._runBookResourceWrite(bookId, () =>
-      DbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() })
+      this._dbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() })
     );
   },
 
   async getLocations(bookId) {
     if (!bookId) return null;
-    const record = await DbGateway.get(STORES.locations, bookId);
+    const record = await this._dbGateway.get(STORES.locations, bookId);
     return record ? record.json : null;
   },
 
   async removeLocations(bookId) {
     if (!bookId) return;
-    return DbGateway.delete(STORES.locations, bookId);
+    return this._dbGateway.delete(STORES.locations, bookId);
   },
 
   // ── Files (IndexedDB) ─────────────────────────────────────────────────────
@@ -326,19 +327,19 @@ const EpubStorage = {
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
     return this._runBookResourceWrite(bookId, async () => {
-      await DbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
+      await this._dbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
       await this.enforceFileLRU(10);
     });
   },
 
   async getFile(bookId) {
     if (!bookId) return null;
-    return DbGateway.get(STORES.files, bookId);
+    return this._dbGateway.get(STORES.files, bookId);
   },
 
   async removeFile(bookId) {
     if (!bookId) return;
-    return DbGateway.delete(STORES.files, bookId);
+    return this._dbGateway.delete(STORES.files, bookId);
   },
 
   /**
@@ -350,13 +351,13 @@ const EpubStorage = {
    * 淘汰串行执行并逐项隔离失败，避免单本失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
-    const meta = await DbGateway.getAllMeta(STORES.files, ['timestamp']);
+    const meta = await this._dbGateway.getAllMeta(STORES.files, ['timestamp']);
     if (meta.length <= maxCount) return;
     meta.sort((a, b) => b.timestamp - a.timestamp);
     const toRemove = meta.slice(maxCount);
     for (const m of toRemove) {
       try {
-        await DbGateway.delete(STORES.files, m.bookId);
+        await this._dbGateway.delete(STORES.files, m.bookId);
       } catch (e) {
         console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
       }

@@ -47,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     recentList.innerHTML = '';
   }
+  window.addEventListener('pagehide', clearRenderedRecentItems);
 
   function showEmptyState() {
     clearRenderedRecentItems();

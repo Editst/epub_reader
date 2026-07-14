@@ -149,29 +149,6 @@ function resetAll() {
 }
 global.resetAll = resetAll;
 
-EpubStorage.storeFile    = async (fn, data, id) => { await _mockDb.put('files', {bookId:id, filename:fn, data, timestamp:Date.now()}); };
-EpubStorage.getFile      = async (id) => _mockDb.get('files', id);
-EpubStorage.removeFile   = async (id) => _mockDb.delete('files', id);
-EpubStorage.saveCover    = async (id, b) => { await _mockDb.put('covers', {bookId:id, blob:b}); };
-EpubStorage.getCover     = async (id) => { const r = await _mockDb.get('covers',id); return r?r.blob:null; };
-EpubStorage.removeCover  = async (id) => _mockDb.delete('covers', id);
-EpubStorage.saveLocations= async (id, j) => { await _mockDb.put('locations',{bookId:id,json:j,timestamp:Date.now()}); };
-EpubStorage.getLocations = async (id) => { const r=await _mockDb.get('locations',id); return r?r.json:null; };
-EpubStorage.removeLocations= async (id)=> _mockDb.delete('locations',id);
-EpubStorage.enforceFileLRU = async (max=10) => {
-  const meta = await EpubStorage._dbGateway.getAllMeta('files');
-  if (meta.length <= max) return;
-  meta.sort((a,b)=>b.timestamp - a.timestamp);
-  const toRemove = meta.slice(max);
-  for (const m of toRemove) {
-    try {
-      await EpubStorage._dbGateway.delete('files', m.bookId);
-    } catch (e) {
-      console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
-    }
-  }
-};
-
 function findTestFiles(dir) {
   let results = [];
   const list = fs.readdirSync(dir, { withFileTypes: true });

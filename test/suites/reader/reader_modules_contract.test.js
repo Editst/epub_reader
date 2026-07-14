@@ -155,9 +155,17 @@ test.describe('Reader 功能模块公开契约', () => {
     const toc = fs.readFileSync('src/reader/toc.js', 'utf8');
 
     assert.ok(!highlights.includes('let _fileName'));
+    assert.ok(highlights.includes('async function setBookDetails(bookId, rendition)'));
+    assert.ok(highlights.includes('return setBookDetails(context.bookId, context.rendition)'));
+    assert.ok(!highlights.includes('setBookDetails(context.bookId, context.fileName'));
     assert.ok(!bookmarks.includes('book: null'));
     assert.ok(!bookmarks.includes('this.book ='));
+    assert.ok(!bookmarks.includes('async getBookmarks()'));
+    assert.ok(!bookmarks.includes('async saveBookmarks('));
+    assert.ok(bookmarks.includes('setBook(bookId, rendition)'));
+    assert.ok(!bookmarks.includes('context.book, context.rendition'));
     assert.ok(!toc.includes('currentHref'));
+    assert.ok(!toc.includes("typeof closeAllPanels === 'function'"));
     assert.ok(toc.includes('ReaderState.getTocItemLabel(item)'));
   });
   for (const [file, exportName, methods] of expectedContracts) {

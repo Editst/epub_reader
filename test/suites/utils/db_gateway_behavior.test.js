@@ -118,4 +118,60 @@ test.describe('DbGateway 行为与 Schema 契约', () => {
       global.indexedDB = originalIndexedDb;
     }
   });
+
+  test.it('写事务 abort 会拒绝调用方 Promise', async () => {
+    const gateway = global.DbGateway;
+    const originalDbPromise = gateway._dbPromise;
+    const abortError = new Error('transaction aborted');
+    let transaction = null;
+    gateway._dbPromise = Promise.resolve({
+      objectStoreNames: { contains: () => true },
+      transaction() {
+        transaction = {
+          error: abortError,
+          objectStore() {
+            return { put() { return {}; } };
+          }
+        };
+        return transaction;
+      }
+    });
+
+    try {
+      const write = gateway.put('covers', { bookId: 'book-abort' });
+      while (!transaction) await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(typeof transaction?.onabort, 'function');
+      transaction.onabort();
+      await assert.rejects(write, /transaction aborted/);
+    } finally {
+      gateway._dbPromise = originalDbPromise;
+    }
+  });
+
+  test.it('读事务 abort 会拒绝调用方 Promise', async () => {
+    const gateway = global.DbGateway;
+    const originalDbPromise = gateway._dbPromise;
+    const abortError = new Error('read transaction aborted');
+    let transaction = null;
+    gateway._dbPromise = Promise.resolve({
+      objectStoreNames: { contains: () => true },
+      transaction() {
+        transaction = {
+          error: abortError,
+          objectStore() { return { get() { return {}; } }; }
+        };
+        return transaction;
+      }
+    });
+
+    try {
+      const read = gateway.get('covers', 'book-abort');
+      while (!transaction) await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(typeof transaction.onabort, 'function');
+      transaction.onabort();
+      await assert.rejects(read, /read transaction aborted/);
+    } finally {
+      gateway._dbPromise = originalDbPromise;
+    }
+  });
 });

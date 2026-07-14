@@ -29,25 +29,17 @@
   mount(context) {
     if (!context) return;
     this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
-    this.setBook(context.bookId, context.book, context.rendition);
+    this.setBook(context.bookId, context.rendition);
   },
 
   unmount() {
     this.reset();
   },
 
-  setBook(bookId, book, rendition) {
+  setBook(bookId, rendition) {
     this.bookId = bookId;
     this.rendition = rendition;
     this._loadBookmarksSafely();
-  },
-
-  async getBookmarks() {
-    return EpubStorage.getBookmarks(this.bookId);
-  },
-
-  async saveBookmarks(bookmarks, bookId = this.bookId) {
-    return EpubStorage.saveBookmarks(bookId, bookmarks);
   },
 
   async toggle(cfi, chapterName, progress) {
@@ -69,7 +61,7 @@
       bookmarks.sort((a, b) => a.progress - b.progress);
     }
 
-    await this.saveBookmarks(bookmarks, bookId);
+    await EpubStorage.saveBookmarks(bookId, bookmarks);
     if (bookId !== this.bookId) return;
     this.renderList(bookmarks);
   },
@@ -145,7 +137,7 @@
           let bms = await EpubStorage.getBookmarks(bookId);
           if (bookId !== this.bookId) return;
           bms = bms.filter(b => b.cfi !== bm.cfi);
-          await this.saveBookmarks(bms, bookId);
+          await EpubStorage.saveBookmarks(bookId, bms);
           if (bookId !== this.bookId) return;
           this.renderList(bms);
         } catch (err) {

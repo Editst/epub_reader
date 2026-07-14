@@ -8,6 +8,22 @@
 
 ---
 
+## [2.5.18] - 2026-07-15
+
+### fix
+- **异步生命周期隔离**：模块生命周期统一收口同步异常和异步拒绝；ReaderUi 忽略旧 rendition iframe 迟到的键盘、点击和滚轮事件，页面离开时统一回收 Home/Popup 尚未释放的封面 URL。
+- **IndexedDB 事务异常传播**：DbGateway 的读写、删除与扫描事务显式处理 `abort`，浏览器中止事务时不再留下永久 pending 的 Promise。
+- **扩展资源暴露收敛**：移除仅供扩展页面加载的本地库 `web_accessible_resources` 声明，避免向普通网页开放无必要资源。
+
+### refactor
+- **存储测试依赖注入**：`EpubStorage` 通过 `_dbGateway` 统一访问 IndexedDB；测试直接注入内存 gateway，不再覆写文件、封面、locations 和 LRU 的公开方法，确保相关测试运行生产实现。
+- **模块接口清理**：删除 Highlights/Bookmarks 未使用参数、Bookmarks 无价值透传方法和 TOC 不可达分支；首页标注列表改用派生视图对象，避免为渲染修改持久化实体。
+
+### test
+- 新增旧 iframe 事件隔离、生命周期异步拒绝、页面离开 URL 回收、IndexedDB 事务中止和 gateway 注入回归；以真实 ReaderPersistence 行为测试替换只验证测试内局部函数的伪测试。
+
+---
+
 ## [2.5.17] - 2026-07-14
 
 ### fix

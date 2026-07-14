@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     booksContainer.innerHTML = '';
   }
+  window.addEventListener('pagehide', clearRenderedBookCards);
 
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
@@ -327,12 +328,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       const highlights = allHighlights[bookId] || [];
       const bookContext = bookMetaMap[bookId] || { title: '未知书籍' };
       for (const hl of highlights) {
-        hl._bookId      = bookId;
-        hl._bookContext = bookContext;
         const isNoteOnly = hl.color === 'transparent';
         if (filterType === 'highlight' && isNoteOnly)  continue;
         if (filterType === 'note'      && !isNoteOnly) continue;
-        flatAnnotations.push(hl);
+        flatAnnotations.push({
+          ...hl,
+          _bookId: bookId,
+          _bookContext: bookContext
+        });
       }
     }
 

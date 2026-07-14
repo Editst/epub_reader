@@ -1361,7 +1361,7 @@ test.describe('Reader 模块基础行为', () => {
       }
     });
     Bookmarks.init();
-    Bookmarks.setBook('book-1', {}, { display() {} });
+    Bookmarks.setBook('book-1', { display() {} });
     document.getElementById('sidebar').classList.add('open');
     document.getElementById('search-panel').classList.add('open');
 
@@ -1406,8 +1406,8 @@ test.describe('Reader 模块基础行为', () => {
     });
 
     Bookmarks.init();
-    Bookmarks.setBook('old-book', {}, { display() {} });
-    Bookmarks.setBook('new-book', {}, { display() {} });
+    Bookmarks.setBook('old-book', { display() {} });
+    Bookmarks.setBook('new-book', { display() {} });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1453,12 +1453,12 @@ test.describe('Reader 模块基础行为', () => {
     });
 
     Bookmarks.init();
-    Bookmarks.setBook('old-book', {}, { display() {} });
+    Bookmarks.setBook('old-book', { display() {} });
     await Promise.resolve();
 
     const togglePromise = Bookmarks.toggle('old-cfi', '旧书章节', 0.5);
     await Promise.resolve();
-    Bookmarks.setBook('new-book', {}, { display() {} });
+    Bookmarks.setBook('new-book', { display() {} });
     resolveOldToggle([]);
     await togglePromise;
 
@@ -1488,7 +1488,7 @@ test.describe('Reader 模块基础行为', () => {
     });
 
     Bookmarks.init();
-    Bookmarks.setBook('book-1', {}, { display() {} });
+    Bookmarks.setBook('book-1', { display() {} });
     await Promise.resolve();
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -2067,6 +2067,46 @@ test.describe('Reader 模块基础行为', () => {
     assert.deepEqual(relocated, ['current-cfi']);
     assert.equal(state.isResizing, false);
     assert.equal(state.isRestoringPosition, false);
+  });
+
+  test.it('ReaderUi 旧 iframe 键盘与滚轮事件不会导航新 rendition', () => {
+    const { document } = createMockDocument([]);
+    const { document: iframeDocument } = createMockDocument([]);
+    const contentHooks = [];
+    const oldRendition = {
+      hooks: { content: { register(fn) { contentHooks.push(fn); } } }
+    };
+    const state = {
+      rendition: oldRendition,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    let nextCalls = 0;
+    ui.setupRenditionKeyEvents(oldRendition, {}, {
+      next() { nextCalls++; },
+      prev() {}
+    });
+    contentHooks[0]({ document: iframeDocument });
+
+    state.rendition = { id: 'new-rendition' };
+    iframeDocument.dispatchEvent('keydown', {
+      key: 'ArrowRight',
+      preventDefault() {},
+      stopImmediatePropagation() {}
+    });
+    iframeDocument.dispatchEvent('wheel', {
+      deltaY: 1,
+      deltaX: 0,
+      preventDefault() {}
+    });
+
+    assert.equal(nextCalls, 0);
   });
 
   test.it('ReaderUi 书签按钮保存失败只记录告警', async () => {

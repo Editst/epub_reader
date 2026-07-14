@@ -84,6 +84,7 @@ const DbGateway = {
       }
       const tx  = db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).get(key);
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] get aborted for store "${storeName}"`));
       req.onsuccess = () => resolve(req.result ?? null);
       req.onerror   = () => reject(req.error);
     });
@@ -101,6 +102,7 @@ const DbGateway = {
       const req   = store.put(data);
       tx.oncomplete = () => resolve();
       tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] put aborted for store "${storeName}"`));
       req.onerror   = () => reject(req.error);
     });
   },
@@ -114,6 +116,7 @@ const DbGateway = {
       const req   = store.delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] delete aborted for store "${storeName}"`));
       req.onerror   = () => reject(req.error);
     });
   },
@@ -124,6 +127,7 @@ const DbGateway = {
       if (!db.objectStoreNames.contains(storeName)) return resolve([]);
       const tx  = db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).getAll();
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] getAll aborted for store "${storeName}"`));
       req.onsuccess = () => resolve(req.result);
       req.onerror   = () => reject(req.error);
     });
@@ -158,6 +162,7 @@ const DbGateway = {
       };
       tx.oncomplete = () => resolve(results);
       tx.onerror    = () => reject(tx.error);
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] metadata scan aborted for store "${storeName}"`));
       req.onerror   = () => reject(req.error);
     });
   }

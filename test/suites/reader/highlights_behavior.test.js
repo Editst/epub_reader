@@ -181,8 +181,8 @@ test.describe('Reader Highlights 行为', () => {
       }
     });
 
-    const oldLoad = Highlights.setBookDetails('old-book', 'old.epub', rendition);
-    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    const oldLoad = Highlights.setBookDetails('old-book', rendition);
+    await Highlights.setBookDetails('new-book', rendition);
     resolveOldHighlights([{ cfi: 'epubcfi(/6/2)', text: 'old', color: '#ffeb3b', note: '', timestamp: 1 }]);
     await oldLoad;
 
@@ -201,7 +201,7 @@ test.describe('Reader Highlights 行为', () => {
       }
     });
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
 
     assert.deepEqual(annotations, []);
     assert.match(String(warnings[0]?.[0] || ''), /load highlights failed/);
@@ -215,7 +215,7 @@ test.describe('Reader Highlights 行为', () => {
     ];
     const { Highlights, rendition, annotations } = loadHighlights(stored);
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
 
     const baseHighlights = annotations.filter(item => item.type === 'highlight');
     assert.deepEqual(
@@ -250,7 +250,7 @@ test.describe('Reader Highlights 行为', () => {
     });
     rendition.book.getRange = async () => new Promise((resolve) => { resolveOldRange = resolve; });
 
-    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    await Highlights.setBookDetails('old-book', rendition);
     rendition.triggerSelected('epubcfi(/6/2)', {
       window: {
         frameElement: {
@@ -276,7 +276,7 @@ test.describe('Reader Highlights 行为', () => {
       stopPropagation() {}
     });
 
-    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    await Highlights.setBookDetails('new-book', rendition);
     resolveOldRange({ toString: () => 'old text' });
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -298,7 +298,7 @@ test.describe('Reader Highlights 行为', () => {
       }
     });
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
     annotations[0].cb({
       stopPropagation() {},
       target: createElement('rendered-highlight')
@@ -315,8 +315,8 @@ test.describe('Reader Highlights 行为', () => {
     const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
     const { Highlights, rendition, annotations } = loadHighlights(stored);
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
 
     assert.equal(annotations.filter(item => item.type === 'highlight').length, 1);
   });
@@ -325,8 +325,8 @@ test.describe('Reader Highlights 行为', () => {
     const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
     const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
     annotations[0].cb({
       stopPropagation() {},
       target: createElement('rendered-highlight')
@@ -341,8 +341,8 @@ test.describe('Reader Highlights 行为', () => {
     const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: '', timestamp: 1 }];
     const { Highlights, rendition } = loadHighlights(stored);
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
 
     assert.equal(rendition.hooks.content.callbacks.length, 1);
   });
@@ -364,7 +364,7 @@ test.describe('Reader Highlights 行为', () => {
       }
     };
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
     rendition.hooks.content.callbacks[0](contents);
     annotations[0].cb({
       stopPropagation() {},
@@ -395,7 +395,7 @@ test.describe('Reader Highlights 行为', () => {
       }
     });
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
     annotations[0].cb({
       stopPropagation() {},
       target: createElement('rendered-highlight')
@@ -424,9 +424,9 @@ test.describe('Reader Highlights 行为', () => {
       }
     };
 
-    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    await Highlights.setBookDetails('old-book', rendition);
     rendition.hooks.content.callbacks[0](oldContents);
-    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    await Highlights.setBookDetails('new-book', rendition);
 
     const toolbar = elements.get('selection-toolbar');
     toolbar.classList.add('show');
@@ -440,9 +440,9 @@ test.describe('Reader Highlights 行为', () => {
     const stored = [{ cfi: 'epubcfi(/6/2)', text: 'A', color: '#ffeb3b', note: 'note', timestamp: 1 }];
     const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
 
-    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    await Highlights.setBookDetails('old-book', rendition);
     const oldClick = annotations[0].cb;
-    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    await Highlights.setBookDetails('new-book', rendition);
 
     oldClick({
       stopPropagation() {},
@@ -460,10 +460,10 @@ test.describe('Reader Highlights 行为', () => {
       setTimeout(fn) { timers.push(fn); }
     });
 
-    await Highlights.setBookDetails('old-book', 'old.epub', rendition);
+    await Highlights.setBookDetails('old-book', rendition);
     annotations[0].cb({ stopPropagation() {}, target: createElement('old-highlight') });
 
-    await Highlights.setBookDetails('new-book', 'new.epub', rendition);
+    await Highlights.setBookDetails('new-book', rendition);
     const newClick = annotations[0].cb;
     const contentListeners = {};
     rendition.hooks.content.callbacks[0]({
@@ -485,7 +485,7 @@ test.describe('Reader Highlights 行为', () => {
     const warnCalls = [];
     const originalWarn = console.warn;
 
-    await Highlights.setBookDetails('book-1', 'a.epub', rendition);
+    await Highlights.setBookDetails('book-1', rendition);
     annotations[0].cb({
       stopPropagation() {},
       target: createElement('rendered-highlight')

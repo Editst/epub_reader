@@ -54,6 +54,8 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('let annotationsRenderSeq = 0'), '标注刷新应有代次令牌');
     assert.ok(js.includes('const renderSeq = ++annotationsRenderSeq'), '每轮标注刷新应递增代次');
     assert.ok(js.includes('if (renderSeq !== annotationsRenderSeq) return'), '过期标注刷新应退出');
+    assert.ok(!js.includes('hl._bookId      ='), '标注渲染不得把视图上下文写回存储对象');
+    assert.ok(js.includes('_bookId: bookId'), '标注视图模型应显式携带所属书籍上下文');
   });
 
   test.it('C-9: home.js 无 style.* 运行时直写', () => {
@@ -91,6 +93,8 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('function clearRenderedBookCards()'), '重建书架前应统一回收旧卡片 Object URL');
     assert.ok(js.includes("booksContainer.querySelectorAll('[data-cover-url]')"));
     assert.ok(js.includes('delete card.dataset.coverUrl'));
+    assert.ok(js.includes("window.addEventListener('pagehide', clearRenderedBookCards)"),
+      '页面离开时必须释放仍由卡片持有的封面 URL');
   });
 
   test.it('标注颜色不得通过拼接 hex alpha 构造背景色', () => {

@@ -131,7 +131,7 @@
     }
   }
 
-  async function setBookDetails(bookId, fileName, rendition) {
+  async function setBookDetails(bookId, rendition) {
     // 切书或布局重建前移除旧 rendition 监听，避免重复选择处理和残留注解。
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
@@ -548,7 +548,7 @@
 
   function mount(context) {
     if (!context) return;
-    setBookDetails(context.bookId, context.fileName, context.rendition);
+    return setBookDetails(context.bookId, context.rendition);
   }
 
   function unmount() {
