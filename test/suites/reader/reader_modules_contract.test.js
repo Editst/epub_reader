@@ -137,12 +137,15 @@ test.describe('Reader 功能模块公开契约', () => {
   test.it('Reader 持久化与书签复用直接依赖，源码不保留归档文件引用', () => {
     const persistence = fs.readFileSync('src/reader/reader-persistence.js', 'utf8');
     const bookmarks = fs.readFileSync('src/reader/bookmarks.js', 'utf8');
+    const highlights = fs.readFileSync('src/reader/highlights.js', 'utf8');
     const readerSources = fs.readdirSync('src/reader')
       .filter((name) => name.endsWith('.js'))
       .map((name) => fs.readFileSync(`src/reader/${name}`, 'utf8'))
       .join('\n');
 
     assert.ok(!persistence.includes('function _savePosition('));
+    assert.ok(persistence.includes('Utils.safeWrite('));
+    assert.ok(highlights.includes('Utils.safeWrite('));
     assert.ok(bookmarks.includes('Utils.formatDateTime(bm.timestamp)'));
     assert.ok(!bookmarks.includes('_formatDate('));
     assert.ok(!readerSources.includes('reader-full.js'));
@@ -158,6 +161,8 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(highlights.includes('async function setBookDetails(bookId, rendition)'));
     assert.ok(highlights.includes('return setBookDetails(context.bookId, context.rendition)'));
     assert.ok(!highlights.includes('setBookDetails(context.bookId, context.fileName'));
+    assert.ok(!fs.readFileSync('src/reader/reader-runtime.js', 'utf8')
+      .includes('fileName: state.currentFileName'));
     assert.ok(!bookmarks.includes('book: null'));
     assert.ok(!bookmarks.includes('this.book ='));
     assert.ok(!bookmarks.includes('async getBookmarks()'));
@@ -167,6 +172,7 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(!toc.includes('currentHref'));
     assert.ok(!toc.includes("typeof closeAllPanels === 'function'"));
     assert.ok(toc.includes('ReaderState.getTocItemLabel(item)'));
+    assert.ok(!fs.readFileSync('src/reader/search.js', 'utf8').includes('panel: () => panel'));
   });
   for (const [file, exportName, methods] of expectedContracts) {
     test.it(`${file} 导出文档声明的公开接口`, () => {
@@ -205,6 +211,8 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.match(src, /function _isFourDigitNumberMarker\(text\)/, '四位数字 marker 应集中判断并排除年份误判');
     assert.match(src, /function _isSameDocumentTargetBeforeSource\(link, targetEl\)/, '同文档目标前置判断应集中到辅助函数');
     assert.match(src, /function _isCrossDocumentTargetBeforeSource\(ctx, sectionHref\)/, '跨文档 spine 前置判断应集中到辅助函数');
+    assert.match(src, /function _checkFootnoteTextSignals\(/, '脚注文本与 href 启发式应从主判定函数拆出');
+    assert.match(src, /function _checkFootnoteStructuralSignals\(/, '脚注结构判定应从主判定函数拆出');
     assert.match(src, /function _resolveRelativeSectionHref\(baseHref, href\)/, '跨文档相对 href 解析应集中处理');
     assert.match(src, /function _indexSpineContext\(ctx, book, contents\)/, 'spine href 索引应在文档上下文阶段一次性构建');
     assert.match(src, /function _collectAfterEmptyAnchor\(anchor\)/, '空锚点内容收集应集中到辅助函数');
@@ -224,6 +232,21 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(!src.includes('setTimeout(r, 100)'), '不得直接散落分页补偿魔法数字');
     assert.ok(src.includes('annotation-fallback-hint'), 'fallback 提示应使用 CSS class');
     assert.ok(css.includes('.annotation-fallback-hint'), 'reader.css 应定义 fallback 提示样式');
+  });
+
+  test.it('共享侧栏状态只由 ReaderUi 控制', () => {
+    const ui = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    const toc = fs.readFileSync('src/reader/toc.js', 'utf8');
+    const bookmarks = fs.readFileSync('src/reader/bookmarks.js', 'utf8');
+    const search = fs.readFileSync('src/reader/search.js', 'utf8');
+
+    assert.ok(ui.includes('function openExclusivePanel(panelElement)'));
+    assert.ok(ui.includes('function closePanelWithOverlayCheck(panelElement)'));
+    assert.ok(!ui.includes('window.closeAllPanels'));
+    assert.ok(!toc.includes("document.getElementById('bookmarks-panel')"));
+    assert.ok(!toc.includes("document.getElementById('search-panel')"));
+    assert.ok(!bookmarks.includes("document.getElementById('search-panel')"));
+    assert.ok(!search.includes("document.getElementById('bookmarks-panel')"));
   });
 
   test.it('Search 性能保护约束', () => {

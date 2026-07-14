@@ -22,6 +22,9 @@
  * 清理旧 highlightKeys 索引。enforceFileLRU 只淘汰 EPUB 文件缓存，保留
  * 进度、书签、标注、封面和 locations。
  */
+(function () {
+  'use strict';
+
 const KEYS = Object.freeze({
   preferences: 'preferences',
   recentBooks: 'recentBooks',
@@ -55,11 +58,17 @@ const EpubStorage = {
   // ── Preferences ────────────────────────────────────────────────────────────
 
   async savePreferences(prefs) {
-    if (!prefs) return;
-    return this._enqueuePreferencesWrite((current) => ({ ...current, ...prefs }));
+    if (!this._isRecord(prefs)) return;
+    return this._enqueueKeyWrite(
+      '_preferencesQueue',
+      KEYS.preferences,
+      {},
+      (current) => ({ ...current, ...prefs })
+    );
   },
 
   async getPreferences() {
+    const stored = await this._get(KEYS.preferences);
     return {
       theme:           'light',
       fontSize:        18,
@@ -72,15 +81,15 @@ const EpubStorage = {
       customBg:        '#ffffff',
       customText:      '#333333',
       homeView:        'grid',
-      ...((await this._get(KEYS.preferences)) || {})
+      ...(this._isRecord(stored) ? stored : {})
     };
   },
 
   // ── Recent Books ────────────────────────────────────────────────────────────
 
   async addRecentBook(book) {
-    if (!book?.id || this._deletingBookIds.has(book.id)) return;
-    return this._enqueueRecentBooksWrite((recent) => {
+    if (!this._isRecord(book) || !book.id || this._deletingBookIds.has(book.id)) return;
+    return this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
       if (this._deletingBookIds.has(book.id)) return recent;
       recent = recent.filter(b => b.id !== book.id);
       recent.unshift({ ...book, lastOpened: Date.now() });
@@ -89,11 +98,17 @@ const EpubStorage = {
   },
 
   async getRecentBooks() {
-    return (await this._get(KEYS.recentBooks)) || [];
+    const recent = await this._get(KEYS.recentBooks);
+    return Array.isArray(recent) ? recent : [];
   },
 
   async removeRecentBook(bookId) {
-    return this._enqueueRecentBooksWrite((recent) => recent.filter(b => b.id !== bookId));
+    return this._enqueueKeyWrite(
+      '_recentBooksQueue',
+      KEYS.recentBooks,
+      [],
+      (recent) => recent.filter(b => b.id !== bookId)
+    );
   },
 
   // ── Book Meta（位置 + 时间 + 速度） ──────────────────────────────────────────
@@ -107,16 +122,18 @@ const EpubStorage = {
   async getBookMeta(bookId) {
     if (!bookId) return null;
     const meta = await this._get(KEYS.bookMeta(bookId));
-    if (meta) return meta;
+    const normalized = this._normalizeBookMeta(meta);
+    if (normalized) return normalized;
 
     return this._migrateLegacyBookMeta(bookId);
   },
 
   async saveBookMeta(bookId, meta) {
-    if (!bookId || !meta) return;
+    if (!bookId || !this._isRecord(meta)) return;
+    const normalized = this._normalizeBookMeta(meta);
     await this._enqueueBookMetaTask(bookId, async () => {
       if (this._deletingBookIds.has(bookId)) return;
-      await this._set({ [KEYS.bookMeta(bookId)]: meta });
+      await this._set({ [KEYS.bookMeta(bookId)]: normalized });
       this._removeLegacyBookMetaKeys(bookId).catch(() => {});
     });
   },
@@ -185,7 +202,7 @@ const EpubStorage = {
   //   isJump: deltaProgress > 0.05 → weight 0.3，否则 weight 1.0
 
   async saveReadingSpeed(bookId, speed) {
-    if (!bookId || !speed) return;
+    if (!bookId || !this._isRecord(speed)) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
       // 兼容旧的 { sampledSeconds, sampledProgress } 结构。
       current.speed = {
@@ -227,10 +244,12 @@ const EpubStorage = {
   // ── Highlights ───────────────────────────────────────────────────────────
 
   async getHighlights(bookId) {
-    return (await this._get(KEYS.highlights(bookId))) || [];
+    const highlights = await this._get(KEYS.highlights(bookId));
+    return Array.isArray(highlights) ? highlights : [];
   },
 
   async saveHighlights(bookId, highlights) {
+    if (!bookId || !Array.isArray(highlights)) return;
     return this._runBookResourceWrite(bookId, () =>
       this._set({ [KEYS.highlights(bookId)]: highlights })
     );
@@ -249,7 +268,7 @@ const EpubStorage = {
     const books = await this.getRecentBooks();
     const allItems = await this._getAll();
     const result = {};
-    const bookIds = new Set(books.map(b => b.id));
+    const bookIds = new Set(books.map(b => b?.id).filter(Boolean));
 
     for (const key of Object.keys(allItems || {})) {
       if (key.startsWith(KEY_PREFIXES.highlights)) {
@@ -259,7 +278,7 @@ const EpubStorage = {
 
     for (const bookId of bookIds) {
       const hls = allItems[KEYS.highlights(bookId)];
-      if (hls && hls.length > 0) result[bookId] = hls;
+      if (Array.isArray(hls) && hls.length > 0) result[bookId] = hls;
     }
 
     this._remove(KEYS.legacyHighlightIndex).catch(() => {});
@@ -269,10 +288,12 @@ const EpubStorage = {
   // ── Bookmarks ─────────────────────────────────────────────────────────────
 
   async getBookmarks(bookId) {
-    return (await this._get(KEYS.bookmarks(bookId))) || [];
+    const bookmarks = await this._get(KEYS.bookmarks(bookId));
+    return Array.isArray(bookmarks) ? bookmarks : [];
   },
 
   async saveBookmarks(bookId, bookmarks) {
+    if (!bookId || !Array.isArray(bookmarks)) return;
     return this._runBookResourceWrite(bookId, () =>
       this._set({ [KEYS.bookmarks(bookId)]: bookmarks })
     );
@@ -463,35 +484,29 @@ const EpubStorage = {
     });
   },
 
-  async _enqueuePreferencesWrite(mutator) {
-    const prev = this._preferencesQueue || Promise.resolve();
+  async _enqueueKeyWrite(queueField, key, defaultValue, mutator) {
+    const prev = this[queueField] || Promise.resolve();
     const next = prev
       .catch(() => {})
       .then(async () => {
-        const current = (await this._get(KEYS.preferences)) || {};
-        const updated = mutator(current) || current;
-        await this._set({ [KEYS.preferences]: updated });
+        const stored = await this._get(key);
+        const expectsArray = Array.isArray(defaultValue);
+        const isCompatible = expectsArray
+          ? Array.isArray(stored)
+          : this._isRecord(stored);
+        const current = isCompatible ? stored : defaultValue;
+        const mutableValue = Array.isArray(current) ? current.slice() : current;
+        const updated = mutator(mutableValue) || mutableValue;
+        await this._set({ [key]: updated });
       });
-    this._preferencesQueue = next.catch(() => {});
-    return next;
-  },
-
-  async _enqueueRecentBooksWrite(mutator) {
-    const prev = this._recentBooksQueue || Promise.resolve();
-    const next = prev
-      .catch(() => {})
-      .then(async () => {
-        const recent = (await this._get(KEYS.recentBooks)) || [];
-        const updated = mutator(recent.slice()) || recent;
-        await this._set({ [KEYS.recentBooks]: updated });
-      });
-    this._recentBooksQueue = next.catch(() => {});
+    this[queueField] = next.catch(() => {});
     return next;
   },
 
   async _enqueueBookMetaWrite(bookId, mutator, createIfMissing = true) {
     return this._enqueueBookMetaTask(bookId, async () => {
-      const existing = await this._get(KEYS.bookMeta(bookId));
+      const stored = await this._get(KEYS.bookMeta(bookId));
+      const existing = this._normalizeBookMeta(stored);
       if (!existing && !createIfMissing) return;
 
       let shouldRemoveLegacy = false;
@@ -554,7 +569,8 @@ const EpubStorage = {
 
   async _migrateLegacyBookMeta(bookId) {
     return this._enqueueBookMetaTask(bookId, async () => {
-      const existing = await this._get(KEYS.bookMeta(bookId));
+      const stored = await this._get(KEYS.bookMeta(bookId));
+      const existing = this._normalizeBookMeta(stored);
       if (existing) {
         this._removeLegacyBookMetaKeys(bookId).catch(() => {});
         return existing;
@@ -592,6 +608,26 @@ const EpubStorage = {
     return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
   },
 
+  _isRecord(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+  },
+
+  _normalizeBookMeta(meta) {
+    if (!this._isRecord(meta)) return null;
+    const speed = this._isRecord(meta.speed) ? meta.speed : {};
+    return {
+      ...meta,
+      pos: this._isRecord(meta.pos) ? meta.pos : null,
+      time: Number.isFinite(meta.time) ? meta.time : 0,
+      speed: {
+        sampledSeconds: Number.isFinite(speed.sampledSeconds) ? speed.sampledSeconds : 0,
+        sampledProgress: Number.isFinite(speed.sampledProgress) ? speed.sampledProgress : 0,
+        sessions: Array.isArray(speed.sessions) ? speed.sessions : [],
+        sessionCount: Number.isFinite(speed.sessionCount) ? speed.sessionCount : 0
+      }
+    };
+  },
+
   _removeLegacyBookMetaKeys(bookId) {
     return this._remove([KEYS.legacyPosition(bookId), KEYS.legacyReadingTime(bookId)]);
   },
@@ -610,3 +646,6 @@ const EpubStorage = {
     await Promise.allSettled(Array.from(writes));
   }
 };
+
+window.EpubStorage = EpubStorage;
+})();

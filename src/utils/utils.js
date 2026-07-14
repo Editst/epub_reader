@@ -3,6 +3,9 @@
  * 共享工具函数 — 跨页面通用函数集合
  * 除 escapeHtml 使用 document.createElement 外，不依赖扩展 API。
  */
+(function () {
+  'use strict';
+
 const Utils = {
 
   /**
@@ -83,6 +86,24 @@ const Utils = {
     const h = Math.floor(m / 60);
     const rem = m % 60;
     return rem > 0 ? `${h}小时${rem}分钟` : `${h}小时`;
+  },
+
+  /**
+   * 执行持久化写入并统一收口同步异常与 Promise 拒绝。
+   *
+   * @param {Function} writer
+   * @param {string} warningLabel
+   * @returns {Promise<*>}
+   */
+  safeWrite(writer, warningLabel) {
+    try {
+      return Promise.resolve(writer()).catch((error) => {
+        console.warn(warningLabel, error);
+      });
+    } catch (error) {
+      console.warn(warningLabel, error);
+      return Promise.resolve();
+    }
   },
 
   /**
@@ -178,3 +199,6 @@ const Utils = {
     return { minutes: null, isEstimating: true, source: 'insufficient' };
   }
 };
+
+window.Utils = Utils;
+})();

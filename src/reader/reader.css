@@ -1057,7 +1057,7 @@ html, body {
   border-bottom: 1px solid var(--border-color);
   border-radius: 0 0 0 16px;
   box-shadow: var(--shadow-lg);
-  /* FIX: z-index must exceed overlay (190) so panels are not covered when overlay is visible.
+  /* z-index must exceed overlay (190) so panels are not covered when overlay is visible.
      sidebar is 200; panels use the same value so clicks reach panel elements. */
   z-index: 200;
   transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
@@ -1350,8 +1350,7 @@ html, body {
 }
 
 /* --- Annotation Visual Distinctions --- */
-/* v1.2.0 PDCA: Zero-collateral-damage CSS targeting.
-   Only strip default strokes from the exact inner SVG elements built by epub.js 
+/* Only strip default strokes from the exact inner SVG elements built by epub.js
    when they reside inside an annotation container. Never touch book SVGs! */
 svg.epubjs-annotation polyline,
 svg.epubjs-annotation line,
@@ -1360,8 +1359,8 @@ svg.epubjs-annotation path {
   stroke: none !important;
 }
 
-/* v1.2.1 PDCA: Fix for line-height stretching causing lines to detach from text bottom and sit mid-air.
-   Pull the entire SVG container up slightly to re-dock it tightly. */
+/* Line-height can detach annotation lines from the text bottom.
+   Pull the SVG container up slightly to re-dock it tightly. */
 svg.epubjs-annotation {
   transform: translateY(-4px) !important;
 }
@@ -1371,9 +1370,8 @@ svg.epubjs-annotation {
   stroke: none !important; 
 }
 
-/* Highlight that also has a note gets ONLY a distinct dashed underline indicator.
-   We explicitly override the internal SVG shapes to draw our custom line.
-   v1.2.1 PDCA: PRECISE TARGETING without `*` so we don't accidentally style the invisible mouse <rect>. */
+/* Highlight that also has a note gets only a distinct dashed underline indicator.
+   Target exact inner shapes instead of `*` to avoid styling the invisible mouse <rect>. */
 .epubjs-hl-note-only line, .epubjs-hl-note-only polyline, .epubjs-hl-note-only path,
 .epubjs-hl-with-note line, .epubjs-hl-with-note polyline, .epubjs-hl-with-note path {
   stroke: var(--text-accent) !important;
@@ -1384,7 +1382,7 @@ svg.epubjs-annotation {
   fill: none !important;
 }
 
-/* v1.2.1 PDCA: Defend the bounding box <rect> from any borders or fills, keeping it invisible. */
+/* Keep the interaction bounding box <rect> invisible. */
 .epubjs-hl-note-only rect,
 .epubjs-hl-with-note rect {
   stroke: none !important;

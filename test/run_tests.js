@@ -112,14 +112,15 @@ global.indexedDB = {
   }
 };
 
-function loadGlobalConst(filePath, constName) {
+function loadWindowExport(filePath, exportName) {
   const code = fs.readFileSync(filePath, 'utf8');
-  vm.runInThisContext(`${code}; global.${constName} = ${constName};`, { filename: filePath });
-  return global[constName];
+  vm.runInThisContext(code, { filename: filePath });
+  return global[exportName];
 }
-global.Utils = loadGlobalConst('src/utils/utils.js', 'Utils');
-global.DbGateway = loadGlobalConst('src/utils/db-gateway.js', 'DbGateway');
-global.EpubStorage = loadGlobalConst('src/utils/storage.js', 'EpubStorage');
+global.window = global;
+global.Utils = loadWindowExport('src/utils/utils.js', 'Utils');
+global.DbGateway = loadWindowExport('src/utils/db-gateway.js', 'DbGateway');
+global.EpubStorage = loadWindowExport('src/utils/storage.js', 'EpubStorage');
 
 const _dbStore = {};
 const _mockDb = {

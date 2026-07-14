@@ -376,6 +376,30 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.sessionStart.progress, 0.8, '大幅跳转后应从新进度续期');
   });
 
+  test.it('onRelocated 在 resize 保护期忽略临时位置', () => {
+    const state = {
+      isResizing: true,
+      currentStableCfi: 'epubcfi(/6/2)',
+      lastPercent: 10
+    };
+    let uiUpdates = 0;
+    const ui = {
+      updateProgress() { uiUpdates++; },
+      updateChapterTitle() { uiUpdates++; },
+      updateBookmarkButtonState() { uiUpdates++; },
+      updateReadingStatsText() { uiUpdates++; }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({ state, ui });
+
+    persistence.onRelocated({
+      start: { cfi: 'epubcfi(/6/99)', href: 'temporary.xhtml', percentage: 0.9 }
+    });
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/2)');
+    assert.equal(state.lastPercent, 10);
+    assert.equal(uiUpdates, 0);
+  });
+
   test.it('onRelocated 忽略过期的书签状态查询结果', async () => {
     const { document } = createMockDocument(['btn-bookmark']);
     global.document = document;

@@ -133,6 +133,12 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes("console.warn('[Home] export annotations failed:'"), '导出失败应被捕获');
   });
 
+  test.it('Markdown 导出容忍旧数据中的非字符串标注字段', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    assert.ok(js.includes("String(hl.text || '').trim()"));
+    assert.ok(js.includes('String(hl.note).trim()'));
+  });
+
   test.it('书架单本封面与元数据读取失败只降级当前卡片', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
 

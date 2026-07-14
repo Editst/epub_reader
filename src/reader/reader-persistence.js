@@ -38,30 +38,20 @@
     // ── Position ─────────────────────────────────────────────────────────────
 
     function _savePositionSafely(bookId, cfi, percent, locator) {
-      let write;
-      try {
-        write = locator === undefined
+      state.lastPositionSave = Utils.safeWrite(
+        () => locator === undefined
           ? EpubStorage.savePosition(bookId, cfi, percent)
-          : EpubStorage.savePosition(bookId, cfi, percent, locator);
-      } catch (e) {
-        write = Promise.reject(e);
-      }
-      state.lastPositionSave = Promise.resolve(write).catch((e) => {
-        console.warn('[Persistence] save position failed:', e);
-      });
+          : EpubStorage.savePosition(bookId, cfi, percent, locator),
+        '[Persistence] save position failed:'
+      );
       return state.lastPositionSave;
     }
 
     function _saveReadingTimeSafely(bookId, seconds) {
-      let write;
-      try {
-        write = EpubStorage.saveReadingTime(bookId, seconds);
-      } catch (e) {
-        write = Promise.reject(e);
-      }
-      return Promise.resolve(write).catch((e) => {
-        console.warn('[Persistence] save reading time failed:', e);
-      });
+      return Utils.safeWrite(
+        () => EpubStorage.saveReadingTime(bookId, seconds),
+        '[Persistence] save reading time failed:'
+      );
     }
 
     /**

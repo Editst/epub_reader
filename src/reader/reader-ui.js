@@ -67,7 +67,10 @@
       customTextColor:    document.getElementById('custom-text-color'),
       dragOverlay:        document.getElementById('drag-overlay'),
       btnBookmark:        document.getElementById('btn-bookmark'),
-      sidebarOverlay:     document.getElementById('sidebar-overlay')
+      sidebarOverlay:     document.getElementById('sidebar-overlay'),
+      tocSidebar:         document.getElementById('sidebar'),
+      bookmarksPanel:     document.getElementById('bookmarks-panel'),
+      searchPanel:        document.getElementById('search-panel')
     };
 
     // ── Focus ─────────────────────────────────────────────────────────────────
@@ -468,6 +471,24 @@
     function toggleSettings() { dom.settingsPanel?.classList.toggle('open'); }
     function closeSettings()  { dom.settingsPanel?.classList.remove('open'); }
 
+    function _sharedSidebarPanels() {
+      return [dom.tocSidebar, dom.bookmarksPanel, dom.searchPanel].filter(Boolean);
+    }
+
+    function openExclusivePanel(panelElement) {
+      if (!panelElement) return;
+      _sharedSidebarPanels().forEach((panel) => {
+        panel.classList.toggle('open', panel === panelElement);
+      });
+      dom.sidebarOverlay?.classList.add('visible');
+    }
+
+    function closePanelWithOverlayCheck(panelElement) {
+      panelElement?.classList.remove('open');
+      const hasOpenPanel = _sharedSidebarPanels().some((panel) => panel.classList.contains('open'));
+      if (!hasOpenPanel) dom.sidebarOverlay?.classList.remove('visible');
+    }
+
     function closeAllPanels() {
       closeSettings();
       if (typeof TOC !== 'undefined' && TOC.close) TOC.close();
@@ -476,9 +497,6 @@
       if (typeof Highlights !== 'undefined' && Highlights.closePanels) Highlights.closePanels();
       dom.sidebarOverlay?.classList.remove('visible');
     }
-
-    // 供 iframe 内 click 和 persistence 的 TOC.close 调用
-    window.closeAllPanels = closeAllPanels;
 
     // ── Keyboard Nav ──────────────────────────────────────────────────────────
 
@@ -840,6 +858,8 @@
       setupRenditionKeyEvents,
       injectCustomStyleElement,
       updateCustomStyles,
+      openExclusivePanel,
+      closePanelWithOverlayCheck,
       closeAllPanels,
       syncPrefsToControls
     };

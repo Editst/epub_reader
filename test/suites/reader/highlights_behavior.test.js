@@ -146,6 +146,16 @@ function loadHighlights(storedHighlights, options = {}) {
   if (options.console) {
     context.console = options.console;
   }
+  context.Utils.safeWrite = (writer, warningLabel) => {
+    try {
+      return Promise.resolve(writer()).catch((error) => {
+        context.console.warn(warningLabel, error);
+      });
+    } catch (error) {
+      context.console.warn(warningLabel, error);
+      return Promise.resolve();
+    }
+  };
   if (options.setTimeout) {
     context.setTimeout = options.setTimeout;
   }

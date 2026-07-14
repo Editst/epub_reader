@@ -344,6 +344,65 @@ function _hasSupLikeStyle(link) {
     _SUPLIKE_VERTICAL_ALIGN_VALUES.has(_readVerticalAlign(link?.firstElementChild));
 }
 
+function _checkFootnoteTextSignals(link, ctx, signals) {
+  const { href, text, cls, fragment, isTargetBeforeSource } = signals;
+
+  if (_RE.navCls.test(cls)) return false;
+  if (text.length > 6 && _RE.chapterText.test(text)) return false;
+  if (_RE.structFragNeg.test(fragment)) return false;
+  if (ctx.hasFootnoteSections && ctx.footnoteSectionNodes.has(link)) return false;
+  if (_isIsolatedSourceLink(link, text)) return false;
+  if (_isFourDigitNumberMarker(text)) return false;
+
+  // Numeric/symbol marker needs the mirror guard used by isBackLink:
+  // no <sup> + block-start is almost certainly a return-to-text link.
+  // Reject it regardless of trailing block length; otherwise the short marker
+  // is a forward reference.
+  if (_RE.noteTextMarker.test(text)) {
+    if (!_hasSup(link)) {
+      const block = link.closest('p, li, div, dd, td') || link.parentElement;
+      if (block && block.textContent.trim().startsWith(text)) return false;
+    }
+    return true;
+  }
+
+  if (_RE.filepos.test(href)) return true;
+  if (!isTargetBeforeSource && (
+    _RE.noteCls.test(cls) || _RE.noteCls.test(link.id || '')
+  )) return true;
+  if (!isTargetBeforeSource && _RE.noteFragPos.test(fragment)) return true;
+  return null;
+}
+
+function _checkFootnoteStructuralSignals(link, ctx, signals) {
+  const { href, sameDocTarget } = signals;
+
+  // Literal <sup> is the strongest structural signal for a forward reference.
+  if (link.parentElement?.tagName === 'SUP' || _hasSup(link)) return true;
+
+  // Skip closest() entirely when the document context found no nav blocks.
+  if (ctx.hasNavBlocks && link.closest('nav')) return false;
+
+  // computed style 读取只在便宜 gate 与文本规则之后执行。
+  if (_hasSupLikeStyle(link)) return true;
+
+  // Same-document target analysis reuses the single lookup performed by the
+  // caller; headings are navigation anchors, while note containers are strong.
+  if (href.startsWith('#') && sameDocTarget) {
+    if (/^H[1-6]$/.test(sameDocTarget.tagName)) return false;
+    const targetType = sameDocTarget.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') ||
+      sameDocTarget.getAttribute?.('epub:type') || '';
+    if (_RE.noteContainer.test(targetType)) return true;
+    if (_RE.noteCls.test(sameDocTarget.className || '')) return true;
+    if (sameDocTarget.closest?.(
+      '.footnotes, .endnotes, [epub\\:type~="footnotes"], [epub\\:type~="endnotes"], ' +
+      'body[name="notes"], body[name="comments"]'
+    )) return true;
+  }
+
+  return false;
+}
+
 function _isIsolatedSourceLink(link, text) {
   const linkText = _normalizeInlineText(text);
   if (linkText.length <= _ISOLATED_LINK_MIN_LENGTH) return false;
@@ -705,21 +764,22 @@ const Annotations = {
    */
   isFootnoteLink(link, ctx) {
     // Stage 0: Hard gates — eliminate obviously non-footnote links ────────────
+    if (!link || !ctx) return false;
     const href = link.getAttribute('href') || '';
-    if (!href)                                               return false;
-    if (href.indexOf('#') === -1 && !_RE.filepos.test(href)) return false;
-    if (/^(https?:|mailto:|javascript:)/i.test(href))       return false;
-    if (ctx.isGlobalTocDoc)                                  return false;
-    if (ctx.hasTocLinks && ctx.tocLinkNodes.has(link))       return false;
-
-    const text = link.textContent.trim();
-    if (text.length > 40) return false;   // chapter titles / prose links are never markers
+    if (!href) return false;
+    if (/^(https?:|mailto:|javascript:)/i.test(href)) return false;
+    if (ctx.isGlobalTocDoc) return false;
+    if (ctx.hasTocLinks && ctx.tocLinkNodes.has(link)) return false;
 
     // Stage 1: EPUB3 semantics — trust epub:type and role when present ─────────
     const epubType = link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ||
                      link.getAttribute('epub:type') || '';
     const role     = link.getAttribute('role') || '';
     if (_RE.noteSemanticPos.test(epubType) || _RE.noteSemanticPos.test(role)) return true;
+
+    if (href.indexOf('#') === -1 && !_RE.filepos.test(href)) return false;
+    const text = link.textContent.trim();
+    if (text.length > 40) return false;
 
     // Stage 2: Text / class / fragment heuristics ─────────────────────────────
     const cls        = link.className || '';
@@ -731,66 +791,12 @@ const Annotations = {
     const isTargetBeforeSource =
       _isSameDocumentTargetBeforeSource(link, sameDocTarget) ||
       _isCrossDocumentTargetBeforeSource(ctx, parsedHref.sectionHref);
-
-    // Definitive NO
-    if (_RE.navCls.test(cls))                                            return false;
-    if (text.length > 6 && _RE.chapterText.test(text))                  return false;
-    if (_RE.structFragNeg.test(fragment))                                return false;
-    if (ctx.hasFootnoteSections && ctx.footnoteSectionNodes.has(link))   return false;
-    if (_isIsolatedSourceLink(link, text))                                return false;
-    if (_isFourDigitNumberMarker(text))                                   return false;
-
-    // Numeric/symbol marker — needs extra back-link guard.
-    //
-    // A numeric marker with no <sup> that sits at the start of its block is
-    // almost certainly a "return to text" link (the mirror of isBackLink S3).
-    // We reject it here regardless of block length — it is safer to miss a
-    // rare in-text numeric ref than to intercept a back-link navigation.
-    if (_RE.noteTextMarker.test(text)) {
-      if (!_hasSup(link)) {
-        const block = link.closest('p, li, div, dd, td') || link.parentElement;
-        if (block && block.textContent.trim().startsWith(text)) return false;
-      }
-      return true;  // has <sup>, or not at block start → IS a footnote reference
-    }
-
-    if (_RE.filepos.test(href))                                          return true;
-    if (!isTargetBeforeSource && (
-      _RE.noteCls.test(cls) || _RE.noteCls.test(link.id || '')
-    ))                                                                  return true;
-    if (!isTargetBeforeSource && _RE.noteFragPos.test(fragment))         return true;
+    const signals = { href, text, cls, fragment, sameDocTarget, isTargetBeforeSource };
+    const textDecision = _checkFootnoteTextSignals(link, ctx, signals);
+    if (textDecision !== null) return textDecision;
 
     // Stage 3: Structural DOM — only for links that remain ambiguous ──────────
-    // Covers the bug-report pattern: <a href="..."><sup>[2]</sup></a>
-
-    // <sup> is the strongest single structural signal for a forward reference
-    if (link.parentElement?.tagName === 'SUP') return true;
-    if (_hasSup(link))                          return true;
-
-    // <nav> containment — guarded to skip closest() when document has no navs
-    if (ctx.hasNavBlocks && link.closest('nav')) return false;
-
-    // Some EPUBs style note references as vertical-align: super instead of
-    // using a literal <sup>. Read computed style only after cheap gates pass.
-    if (_hasSupLikeStyle(link)) return true;
-
-    // Target element analysis — same-document only, single getElementById call
-    if (href.startsWith('#') && ctx.doc) {
-      const targetEl = sameDocTarget;
-      if (targetEl) {
-        if (/^H[1-6]$/.test(targetEl.tagName)) return false; // heading = chapter anchor
-        const tType = targetEl.getAttributeNS?.('http://www.idpf.org/2007/ops', 'type') ||
-                      targetEl.getAttribute?.('epub:type') || '';
-        if (_RE.noteContainer.test(tType))                                return true;
-        if (_RE.noteCls.test(targetEl.className || ''))                   return true;
-        if (targetEl.closest?.(
-          '.footnotes, .endnotes, [epub\\:type~="footnotes"], [epub\\:type~="endnotes"], ' +
-          'body[name="notes"], body[name="comments"]'
-        ))                                                                return true;
-      }
-    }
-
-    return false;
+    return _checkFootnoteStructuralSignals(link, ctx, signals);
   },
 
   // ── Content resolution ─────────────────────────────────────────────────────

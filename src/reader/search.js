@@ -11,8 +11,8 @@
   let book = null;
   let rendition = null;
   let navigate = null;
+  let panelController = null;
   let panel = null;
-  let overlay = null;
   let searchInput = null;
   let searchBtn = null;
   let resultsList = null;
@@ -35,7 +35,6 @@
   function init() {
     cancelPendingFocus();
     panel = document.getElementById('search-panel');
-    overlay = document.getElementById('sidebar-overlay');
     searchInput = document.getElementById('search-input');
     searchBtn = document.getElementById('btn-do-search');
     resultsList = document.getElementById('search-results-list');
@@ -108,14 +107,8 @@
     if (isOpen) {
       closePanel();
     } else {
-      // Close other panels
-      const sidebar = document.getElementById('sidebar');
-      const bookmarksPanel = document.getElementById('bookmarks-panel');
-      if (sidebar) sidebar.classList.remove('open');
-      if (bookmarksPanel) bookmarksPanel.classList.remove('open');
-      
-      panel.classList.add('open');
-      if (overlay) overlay.classList.add('visible');
+      if (panelController) panelController.openExclusivePanel(panel);
+      else panel.classList.add('open');
       cancelPendingFocus();
       const requestSeq = focusRequestSeq;
       focusTimerId = setTimeout(() => {
@@ -131,15 +124,8 @@
 
   function closePanel() {
     cancelPendingFocus();
-    if (panel) panel.classList.remove('open');
-    if (overlay) {
-      // overlay 由三个侧栏面板共享，仅在其他面板均关闭时隐藏。
-      const tocOpen       = document.getElementById('sidebar')?.classList.contains('open');
-      const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
-      if (!tocOpen && !bookmarksOpen) {
-        overlay.classList.remove('visible');
-      }
-    }
+    if (panelController) panelController.closePanelWithOverlayCheck(panel);
+    else if (panel) panel.classList.remove('open');
     // Cancel any active searches if panel is closed
     isSearching = false;
     currentSearchId++;
@@ -307,6 +293,7 @@
   function mount(context) {
     if (!context) return;
     navigate = typeof context.navigate === 'function' ? context.navigate : null;
+    panelController = context.panelController || null;
     setBook(context.book, context.rendition);
   }
 
@@ -314,7 +301,7 @@
     reset();
   }
 
-  const Search = { init, setBook, togglePanel, closePanel, reset, mount, unmount, panel: () => panel };
+  const Search = { init, setBook, togglePanel, closePanel, reset, mount, unmount };
 
   window.Search = Search;
 })();

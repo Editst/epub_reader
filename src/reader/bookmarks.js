@@ -9,6 +9,7 @@
   bookId: '',
   rendition: null,
   navigate: null,
+  panelController: null,
   panel: null,
   listEl: null,
   _boundDocument: null,
@@ -29,6 +30,7 @@
   mount(context) {
     if (!context) return;
     this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
+    this.panelController = context.panelController || null;
     this.setBook(context.bookId, context.rendition);
   },
 
@@ -153,29 +155,22 @@
     if (this.panel.classList.contains('open')) {
       this.closePanel();
     } else {
-      // 打开前关闭其他侧栏面板，并显示共享 overlay。
-      const sidebar     = document.getElementById('sidebar');
-      const searchPanel = document.getElementById('search-panel');
-      if (sidebar)     sidebar.classList.remove('open');
-      if (searchPanel) searchPanel.classList.remove('open');
-
-      this.panel.classList.add('open');
-      const overlay = document.getElementById('sidebar-overlay');
-      if (overlay) overlay.classList.add('visible');
+      if (this.panelController) {
+        this.panelController.openExclusivePanel(this.panel);
+      } else {
+        this.panel?.classList.add('open');
+      }
 
       this._loadBookmarksSafely();
     }
   },
 
   closePanel() {
-    this.panel.classList.remove('open');
-    // 仅在其他共享面板均关闭时隐藏 overlay。
-    const tocOpen    = document.getElementById('sidebar')?.classList.contains('open');
-    const searchOpen = document.getElementById('search-panel')?.classList.contains('open');
-    if (!tocOpen && !searchOpen) {
-      const overlay = document.getElementById('sidebar-overlay');
-      if (overlay) overlay.classList.remove('visible');
+    if (this.panelController) {
+      this.panelController.closePanelWithOverlayCheck(this.panel);
+      return;
     }
+    this.panel?.classList.remove('open');
   },
 
   _navigateTo(target) {

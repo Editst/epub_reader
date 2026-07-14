@@ -13,9 +13,9 @@ const path = require('node:path');
 
 test.describe('Manifest 配置检查', () => {
 
-  test.it('manifest 版本升级到 2.5.18', () => {
+  test.it('manifest 版本升级到 2.5.19', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join('src', 'manifest.json'), 'utf8'));
-    assert.equal(manifest.version, '2.5.18');
+    assert.equal(manifest.version, '2.5.19');
   });
 
   test.it('C-7: manifest 暂保留 unsafe-inline (image-viewer 依赖)', () => {

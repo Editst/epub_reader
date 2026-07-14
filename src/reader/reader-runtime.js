@@ -117,8 +117,8 @@
         book: state.book,
         rendition: state.rendition,
         bookId: state.currentBookId,
-        fileName: state.currentFileName,
-        navigate: navigateTo
+        navigate: navigateTo,
+        panelController: ui
       });
     }
 

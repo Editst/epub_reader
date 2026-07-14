@@ -8,6 +8,22 @@
 
 ---
 
+## [2.5.19] - 2026-07-15
+
+### fix
+- **脚注明确语义优先级**：`epub:type="noteref"` 与等价 role 在长文本、无 fragment 和年份等弱负向启发式前判定，出版方显式语义不再被误判抑制规则覆盖。
+- **损坏存储数据降级**：EpubStorage 在统一边界校验 preferences、recentBooks、highlights、bookmarks 与嵌套 `bookMeta` 类型，错误容器和字段回退安全默认值，避免旧数据或手工修改触发迭代、字段 patch 异常。
+
+### refactor
+- **侧栏状态集中化**：TOC、Bookmarks、Search 通过 lifecycle 注入的 ReaderUi 面板控制 API 维护互斥与共享 overlay，删除三份重复 DOM 查询和无调用的全局 `closeAllPanels` 暴露。
+- **复杂度与队列收敛**：拆分脚注文本/结构判定阶段；偏好与最近书籍复用通用 read-modify-write 队列；持久化安全写入复用 `Utils.safeWrite()`；工具单例统一 IIFE 显式导出。
+- **死代码与兼容清理**：删除 Search 未使用 getter、lifecycle 未消费字段、Home 无调用样式及历史工单标签；Markdown 导出兼容非字符串旧标注字段。
+
+### test
+- 新增显式脚注意义、共享侧栏控制、通用存储队列、安全写入、工具模块导出、损坏存储结构与真实 resize 锁回归；删除 4 个只验证测试内局部逻辑的伪测试，颜色安全测试改为直接验证生产 `Utils.sanitizeColor()`，全量覆盖为 265 项。
+
+---
+
 ## [2.5.18] - 2026-07-15
 
 ### fix

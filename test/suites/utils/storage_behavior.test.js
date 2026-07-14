@@ -19,6 +19,45 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(after.theme, 'light');
   });
 
+  test.it('损坏的持久化容器类型在存储边界降级为空结构', async () => {
+    await new Promise((resolve) => chrome.storage.local.set({
+      preferences: 'invalid-preferences',
+      recentBooks: { id: 'not-an-array' },
+      highlights_corrupt: { cfi: 'not-an-array' },
+      bookmarks_corrupt: 'not-an-array',
+      bookMeta_corrupt: 'not-an-object',
+      bookMeta_nested_corrupt: {
+        pos: 'not-an-object',
+        time: 'not-a-number',
+        speed: { sampledSeconds: 'bad', sampledProgress: null, sessions: 'bad', sessionCount: NaN }
+      }
+    }, resolve));
+
+    const [prefs, recent, highlights, bookmarks, meta] = await Promise.all([
+      EpubStorage.getPreferences(),
+      EpubStorage.getRecentBooks(),
+      EpubStorage.getHighlights('corrupt'),
+      EpubStorage.getBookmarks('corrupt'),
+      EpubStorage.getBookMeta('corrupt')
+    ]);
+
+    assert.equal(prefs.theme, 'light');
+    assert.deepEqual(recent, []);
+    assert.deepEqual(highlights, []);
+    assert.deepEqual(bookmarks, []);
+    assert.equal(meta, null);
+
+    const nestedMeta = await EpubStorage.getBookMeta('nested_corrupt');
+    assert.deepEqual(nestedMeta, {
+      pos: null,
+      time: 0,
+      speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+    });
+
+    await EpubStorage.savePosition('corrupt', 'epubcfi(/6/4)', 25);
+    assert.equal((await EpubStorage.getPosition('corrupt')).cfi, 'epubcfi(/6/4)');
+  });
+
   test.it('IndexedDB 公开方法通过可注入 gateway 执行生产实现', async () => {
     const originalGateway = EpubStorage._dbGateway;
     const calls = [];
@@ -75,6 +114,14 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     assert.equal(memory.preferences.theme, 'dark');
     assert.equal(memory.preferences.homeView, 'list');
+  });
+
+  test.it('全局 read-modify-write 队列复用同一实现', () => {
+    const source = fs.readFileSync('src/utils/storage.js', 'utf8');
+
+    assert.ok(source.includes('async _enqueueKeyWrite(queueField, key, defaultValue, mutator)'));
+    assert.ok(!source.includes('async _enqueuePreferencesWrite('));
+    assert.ok(!source.includes('async _enqueueRecentBooksWrite('));
   });
 
   test.it('addRecentBook 并发写入不会互相覆盖', async () => {

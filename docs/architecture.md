@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.18
+版本：v2.5.19
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -382,11 +382,13 @@ DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
 
 `EpubStorage` 通过实例字段 `_dbGateway` 访问上述接口；生产环境默认绑定 `DbGateway`，测试注入内存实现，禁止通过覆写公开存储方法绕过生产逻辑。
 
+偏好和最近书籍的 read-modify-write 统一通过 `_enqueueKeyWrite()` 串行执行。所有公开读取接口在存储边界校验容器类型；损坏的 preferences、recentBooks、highlights、bookmarks 或 `bookMeta` 字段降级为安全默认结构，不把错误类型传播到页面和 Reader 模块。
+
 ---
 
 ## Utils（utils/utils.js）
 
-以纯函数为主，`escapeHtml` 依赖浏览器 DOM API (`document.createElement`) 完成安全转义。
+IIFE 单例，显式暴露为 `window.Utils`。以纯函数为主，`escapeHtml` 依赖浏览器 DOM API (`document.createElement`) 完成安全转义；`DbGateway` 与 `EpubStorage` 同样使用 IIFE 明确导出，避免顶级词法变量污染脚本加载环境。
 
 ```typescript
 Utils.escapeHtml(text: any): string
@@ -405,6 +407,9 @@ Utils.formatDuration(seconds: number): string
 Utils.formatMinutes(minutes: number): string
 // 0分钟 / N分钟 / N小时N分钟
 // 用于 ETA 显示
+
+Utils.safeWrite(writer: Function, warningLabel: string): Promise<any>
+// 统一收口持久化调用的同步异常与异步拒绝；失败记录上下文标签并返回 resolved Promise
 
 Utils.sanitizeColor(color: string): string
 // 高亮颜色白名单校验（CSS 有效 hex 长度 3/4/6/8 位或 transparent）
@@ -651,6 +656,8 @@ setupRenditionKeyEvents(rendition, persistence, nav): void
 ensureFocus(): void
 
 // 面板控制
+openExclusivePanel(panelElement: HTMLElement): void
+closePanelWithOverlayCheck(panelElement: HTMLElement): void
 closeAllPanels(): void
 ```
 
@@ -672,6 +679,7 @@ closeAllPanels(): void
 - Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；若缓存失败，应显示加载错误，避免产生无法重新打开的书架记录。
 - `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
 - 主题、颜色、字号、行距和字体偏好保存失败时，只记录告警并保留当前 UI 更新，不得产生未处理 Promise 拒绝。
+- TOC、Bookmarks、Search 通过 lifecycle context 注入的 panel controller 调用本层面板 API；兄弟面板互斥和共享 overlay 状态不得在功能模块内重复维护。
 
 **v2.5.11 reflow 生命周期约束**：
 - 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
@@ -864,6 +872,7 @@ Annotations.unmount(): void
 - href 章节与 fragment 解析统一走 `_parseHref()`，不得在模块内新增 `split('#')` 解析路径。
 - 注释内容块标签、分页补偿等待时间和 TOC-like list 阈值必须保持模块级常量，避免在热路径中重复构造或散落魔法数字。
 - last-resort fallback 提示必须使用 `.annotation-fallback-hint`，不得重新拼接 inline style 字符串。
+- `isFootnoteLink()` 主流程只负责 gate、显式语义和阶段编排；文本/href 启发式与结构 DOM 判断分别集中到 `_checkFootnoteTextSignals()`、`_checkFootnoteStructuralSignals()`。
 
 **v2.4.14 算法约束**：
 - 当链接没有真实 `<sup>` 但 `computedStyle.verticalAlign` 为 `super/sub/top/bottom` 时，可作为脚注引用的强正向结构信号；该检测只能在便宜的字符串与 DOM gate 后触发。
@@ -873,7 +882,7 @@ Annotations.unmount(): void
 **v2.4.16 数字 marker 约束**：
 - `noteTextMarker` 的纯数字分支只能接受 1-3 位数字；四位数字默认按年份/正文引用风险处理，不得直接视为脚注 marker。
 - `_isFourDigitNumberMarker()` 必须在 class/fragment 等启发式正向信号前排除四位数字文本，避免 `1984` / `2023` 等正文链接因 `#note2023` 被误判。
-- 显式 EPUB 语义（如 `epub:type="noteref"` 或等价 role）在四位数字排除前已经返回，可作为四位数字脚注的唯一白名单。
+- 显式 EPUB 语义（如 `epub:type="noteref"` 或等价 role）必须在长文本、无 fragment、四位数字等弱负向规则前返回；这些误判抑制规则不得覆盖出版方明确语义。
 
 **v2.4.17 同文档拓扑约束**：
 - 同文档 `href="#fragment"` 目标查找只做一次，并在 class/fragment 弱阳性判断和后续 target analysis 中复用。

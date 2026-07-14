@@ -449,15 +449,6 @@ body {
   gap: 20px;
 }
 
-.annotation-item-cover {
-  width: 48px;
-  height: 72px;
-  border-radius: 6px;
-  object-fit: cover;
-  background: var(--border-color);
-  flex-shrink: 0;
-}
-
 .annotation-content {
   flex: 1;
 }
@@ -633,7 +624,7 @@ body {
   display: none !important;
 }
 
-/* v2.1.0 skeleton streaming */
+/* Bookshelf skeleton streaming */
 .skeleton-card {
   pointer-events: none;
 }

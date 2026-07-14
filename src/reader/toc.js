@@ -11,6 +11,7 @@
   overlay: null,
   rendition: null,
   navigate: null,
+  panelController: null,
   _boundDocument: null,
 
   init() {
@@ -51,6 +52,7 @@
   mount(context) {
     if (!context?.book || !context?.rendition) return;
     this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
+    this.panelController = context.panelController || null;
     this.build(context.book.navigation, context.rendition);
   },
 
@@ -126,22 +128,21 @@
   },
 
   open() {
-    const bookmarksPanel = document.getElementById('bookmarks-panel');
-    const searchPanel = document.getElementById('search-panel');
-    if (bookmarksPanel) bookmarksPanel.classList.remove('open');
-    if (searchPanel) searchPanel.classList.remove('open');
-    this.sidebar.classList.add('open');
-    this.overlay.classList.add('visible');
+    if (this.panelController) {
+      this.panelController.openExclusivePanel(this.sidebar);
+      return;
+    }
+    this.sidebar?.classList.add('open');
+    this.overlay?.classList.add('visible');
   },
 
   close() {
-    this.sidebar.classList.remove('open');
-    // 仅在其他共享面板均关闭时隐藏 overlay。
-    const searchOpen    = document.getElementById('search-panel')?.classList.contains('open');
-    const bookmarksOpen = document.getElementById('bookmarks-panel')?.classList.contains('open');
-    if (!searchOpen && !bookmarksOpen) {
-      this.overlay.classList.remove('visible');
+    if (this.panelController) {
+      this.panelController.closePanelWithOverlayCheck(this.sidebar);
+      return;
     }
+    this.sidebar?.classList.remove('open');
+    this.overlay?.classList.remove('visible');
   },
 
   _navigateTo(target) {

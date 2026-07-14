@@ -6,6 +6,9 @@
  * 升级时三表重建，用户需重新导入 EPUB。put() / delete() 等待事务完成后
  * 才 resolve；连接在 versionchange / close 后失效并于下次访问重建。
  */
+(function () {
+  'use strict';
+
 const DbGateway = {
   DB_NAME:      'EpubReaderDB',
   DB_VERSION:   4,
@@ -167,3 +170,6 @@ const DbGateway = {
     });
   }
 };
+
+window.DbGateway = DbGateway;
+})();

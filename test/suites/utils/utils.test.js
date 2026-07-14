@@ -9,14 +9,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-// 这里的 sanitizeColor 是从源码 (highlights.js / home.js) 中提取的逻辑
-const sanitizeColor = (colorStr) => {
-  if (!colorStr || colorStr === 'transparent') return colorStr || 'transparent';
-  return /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(colorStr)
-    ? colorStr
-    : '#ffeb3b';
-};
-
 test.describe('Utils 基础工具函数', () => {
 
   test.it('Utils.escapeHtml: 转义 HTML 特殊字符', () => {
@@ -75,6 +67,25 @@ test.describe('Utils 基础工具函数', () => {
     assert.equal(Utils.formatMinutes(90), '1小时30分钟');
     assert.equal(Utils.formatMinutes(1.4), '1分钟');
   });
+
+  test.it('Utils.safeWrite 统一收口同步异常与异步拒绝', async () => {
+    const originalWarn = console.warn;
+    const warnings = [];
+    console.warn = (...args) => warnings.push(args);
+    try {
+      assert.equal(await Utils.safeWrite(() => 42, '[Test] write failed:'), 42);
+      assert.equal(await Utils.safeWrite(() => { throw new Error('sync'); }, '[Test] write failed:'), undefined);
+      assert.equal(await Utils.safeWrite(
+        () => Promise.reject(new Error('async')),
+        '[Test] write failed:'
+      ), undefined);
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(warnings.length, 2);
+    assert.equal(warnings[0][0], '[Test] write failed:');
+  });
 });
 
 test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
@@ -107,18 +118,18 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
   });
 
   test.it('sanitizeColor: 安全性与格式拦截', () => {
-    assert.equal(sanitizeColor('#f00'), '#f00');
-    assert.equal(sanitizeColor('#f008'), '#f008');
-    assert.equal(sanitizeColor('#ff0000'), '#ff0000');
-    assert.equal(sanitizeColor('#ff000080'), '#ff000080');
-    assert.equal(sanitizeColor('transparent'), 'transparent');
-    assert.equal(sanitizeColor(null), 'transparent');
-    assert.equal(sanitizeColor('#12345'), '#ffeb3b');
-    assert.equal(sanitizeColor('#1234567'), '#ffeb3b');
-    assert.equal(sanitizeColor('red; background: url(evil)'), '#ffeb3b'); // 拦截并返回默认
-    assert.equal(sanitizeColor('rgb(255,0,0)'), '#ffeb3b');
-    assert.equal(sanitizeColor('expression(alert(1))'), '#ffeb3b');
-    assert.equal(sanitizeColor('; display: none'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('#f00'), '#f00');
+    assert.equal(Utils.sanitizeColor('#f008'), '#f008');
+    assert.equal(Utils.sanitizeColor('#ff0000'), '#ff0000');
+    assert.equal(Utils.sanitizeColor('#ff000080'), '#ff000080');
+    assert.equal(Utils.sanitizeColor('transparent'), 'transparent');
+    assert.equal(Utils.sanitizeColor(null), 'transparent');
+    assert.equal(Utils.sanitizeColor('#12345'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('#1234567'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('red; background: url(evil)'), '#ffeb3b'); // 拦截并返回默认
+    assert.equal(Utils.sanitizeColor('rgb(255,0,0)'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('expression(alert(1))'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('; display: none'), '#ffeb3b');
   });
 
   test.it('resolveDisplayColor: 透明、缺失和非法颜色回退为可见高亮色', () => {
@@ -164,7 +175,7 @@ test.describe('安全与注入防护 (Utils)', () => {
       'url(javascript:alert(1))'
     ];
     for (const h of hacks) {
-      assert.equal(sanitizeColor(h), '#ffeb3b');
+      assert.equal(Utils.sanitizeColor(h), '#ffeb3b');
     }
   });
 

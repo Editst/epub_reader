@@ -56,15 +56,10 @@
   }
 
   function saveHighlightsSafely(bookId, nextHighlights) {
-    let write;
-    try {
-      write = EpubStorage.saveHighlights(bookId, nextHighlights);
-    } catch (e) {
-      write = Promise.reject(e);
-    }
-    return Promise.resolve(write).catch((e) => {
-      console.warn('[Highlights] save highlights failed:', e);
-    });
+    return Utils.safeWrite(
+      () => EpubStorage.saveHighlights(bookId, nextHighlights),
+      '[Highlights] save highlights failed:'
+    );
   }
 
   function isNoteOnlyHighlight(hl) {

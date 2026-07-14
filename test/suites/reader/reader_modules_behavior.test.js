@@ -573,6 +573,37 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(Annotations.isFootnoteLink(link, ctx), true);
   });
 
+  test.it('Annotations 显式 noteref 语义不被长文本弱负向规则覆盖', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const link = {
+      textContent: '这是一个由出版方明确标记但文本异常冗长的脚注引用，用于确保显式 EPUB 语义优先于启发式误判抑制规则',
+      className: '',
+      id: '',
+      parentElement: { tagName: 'SPAN', textContent: '' },
+      firstElementChild: null,
+      ownerDocument: null,
+      getAttribute(name) {
+        if (name === 'href') return 'notes.xhtml';
+        if (name === 'epub:type') return 'noteref';
+        return '';
+      },
+      getAttributeNS() { return ''; },
+      closest() { return null; },
+      querySelector() { return null; }
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: null
+    };
+
+    assert.equal(Annotations.isFootnoteLink(link, ctx), true);
+  });
+
   test.it('Annotations 同文档目标位于源节点之前时压低 class/fragment 弱阳性', () => {
     const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
     const doc = {};
@@ -1327,8 +1358,18 @@ test.describe('Reader 模块基础行为', () => {
       'bookmarks-panel',
       'search-panel'
     ]);
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} }
+    });
+    const panelController = ReaderUi.createReaderUi({ state: { prefs: {} } });
     const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', { document });
     TOC.init();
+    TOC.mount({
+      book: { navigation: { toc: [] } },
+      rendition: {},
+      panelController
+    });
     document.getElementById('bookmarks-panel').classList.add('open');
     document.getElementById('search-panel').classList.add('open');
 
@@ -1338,6 +1379,33 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(document.getElementById('bookmarks-panel').classList.contains('open'), false);
     assert.equal(document.getElementById('search-panel').classList.contains('open'), false);
     assert.equal(document.getElementById('sidebar-overlay').classList.contains('visible'), true);
+  });
+
+  test.it('ReaderUi 集中维护共享侧栏的互斥与遮罩状态', () => {
+    const { document } = createMockDocument([
+      'sidebar', 'bookmarks-panel', 'search-panel', 'sidebar-overlay', 'settings-panel'
+    ]);
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {} } });
+    const sidebar = document.getElementById('sidebar');
+    const bookmarksPanel = document.getElementById('bookmarks-panel');
+    const searchPanel = document.getElementById('search-panel');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    sidebar.classList.add('open');
+    bookmarksPanel.classList.add('open');
+    ui.openExclusivePanel(searchPanel);
+
+    assert.equal(sidebar.classList.contains('open'), false);
+    assert.equal(bookmarksPanel.classList.contains('open'), false);
+    assert.equal(searchPanel.classList.contains('open'), true);
+    assert.equal(overlay.classList.contains('visible'), true);
+
+    ui.closePanelWithOverlayCheck(searchPanel);
+    assert.equal(overlay.classList.contains('visible'), false);
   });
 
   test.it('Bookmarks 打开/关闭时维护共享遮罩与兄弟面板状态', async () => {
@@ -1351,6 +1419,11 @@ test.describe('Reader 模块基础行为', () => {
       'search-panel'
     ]);
     const saved = [];
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} }
+    });
+    const panelController = ReaderUi.createReaderUi({ state: { prefs: {} } });
     const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
       document,
       EpubStorage: {
@@ -1361,7 +1434,7 @@ test.describe('Reader 模块基础行为', () => {
       }
     });
     Bookmarks.init();
-    Bookmarks.setBook('book-1', { display() {} });
+    Bookmarks.mount({ bookId: 'book-1', rendition: { display() {} }, panelController });
     document.getElementById('sidebar').classList.add('open');
     document.getElementById('search-panel').classList.add('open');
 

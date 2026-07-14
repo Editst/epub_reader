@@ -43,6 +43,30 @@ test.describe('项目工程完整性检查', () => {
     assert.equal(fs.existsSync('src/popup/popup.css'), false);
   });
 
+  test.it('首方样式不保留无调用选择器和历史工单标签', () => {
+    const css = [
+      fs.readFileSync('src/reader/reader.css', 'utf8'),
+      fs.readFileSync('src/home/home.css', 'utf8')
+    ].join('\n');
+
+    assert.ok(!css.includes('.annotation-item-cover'));
+    assert.ok(!/v\d+\.\d+\.\d+|PDCA|\bFIX:/.test(css));
+  });
+
+  test.it('本地工具单例使用 IIFE 并显式导出到 window', () => {
+    const modules = [
+      ['src/utils/db-gateway.js', 'DbGateway'],
+      ['src/utils/utils.js', 'Utils'],
+      ['src/utils/storage.js', 'EpubStorage']
+    ];
+
+    for (const [file, exportName] of modules) {
+      const source = fs.readFileSync(file, 'utf8');
+      assert.match(source, /\(function \(\) \{\s*'use strict';/);
+      assert.ok(source.includes(`window.${exportName} = ${exportName};`));
+    }
+  });
+
   test.it('全项目 style.* 写入约束 (含豁免清单)', () => {
     const strictFiles = [
       'src/reader/reader.js', 'src/home/home.js',

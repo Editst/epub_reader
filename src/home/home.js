@@ -417,8 +417,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             md += `## 《${book.title || book.filename}》\n\n`;
             md += `*作者：${book.author || '未知'}*\n\n`;
             hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
-              md += `> ${hl.text.trim().replace(/\n/g, '\n> ')}\n\n`;
-              if (hl.note) md += `**✏️ 笔记**：${hl.note.trim()}\n\n`;
+              const quote = String(hl.text || '').trim().replace(/\n/g, '\n> ');
+              md += `> ${quote}\n\n`;
+              if (hl.note) md += `**✏️ 笔记**：${String(hl.note).trim()}\n\n`;
               md += `---\n\n`;
             });
             md += `\n\n`;
