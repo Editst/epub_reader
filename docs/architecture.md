@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.25
+版本：v2.5.26
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -357,7 +357,7 @@ subscribeBookDeletion(callback: (bookId: string) => void): () => void
 // 监听其他扩展页面写入的删除标记；返回取消订阅函数
 ```
 
-所有书籍资源写入持有同书共享 Web Lock，主动删除与重新导入持有独占锁；`preferences`、`recentBooks` 的读改写另按 storage key 持有独占锁。删除先写入 `deletedBook_<bookId>` 标记，再级联清理；该标记保留到相同文件重新导入成功，防止另一个仍打开的 Reader 在删除完成后重建位置、时长或标注。
+所有书籍资源写入先持有同书共享 Web Lock，再按 `book-meta/highlights/bookmarks/cover/locations/file` 持有资源级独占锁；主动删除与重新导入持有书级独占锁。`preferences`、`recentBooks` 的读改写另按 storage key 持有独占锁。删除先写入 `deletedBook_<bookId>` 标记，再级联清理；该标记保留到相同文件重新导入成功，防止另一个仍打开的 Reader 在删除完成后重建位置、时长或标注。带删除标记但因清理失败仍残留的 EPUB 文件对 `getFile()` 不可见。
 
 ### 工具
 

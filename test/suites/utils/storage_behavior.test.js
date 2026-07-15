@@ -642,10 +642,30 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.savePosition('book-locks', 'epubcfi(/6/2)', 10);
     await EpubStorage.removeBook('book-locks');
     await EpubStorage.storeFile('locks.epub', new Uint8Array([1]), 'book-locks');
+    await EpubStorage.getFile('book-locks');
 
     assert.ok(calls.some(([name, mode]) => name.endsWith('key:preferences') && mode === 'exclusive'));
     assert.ok(calls.some(([name, mode]) => name.endsWith('book:book-locks') && mode === 'shared'));
     assert.ok(calls.some(([name, mode]) => name.endsWith('book:book-locks') && mode === 'exclusive'));
+    assert.ok(calls.some(([name, mode]) =>
+      name.endsWith('resource:book-meta:book-locks') && mode === 'exclusive'));
+    assert.ok(calls.some(([name, mode]) =>
+      name.endsWith('resource:file:book-locks') && mode === 'exclusive'));
+  });
+
+  test.it('删除标记使级联失败遗留的 EPUB 文件对读取方不可见', async () => {
+    const id = 'book-tombstoned-file';
+    await EpubStorage._dbGateway.put('files', {
+      bookId: id,
+      filename: 'leftover.epub',
+      data: new Uint8Array([1]),
+      timestamp: Date.now()
+    });
+    await EpubStorage._set({ ['deletedBook_' + id]: Date.now() });
+
+    assert.equal(await EpubStorage.getFile(id), null);
+    assert.notEqual(await EpubStorage._dbGateway.get('files', id), null,
+      '读取屏蔽不应妨碍后续 removeAllBooks 重试清理残留');
   });
 
   test.it('subscribeBookDeletion 仅转发 local 区域的新删除标记', () => {

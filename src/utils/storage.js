@@ -103,7 +103,7 @@ const EpubStorage = {
       !book.id.trim() ||
       this._deletingBookIds.has(book.id)
     ) return;
-    return this._runWritableBookTask(book.id, () =>
+    return this._runWritableBookTask(book.id, null, () =>
       this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
         if (this._deletingBookIds.has(book.id)) return recent;
         recent = this._normalizeRecordList(recent, 'id').filter(b => b.id !== book.id);
@@ -264,7 +264,7 @@ const EpubStorage = {
 
   async saveHighlights(bookId, highlights) {
     if (!bookId || !Array.isArray(highlights)) return;
-    return this._runBookResourceWrite(bookId, () =>
+    return this._runBookResourceWrite(bookId, 'highlights', () =>
       this._set({ [KEYS.highlights(bookId)]: highlights })
     );
   },
@@ -308,7 +308,7 @@ const EpubStorage = {
 
   async saveBookmarks(bookId, bookmarks) {
     if (!bookId || !Array.isArray(bookmarks)) return;
-    return this._runBookResourceWrite(bookId, () =>
+    return this._runBookResourceWrite(bookId, 'bookmarks', () =>
       this._set({ [KEYS.bookmarks(bookId)]: bookmarks })
     );
   },
@@ -321,7 +321,7 @@ const EpubStorage = {
 
   async saveCover(bookId, blob) {
     if (!bookId || !blob) return;
-    return this._runBookResourceWrite(bookId, () =>
+    return this._runBookResourceWrite(bookId, 'cover', () =>
       this._dbGateway.put(STORES.covers, { bookId, blob })
     );
   },
@@ -341,7 +341,7 @@ const EpubStorage = {
 
   async saveLocations(bookId, locationsJSON) {
     if (!bookId || !locationsJSON) return;
-    return this._runBookResourceWrite(bookId, () =>
+    return this._runBookResourceWrite(bookId, 'locations', () =>
       this._dbGateway.put(STORES.locations, { bookId, json: locationsJSON, timestamp: Date.now() })
     );
   },
@@ -372,17 +372,22 @@ const EpubStorage = {
 
   async getFile(bookId) {
     if (!bookId) return null;
-    const record = await this._dbGateway.get(STORES.files, bookId);
-    if (!record) return null;
-    const touchedRecord = { ...record, timestamp: Date.now() };
+    let fallbackRecord = null;
     try {
-      await this._runBookResourceWrite(bookId, () =>
-        this._dbGateway.put(STORES.files, touchedRecord)
+      const record = await this._trackBookResourceWrite(bookId, () =>
+        this._runWritableBookTask(bookId, 'file', async () => {
+          const stored = await this._dbGateway.get(STORES.files, bookId);
+          if (!stored) return null;
+          fallbackRecord = stored;
+          const touchedRecord = { ...stored, timestamp: Date.now() };
+          await this._dbGateway.put(STORES.files, touchedRecord);
+          return touchedRecord;
+        })
       );
-      return touchedRecord;
+      return record || null;
     } catch (e) {
       console.warn('[Storage] getFile: failed to refresh LRU timestamp', bookId, e);
-      return record;
+      return fallbackRecord;
     }
   },
 
@@ -406,7 +411,9 @@ const EpubStorage = {
     const toRemove = meta.slice(maxCount);
     for (const m of toRemove) {
       try {
-        await this._dbGateway.delete(STORES.files, m.bookId);
+        await this._withBookLock(m.bookId, 'exclusive', () =>
+          this._dbGateway.delete(STORES.files, m.bookId)
+        );
       } catch (e) {
         console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
       }
@@ -604,10 +611,10 @@ const EpubStorage = {
     });
   },
 
-  async _runBookResourceWrite(bookId, task) {
+  async _runBookResourceWrite(bookId, resourceName, task) {
     if (!bookId || this._deletingBookIds.has(bookId)) return undefined;
     return this._trackBookResourceWrite(bookId, () =>
-      this._runWritableBookTask(bookId, task)
+      this._runWritableBookTask(bookId, resourceName, task)
     );
   },
 
@@ -638,7 +645,7 @@ const EpubStorage = {
       .catch(() => {})
       .then(async () => {
         if (this._deletingBookIds.has(bookId)) return;
-        result = await this._runWritableBookTask(bookId, task);
+        result = await this._runWritableBookTask(bookId, 'book-meta', task);
       });
     const queued = next
       .catch(() => {})
@@ -650,13 +657,18 @@ const EpubStorage = {
     return result;
   },
 
-  async _runWritableBookTask(bookId, task) {
+  async _runWritableBookTask(bookId, resourceName, task) {
     if (!bookId || this._deletingBookIds.has(bookId)) return undefined;
     return this._withBookLock(bookId, 'shared', async () => {
       if (this._deletingBookIds.has(bookId)) return undefined;
       const deletedAt = await this._get(KEYS.deletedBook(bookId));
       if (deletedAt) return undefined;
-      return task();
+      if (!resourceName) return task();
+      return this._withStorageLock(
+        `resource:${resourceName}:${bookId}`,
+        'exclusive',
+        task
+      );
     });
   },
 
