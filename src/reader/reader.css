@@ -659,6 +659,7 @@ html, body {
 .reader-main.is-visible    { display: flex !important; }
 .bottom-bar.is-visible     { display: flex !important; }
 .loading-overlay.is-hidden { display: none !important; }
+.drag-overlay.is-hidden    { display: none !important; }
 .custom-theme-options.is-visible { display: block !important; }
 #btn-clear-hl.is-hidden    { display: none !important; }
 .annotation-overlay        { display: none; }

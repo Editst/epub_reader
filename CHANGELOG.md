@@ -8,6 +8,16 @@
 
 ---
 
+## [2.5.22] - 2026-07-15
+
+### fix
+- **Reader 拖放遮罩显隐**：补齐 `.drag-overlay.is-hidden` 样式，初始隐藏状态不再用透明全屏层拦截翻页、设置等真实鼠标交互。
+
+### test
+- 新增无第三方 Node 依赖的真实浏览器 E2E：加载 unpacked MV3 扩展与真实 EPUB，验证 CFI/displayed-page locator/页内锚点落盘、关闭并重开 Reader 后可见正文恢复、窗口 reflow 以及恢复后继续翻页写入。
+
+---
+
 ## [2.5.21] - 2026-07-15
 
 ### fix

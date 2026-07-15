@@ -29,6 +29,7 @@ test.describe('样式与辅助类检查', () => {
     assert.ok(css.includes('.reader-main.is-visible'));
     assert.ok(css.includes('.bottom-bar.is-visible'));
     assert.ok(css.includes('.loading-overlay.is-hidden'));
+    assert.match(css, /\.drag-overlay\.is-hidden\s*\{[^}]*display:\s*none\s*!important;/s);
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 

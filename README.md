@@ -2,7 +2,7 @@
 
 Chrome MV3 EPUB 阅读器扩展。无框架、无构建步骤，直接加载 `src/` 作为 unpacked extension；电子书文件、阅读进度、标注和偏好均保存在浏览器本地。
 
-[![Version](https://img.shields.io/badge/version-2.5.21-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.22-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## 核心功能
@@ -31,6 +31,17 @@ Chrome MV3 EPUB 阅读器扩展。无框架、无构建步骤，直接加载 `sr
 node test/run_tests.js
 node --test-name-pattern="ReaderPersistence" test/run_tests.js
 ```
+
+真实浏览器 E2E 需要版本匹配的 Chrome/Chromium、ChromeDriver 和一本本地 EPUB：
+
+```bash
+CHROME_BINARY=/path/to/chrome \
+CHROMEDRIVER=/path/to/chromedriver \
+EPUB_PATH=/path/to/book.epub \
+node test/e2e/real_browser.js
+```
+
+它直接加载 `src/`，覆盖真实 EPUB 导入、翻页位置落盘、关闭/重开恢复、可见正文比对、窗口 reflow 和恢复后继续翻页。
 
 关键入口：
 
