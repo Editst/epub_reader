@@ -8,6 +8,17 @@
 
 ---
 
+## [2.5.24] - 2026-07-16
+
+### fix
+- **完整清空语义**：`EpubStorage.removeAllBooks()` 联合扫描 Chrome storage 各书籍前缀与 IndexedDB 三个 store，主页清空书架不再遗漏 recentBooks 上限外的 bookMeta、孤立标注、书签、封面、locations 或 EPUB 缓存。
+- **文件缓存真实 LRU**：`getFile()` 成功读取缓存后容错刷新访问时间，长期保留但最近重新打开的书不再按最早导入时间被优先淘汰。
+
+### test
+- 新增跨 Chrome storage/IndexedDB 孤立资源完整清理与缓存访问 touch 回归；单元覆盖增至 273 项。
+
+---
+
 ## [2.5.23] - 2026-07-16
 
 ### fix

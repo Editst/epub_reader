@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.23
-更新：2026-07-15
+版本：v2.5.24
+更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -325,6 +325,7 @@ storeFile(filename: string, data: Uint8Array, bookId: string): Promise<void>
 
 getFile(bookId: string): Promise<FileRecord | null>
 // FileRecord: { bookId, filename, data, timestamp }
+// 成功读取后刷新 timestamp，使 LRU 按最后访问时间而非导入时间淘汰
 
 removeFile(bookId: string): Promise<void>
 
@@ -344,6 +345,12 @@ removeBook(bookId: string): Promise<void>
 // v2.4.7：删除期间阻止同上下文 bookMeta 队列回写孤立记录
 // v2.5.7：单项失败也等待其余清理全部 settled 后再释放守卫并传播失败；同书并发调用复用同一删除任务
 // v2.5.17：删除先等待已开始的 highlights/bookmarks/cover/locations/file 写入；守卫期间拒绝新的同书资源写入与 recentBooks 回加
+
+getAllBookIds(): Promise<string[]>
+// 合并 recentBooks、所有书籍级 chrome.storage key 及 files/covers/locations 三个 IDB store 的 bookId
+
+removeAllBooks(): Promise<void>
+// 清理 getAllBookIds() 找到的全部数据；不依赖 recentBooks，避免遗留孤立书籍数据
 ```
 
 ### 工具

@@ -155,7 +155,7 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     const refreshFinallyCount = (js.match(/finally \{\s*await loadBookshelfSafely\(\);/g) || []).length;
 
     assert.equal(refreshFinallyCount, 2, '单本删除和清空书架都应在 finally 中刷新');
-    assert.ok(js.includes('Promise.allSettled(books.map(b => EpubStorage.removeBook(b.id)))'), '清空书架应等待所有删除任务收口');
+    assert.ok(js.includes('await EpubStorage.removeAllBooks()'), '清空书架应通过 storage 清理 recentBooks 外的孤立资源');
     assert.ok(!js.includes('card.remove();'), '单本删除不应维护独立 DOM 真相源');
   });
 

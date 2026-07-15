@@ -663,6 +663,74 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual((await EpubStorage.getRecentBooks()).map((book) => book.id).sort(), ['newer', 'older']);
   });
 
+  test.it('getFile 刷新访问时间，使 LRU 保留最近打开的旧缓存', async () => {
+    const now = Date.now();
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'opened-old', filename: 'old.epub', data: new Uint8Array([1]), timestamp: now - 10_000
+    });
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'unopened-new', filename: 'new.epub', data: new Uint8Array([2]), timestamp: now
+    });
+    const originalNow = Date.now;
+    Date.now = () => now + 10_000;
+
+    try {
+      await EpubStorage.getFile('opened-old');
+      await EpubStorage.enforceFileLRU(1);
+    } finally {
+      Date.now = originalNow;
+    }
+
+    assert.notEqual(await EpubStorage.getFile('opened-old'), null);
+    assert.equal(await EpubStorage.getFile('unopened-new'), null);
+  });
+
+  test.it('removeAllBooks 清理 recentBooks 外的孤立 Chrome 与 IndexedDB 数据', async () => {
+    await EpubStorage.addRecentBook({ id: 'recent-book', title: 'Recent' });
+    await EpubStorage.saveBookMeta('orphan-meta', {
+      pos: null,
+      time: 20,
+      speed: { sampledSeconds: 0, sampledProgress: 0 }
+    });
+    await EpubStorage.saveHighlights('orphan-highlight', [{ cfi: 'epubcfi(/6/2)' }]);
+    await EpubStorage.saveBookmarks('orphan-bookmark', [{ cfi: 'epubcfi(/6/4)' }]);
+    await EpubStorage._set({
+      'pos_legacy-position': { cfi: 'epubcfi(/6/6)' },
+      'time_legacy-time': 30
+    });
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'orphan-file', filename: 'orphan.epub', data: new Uint8Array([1]), timestamp: Date.now()
+    });
+    await EpubStorage._dbGateway.put('covers', { bookId: 'orphan-cover', blob: { type: 'image/jpeg' } });
+    await EpubStorage._dbGateway.put('locations', { bookId: 'orphan-locations', json: '[]' });
+
+    assert.deepEqual((await EpubStorage.getAllBookIds()).sort(), [
+      'legacy-position',
+      'legacy-time',
+      'orphan-bookmark',
+      'orphan-cover',
+      'orphan-file',
+      'orphan-highlight',
+      'orphan-locations',
+      'orphan-meta',
+      'recent-book'
+    ]);
+
+    await EpubStorage.removeAllBooks();
+
+    const remainingChromeData = await EpubStorage._getAll();
+    assert.deepEqual(await EpubStorage.getRecentBooks(), []);
+    assert.equal(Object.keys(remainingChromeData).some((key) =>
+      Object.values({
+        bookMeta: 'bookMeta_', position: 'pos_', time: 'time_',
+        highlights: 'highlights_', bookmarks: 'bookmarks_'
+      }).some((prefix) => key.startsWith(prefix))
+    ), false);
+    assert.deepEqual(await EpubStorage._dbGateway.getAll('files'), []);
+    assert.deepEqual(await EpubStorage._dbGateway.getAll('covers'), []);
+    assert.deepEqual(await EpubStorage._dbGateway.getAll('locations'), []);
+  });
+
   test.it('enforceFileLRU 按时间戳从旧到新排序驱逐（LRU 顺序）', async () => {
     const now = Date.now();
     // 添加3本书，时间戳从旧到新：oldest < middle < newest

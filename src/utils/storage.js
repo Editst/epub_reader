@@ -37,7 +37,11 @@ const KEYS = Object.freeze({
 });
 
 const KEY_PREFIXES = Object.freeze({
-  highlights: 'highlights_'
+  bookMeta: 'bookMeta_',
+  legacyPosition: 'pos_',
+  legacyReadingTime: 'time_',
+  highlights: 'highlights_',
+  bookmarks: 'bookmarks_'
 });
 
 const STORES = Object.freeze({
@@ -357,7 +361,18 @@ const EpubStorage = {
 
   async getFile(bookId) {
     if (!bookId) return null;
-    return this._dbGateway.get(STORES.files, bookId);
+    const record = await this._dbGateway.get(STORES.files, bookId);
+    if (!record) return null;
+    const touchedRecord = { ...record, timestamp: Date.now() };
+    try {
+      await this._runBookResourceWrite(bookId, () =>
+        this._dbGateway.put(STORES.files, touchedRecord)
+      );
+      return touchedRecord;
+    } catch (e) {
+      console.warn('[Storage] getFile: failed to refresh LRU timestamp', bookId, e);
+      return record;
+    }
   },
 
   async removeFile(bookId) {
@@ -429,6 +444,39 @@ const EpubStorage = {
         this._bookDeleteTasks.delete(bookId);
       }
     }
+  },
+
+  async getAllBookIds() {
+    const [allItems, files, covers, locations] = await Promise.all([
+      this._getAll(),
+      this._dbGateway.getAllMeta(STORES.files, []),
+      this._dbGateway.getAllMeta(STORES.covers, []),
+      this._dbGateway.getAllMeta(STORES.locations, [])
+    ]);
+    const bookIds = new Set(
+      this._normalizeRecordList(allItems[KEYS.recentBooks], 'id').map((book) => book.id)
+    );
+    const prefixes = Object.values(KEY_PREFIXES);
+
+    for (const key of Object.keys(allItems)) {
+      const prefix = prefixes.find((candidate) => key.startsWith(candidate));
+      if (!prefix) continue;
+      const bookId = key.slice(prefix.length);
+      if (bookId) bookIds.add(bookId);
+    }
+    for (const record of [...files, ...covers, ...locations]) {
+      if (record && typeof record.bookId === 'string' && record.bookId) {
+        bookIds.add(record.bookId);
+      }
+    }
+    return [...bookIds];
+  },
+
+  async removeAllBooks() {
+    const bookIds = await this.getAllBookIds();
+    const results = await Promise.allSettled(bookIds.map((bookId) => this.removeBook(bookId)));
+    const failure = results.find((result) => result.status === 'rejected');
+    if (failure) throw failure.reason;
   },
 
   // ── BookId Generation ─────────────────────────────────────────────────────

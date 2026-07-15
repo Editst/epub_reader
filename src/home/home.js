@@ -297,10 +297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnClearAll.addEventListener('click', async () => {
     if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
       try {
-        const books = await EpubStorage.getRecentBooks();
-        const results = await Promise.allSettled(books.map(b => EpubStorage.removeBook(b.id)));
-        const failure = results.find((result) => result.status === 'rejected');
-        if (failure) console.warn('[Home] clear bookshelf failed:', failure.reason);
+        await EpubStorage.removeAllBooks();
       } catch (err) {
         console.warn('[Home] clear bookshelf failed:', err);
       } finally {
