@@ -961,6 +961,24 @@
       isMounted = true;
     }
 
+    function discardDeletedBook(bookId) {
+      if (!bookId || state.currentBookId !== bookId) return false;
+      lifecycleSeq++;
+      layoutSeq++;
+      navigationSeq++;
+      _destroyActiveBookResources();
+
+      state.book = null;
+      state.rendition = null;
+      state.currentBookId = '';
+      state.currentFileName = '';
+      state.isBookLoaded = false;
+      state.isLayoutStable = false;
+      state.navLock = false;
+      ReaderState.resetReadingSession(state);
+      return true;
+    }
+
     function unmount() {
       isMounted = false;
       lifecycleSeq++;
@@ -982,6 +1000,7 @@
       unmount,
       openBook,
       loadFileByBookId,
+      discardDeletedBook,
       scheduleLocationsGeneration,
       next,
       prev,

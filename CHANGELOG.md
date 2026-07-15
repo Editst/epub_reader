@@ -8,6 +8,18 @@
 
 ---
 
+## [2.5.25] - 2026-07-16
+
+### fix
+- **跨标签页删除事务**：书籍资源写入使用同书共享 Web Lock，主动删除与重新导入使用独占锁；删除标记持续阻止仍打开的 Reader 在级联清理后回写位置、时长、速度、标注、书签或 recentBooks。
+- **活动 Reader 收口**：Reader 监听其他扩展页面的删除标记，匹配当前书时立即作废异步代次、卸载功能模块、销毁 rendition/book 并清空阅读 session，同时保留重新导入能力。
+- **跨页面读改写串行**：`preferences` 与 `recentBooks` 除原有页面内队列外，增加按 key 的 Web Lock，避免 Home、Popup、Reader 同时更新时互相覆盖。
+
+### test
+- 真实 Chrome E2E 对 `fish.epub`、`nine.epub` 增加跨标签页删除与故意迟到写入验证，并将速度阶段明确放在后台 locations 索引就绪后；位置恢复、resize 锚点、历史 ETA 与完整清理均通过。单元覆盖增至 277 项。
+
+---
+
 ## [2.5.24] - 2026-07-16
 
 ### fix

@@ -141,6 +141,7 @@ function resetAll() {
   chrome.storage.local._reset();
   _mockDb._reset();
   EpubStorage._dbGateway = _mockDb;
+  EpubStorage._lockManager = null;
   EpubStorage._preferencesQueue = Promise.resolve();
   EpubStorage._recentBooksQueue = Promise.resolve();
   EpubStorage._bookMetaQueue = new Map();

@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.24
+版本：v2.5.25
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -345,13 +345,19 @@ removeBook(bookId: string): Promise<void>
 // v2.4.7：删除期间阻止同上下文 bookMeta 队列回写孤立记录
 // v2.5.7：单项失败也等待其余清理全部 settled 后再释放守卫并传播失败；同书并发调用复用同一删除任务
 // v2.5.17：删除先等待已开始的 highlights/bookmarks/cover/locations/file 写入；守卫期间拒绝新的同书资源写入与 recentBooks 回加
+// v2.5.25：Web Locks 跨扩展页面协调读写；持久删除标记阻止仍打开的 Reader 迟到回写
 
 getAllBookIds(): Promise<string[]>
 // 合并 recentBooks、所有书籍级 chrome.storage key 及 files/covers/locations 三个 IDB store 的 bookId
 
 removeAllBooks(): Promise<void>
 // 清理 getAllBookIds() 找到的全部数据；不依赖 recentBooks，避免遗留孤立书籍数据
+
+subscribeBookDeletion(callback: (bookId: string) => void): () => void
+// 监听其他扩展页面写入的删除标记；返回取消订阅函数
 ```
+
+所有书籍资源写入持有同书共享 Web Lock，主动删除与重新导入持有独占锁；`preferences`、`recentBooks` 的读改写另按 storage key 持有独占锁。删除先写入 `deletedBook_<bookId>` 标记，再级联清理；该标记保留到相同文件重新导入成功，防止另一个仍打开的 Reader 在删除完成后重建位置、时长或标注。
 
 ### 工具
 
@@ -494,6 +500,7 @@ openBook(
 
 setLayout(layout: 'paginated' | 'scrolled'): Promise<boolean>
 loadFileByBookId(bookId: string, options?: { targetCfi?: string | null }): Promise<void>
+discardDeletedBook(bookId: string): boolean
 next(): Promise<boolean>
 prev(): Promise<boolean>
 displayPercentage(percentage: number): Promise<boolean>
@@ -563,6 +570,7 @@ _mountFeatureModules(): void
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
+- `discardDeletedBook()` 只处理与当前 `bookId` 匹配的外部删除事件：作废打开/布局/导航代次，销毁 rendition/book、卸载功能模块并重置 session，但保持 runtime 可供用户重新导入。
 
 **导航边界约束**：
 - `next()`、`prev()`、`displayPercentage()` 和 lifecycle context 的 `navigate(target)` 必须在 `ReaderRuntime` 内消费 rendition 的同步异常与 Promise 拒绝，并以布尔值表示是否成功；DOM 事件调用方不得留下未处理拒绝。

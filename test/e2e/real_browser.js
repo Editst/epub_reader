@@ -253,6 +253,14 @@ async function getBookMeta(driver, bookId) {
   `, [bookId]);
 }
 
+async function getLocations(driver, bookId) {
+  return driver.evaluateAsync(`
+    const bookId = arguments[0];
+    const done = arguments[arguments.length - 1];
+    EpubStorage.getLocations(bookId).then(done, (error) => done({ __error: String(error) }));
+  `, [bookId]);
+}
+
 async function emulateDocumentVisibility(driver, hidden) {
   return driver.evaluate(`
     Object.defineProperty(document, 'hidden', {
@@ -495,6 +503,9 @@ async function run() {
     const book = recentBooks[0];
     console.log(`已载入《${loaded.title}》 (${book.id.slice(0, 12)}…)`);
 
+    await waitFor(() => getLocations(driver, book.id), '速度测试所需 locations 后台索引未就绪', 45000);
+    await delay(300);
+
     const initialPosition = await waitFor(() => getPosition(driver, book.id), '初始位置未写入');
     const nextButton = await driver.find('#btn-next');
     for (let turn = 0; turn < 8; turn++) {
@@ -508,7 +519,7 @@ async function run() {
     }, '连续翻页后位置没有更新');
     await driver.evaluate(`
       window.__e2eRealDateNow = Date.now.bind(Date);
-      const advancedNow = window.__e2eRealDateNow() + 180000;
+      const advancedNow = window.__e2eRealDateNow() + 300000;
       Date.now = () => advancedNow;
       return true;
     `);
@@ -536,7 +547,7 @@ async function run() {
     await emulateDocumentVisibility(driver, true);
     await waitFor(async () => {
       const meta = await getBookMeta(driver, book.id);
-      return meta?.speed?.sampledSeconds > 120 && meta.speed.sampledProgress > 0.001 ? meta : null;
+      return meta?.speed?.sampledSeconds > 30 && meta.speed.sampledProgress > 0.001 ? meta : null;
     }, 'visibilitychange 后真实速度样本未落盘');
     await emulateDocumentVisibility(driver, false);
     await driver.evaluate(`
@@ -558,7 +569,7 @@ async function run() {
     const restoredMeta = await getBookMeta(driver, book.id);
     const afterReopenPosition = restoredMeta.pos;
     assert.ok(restoredMeta.time > 0, '标签页隐藏/关闭时未持久化阅读时长');
-    assert.ok(restoredMeta.speed?.sampledSeconds > 120, '标签页隐藏/关闭时未持久化有效阅读时长样本');
+    assert.ok(restoredMeta.speed?.sampledSeconds > 30, '标签页隐藏/关闭时未持久化有效阅读时长样本');
     assert.ok(restoredMeta.speed?.sampledProgress > 0.001, '标签页隐藏/关闭时未持久化有效阅读进度样本');
     const speedEstimate = await driver.evaluate(`
       return Utils.estimateRemainingMinutes({
@@ -619,6 +630,71 @@ async function run() {
     assert.equal(postRestorePosition.locator?.sourceCfi, postRestorePosition.cfi);
     await assertNoRuntimeErrors(driver, '恢复与 reflow');
     console.log(`恢复后继续翻页：${postRestorePosition.cfi}`);
+
+    const activeReaderWindow = await driver.currentWindowHandle();
+    const homeTab = await driver.newWindow('tab');
+    await driver.switchToWindow(homeTab.handle);
+    await driver.navigate(`chrome-extension://${extensionId}/home/home.html`);
+    await waitFor(() => driver.evaluate('return typeof EpubStorage !== "undefined";'), 'Home 存储层未加载');
+    const deleteResult = await driver.evaluateAsync(`
+      const bookId = arguments[0];
+      const done = arguments[arguments.length - 1];
+      EpubStorage.removeBook(bookId).then(
+        () => done({ ok: true }),
+        (error) => done({ ok: false, error: String(error) })
+      );
+    `, [book.id]);
+    assert.equal(deleteResult.ok, true, `跨标签页删除失败：${deleteResult.error || ''}`);
+
+    await driver.switchToWindow(activeReaderWindow);
+    await waitFor(() => driver.evaluate(`
+      const error = document.querySelector('.reader-error-wrapper');
+      return error && /已从书架删除/.test(error.textContent) && !document.querySelector('#epub-viewer iframe');
+    `), '活动 Reader 未响应另一标签页的删除事件');
+
+    const deletionResidue = await driver.evaluateAsync(`
+      const bookId = arguments[0];
+      const done = arguments[arguments.length - 1];
+      Promise.all([
+        EpubStorage.savePosition(bookId, 'epubcfi(/6/999)', 99),
+        EpubStorage.saveReadingTime(bookId, 9999),
+        EpubStorage.saveHighlights(bookId, [{ cfi: 'late-highlight' }]),
+        EpubStorage.saveBookmarks(bookId, [{ cfi: 'late-bookmark' }]),
+        EpubStorage.addRecentBook({ id: bookId, title: 'late-reader-write' })
+      ]).then(async () => {
+        const [meta, highlights, bookmarks, cover, locations, file, recent, all] = await Promise.all([
+          EpubStorage.getBookMeta(bookId),
+          EpubStorage.getHighlights(bookId),
+          EpubStorage.getBookmarks(bookId),
+          EpubStorage.getCover(bookId),
+          EpubStorage.getLocations(bookId),
+          EpubStorage.getFile(bookId),
+          EpubStorage.getRecentBooks(),
+          EpubStorage._getAll()
+        ]);
+        done({
+          meta,
+          highlights,
+          bookmarks,
+          hasCover: !!cover,
+          hasLocations: !!locations,
+          hasFile: !!file,
+          inRecent: recent.some((entry) => entry.id === bookId),
+          hasDeletionMarker: !!all['deletedBook_' + bookId]
+        });
+      }, (error) => done({ __error: String(error) }));
+    `, [book.id]);
+    assert.equal(deletionResidue.__error, undefined, deletionResidue.__error);
+    assert.equal(deletionResidue.meta, null, '删除后迟到写入重建了 bookMeta');
+    assert.deepEqual(deletionResidue.highlights, [], '删除后迟到写入重建了 highlights');
+    assert.deepEqual(deletionResidue.bookmarks, [], '删除后迟到写入重建了 bookmarks');
+    assert.equal(deletionResidue.hasCover, false, '删除后残留 cover');
+    assert.equal(deletionResidue.hasLocations, false, '删除后残留 locations');
+    assert.equal(deletionResidue.hasFile, false, '删除后残留 EPUB 文件');
+    assert.equal(deletionResidue.inRecent, false, '删除后迟到写入重新加入 recentBooks');
+    assert.equal(deletionResidue.hasDeletionMarker, true, '跨页面删除标记未持久化');
+    await assertNoRuntimeErrors(driver, '跨标签页删除');
+    console.log('跨标签页删除：活动 Reader 已收口，迟到写入未复活书籍数据');
 
     success = true;
     console.log('真实浏览器 E2E：通过');

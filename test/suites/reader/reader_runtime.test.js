@@ -2598,6 +2598,35 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.locationsStatus, 'idle');
   });
 
+  test.it('外部删除只丢弃匹配的活动书籍且保持 runtime 可复用', () => {
+    let renditionDestroyed = 0;
+    let bookDestroyed = 0;
+    const state = ReaderState.createReaderState();
+    state.rendition = { destroy() { renditionDestroyed++; } };
+    state.book = { destroy() { bookDestroyed++; } };
+    state.currentBookId = 'book-deleted-elsewhere';
+    state.currentFileName = 'deleted.epub';
+    state.isBookLoaded = true;
+    state.isLayoutStable = true;
+    state.activeReadingSeconds = 120;
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {},
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    assert.equal(runtime.discardDeletedBook('another-book'), false);
+    assert.equal(state.currentBookId, 'book-deleted-elsewhere');
+    assert.equal(runtime.discardDeletedBook('book-deleted-elsewhere'), true);
+    assert.equal(renditionDestroyed, 1);
+    assert.equal(bookDestroyed, 1);
+    assert.equal(state.currentBookId, '');
+    assert.equal(state.isBookLoaded, false);
+    assert.equal(state.activeReadingSeconds, 0);
+    assert.doesNotThrow(() => runtime.mount(), '外部删除不应永久 unmount runtime');
+  });
+
   test.it('isLayoutStable 为 false 时 next/prev 不执行导航', () => {
     const state = {
       navLock: false,

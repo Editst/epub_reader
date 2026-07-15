@@ -15,6 +15,7 @@
  *       speed: { sampledSeconds, sampledProgress }   实际采样速度
  *     'highlights_<bookId>'  → [{cfi, text, color, note, timestamp}]
  *     'bookmarks_<bookId>'   → [{cfi, chapter, progress, timestamp}]
+ *     'deletedBook_<bookId>' → timestamp（跨页面删除标记，重新导入时解除）
  *
  *   IndexedDB (via DbGateway)：files / covers / locations
  *
@@ -25,6 +26,9 @@
 (function () {
   'use strict';
 
+const LOCK_PREFIX = 'epub-reader-storage:';
+const DELETED_BOOK_PREFIX = 'deletedBook_';
+
 const KEYS = Object.freeze({
   preferences: 'preferences',
   recentBooks: 'recentBooks',
@@ -33,7 +37,8 @@ const KEYS = Object.freeze({
   legacyPosition: (bookId) => 'pos_' + bookId,
   legacyReadingTime: (bookId) => 'time_' + bookId,
   highlights: (bookId) => 'highlights_' + bookId,
-  bookmarks: (bookId) => 'bookmarks_' + bookId
+  bookmarks: (bookId) => 'bookmarks_' + bookId,
+  deletedBook: (bookId) => DELETED_BOOK_PREFIX + bookId
 });
 
 const KEY_PREFIXES = Object.freeze({
@@ -52,6 +57,7 @@ const STORES = Object.freeze({
 
 const EpubStorage = {
   _dbGateway: DbGateway,
+  _lockManager: typeof navigator !== 'undefined' ? navigator.locks : null,
   _preferencesQueue: Promise.resolve(),
   _recentBooksQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
@@ -97,12 +103,14 @@ const EpubStorage = {
       !book.id.trim() ||
       this._deletingBookIds.has(book.id)
     ) return;
-    return this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
-      if (this._deletingBookIds.has(book.id)) return recent;
-      recent = this._normalizeRecordList(recent, 'id').filter(b => b.id !== book.id);
-      recent.unshift({ ...book, lastOpened: Date.now() });
-      return recent.slice(0, 20);
-    });
+    return this._runWritableBookTask(book.id, () =>
+      this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
+        if (this._deletingBookIds.has(book.id)) return recent;
+        recent = this._normalizeRecordList(recent, 'id').filter(b => b.id !== book.id);
+        recent.unshift({ ...book, lastOpened: Date.now() });
+        return recent.slice(0, 20);
+      })
+    );
   },
 
   async getRecentBooks() {
@@ -133,7 +141,7 @@ const EpubStorage = {
     const normalized = this._normalizeBookMeta(meta);
     if (normalized) return normalized;
 
-    return this._migrateLegacyBookMeta(bookId);
+    return (await this._migrateLegacyBookMeta(bookId)) || null;
   },
 
   async saveBookMeta(bookId, meta) {
@@ -353,10 +361,13 @@ const EpubStorage = {
 
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
-    return this._runBookResourceWrite(bookId, async () => {
-      await this._dbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
-      await this.enforceFileLRU(10);
-    });
+    return this._withBookLock(bookId, 'exclusive', () =>
+      this._trackBookResourceWrite(bookId, async () => {
+        await this._dbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
+        await this._remove(KEYS.deletedBook(bookId));
+        await this.enforceFileLRU(10);
+      })
+    );
   },
 
   async getFile(bookId) {
@@ -420,17 +431,20 @@ const EpubStorage = {
           this._drainBookMetaQueue(bookId),
           this._drainBookResourceWrites(bookId)
         ]);
-        const results = await Promise.allSettled([
-          this.removeRecentBook(bookId),
-          this.removeBookMeta(bookId),
-          this.removeCover(bookId),
-          this.removeHighlights(bookId),
-          this.removeLocations(bookId),
-          this.removeBookmarks(bookId),
-          this.removeFile(bookId)
-        ]);
-        const failure = results.find((result) => result.status === 'rejected');
-        if (failure) throw failure.reason;
+        await this._withBookLock(bookId, 'exclusive', async () => {
+          await this._set({ [KEYS.deletedBook(bookId)]: Date.now() });
+          const results = await Promise.allSettled([
+            this.removeRecentBook(bookId),
+            this.removeBookMeta(bookId),
+            this.removeCover(bookId),
+            this.removeHighlights(bookId),
+            this.removeLocations(bookId),
+            this.removeBookmarks(bookId),
+            this.removeFile(bookId)
+          ]);
+          const failure = results.find((result) => result.status === 'rejected');
+          if (failure) throw failure.reason;
+        });
       } finally {
         this._deletingBookIds.delete(bookId);
       }
@@ -477,6 +491,22 @@ const EpubStorage = {
     const results = await Promise.allSettled(bookIds.map((bookId) => this.removeBook(bookId)));
     const failure = results.find((result) => result.status === 'rejected');
     if (failure) throw failure.reason;
+  },
+
+  subscribeBookDeletion(callback) {
+    if (typeof callback !== 'function' || !chrome.storage?.onChanged?.addListener) {
+      return () => {};
+    }
+    const listener = (changes, areaName) => {
+      if (areaName !== 'local' || !this._isRecord(changes)) return;
+      for (const [key, change] of Object.entries(changes)) {
+        if (!key.startsWith(DELETED_BOOK_PREFIX) || !change?.newValue) continue;
+        const bookId = key.slice(DELETED_BOOK_PREFIX.length);
+        if (bookId) callback(bookId);
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
   },
 
   // ── BookId Generation ─────────────────────────────────────────────────────
@@ -538,7 +568,7 @@ const EpubStorage = {
     const prev = this[queueField] || Promise.resolve();
     const next = prev
       .catch(() => {})
-      .then(async () => {
+      .then(() => this._withStorageLock('key:' + key, 'exclusive', async () => {
         const stored = await this._get(key);
         const expectsArray = Array.isArray(defaultValue);
         const isCompatible = expectsArray
@@ -548,7 +578,7 @@ const EpubStorage = {
         const mutableValue = Array.isArray(current) ? current.slice() : current;
         const updated = mutator(mutableValue) || mutableValue;
         await this._set({ [key]: updated });
-      });
+      }));
     this[queueField] = next.catch(() => {});
     return next;
   },
@@ -576,16 +606,19 @@ const EpubStorage = {
 
   async _runBookResourceWrite(bookId, task) {
     if (!bookId || this._deletingBookIds.has(bookId)) return undefined;
+    return this._trackBookResourceWrite(bookId, () =>
+      this._runWritableBookTask(bookId, task)
+    );
+  },
+
+  async _trackBookResourceWrite(bookId, task) {
     let writes = this._bookResourceWrites.get(bookId);
     if (!writes) {
       writes = new Set();
       this._bookResourceWrites.set(bookId, writes);
     }
 
-    const write = Promise.resolve().then(() => {
-      if (this._deletingBookIds.has(bookId)) return undefined;
-      return task();
-    });
+    const write = Promise.resolve().then(task);
     writes.add(write);
     try {
       return await write;
@@ -605,7 +638,7 @@ const EpubStorage = {
       .catch(() => {})
       .then(async () => {
         if (this._deletingBookIds.has(bookId)) return;
-        result = await task();
+        result = await this._runWritableBookTask(bookId, task);
       });
     const queued = next
       .catch(() => {})
@@ -615,6 +648,26 @@ const EpubStorage = {
     this._bookMetaQueue.set(bookId, queued);
     await next;
     return result;
+  },
+
+  async _runWritableBookTask(bookId, task) {
+    if (!bookId || this._deletingBookIds.has(bookId)) return undefined;
+    return this._withBookLock(bookId, 'shared', async () => {
+      if (this._deletingBookIds.has(bookId)) return undefined;
+      const deletedAt = await this._get(KEYS.deletedBook(bookId));
+      if (deletedAt) return undefined;
+      return task();
+    });
+  },
+
+  async _withBookLock(bookId, mode, task) {
+    return this._withStorageLock('book:' + bookId, mode, task);
+  },
+
+  async _withStorageLock(name, mode, task) {
+    const lockManager = this._lockManager;
+    if (!lockManager || typeof lockManager.request !== 'function') return task();
+    return lockManager.request(LOCK_PREFIX + name, { mode }, task);
   },
 
   async _migrateLegacyBookMeta(bookId) {

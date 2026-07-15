@@ -429,12 +429,16 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.match(source, /const STORES = Object\.freeze/);
     assert.match(source, /_bookResourceWrites: new Map\(\)/,
       '非 bookMeta 资源写入也必须进入同书删除协调');
-    for (const method of ['saveHighlights', 'saveBookmarks', 'saveCover', 'saveLocations', 'storeFile']) {
+    for (const method of ['saveHighlights', 'saveBookmarks', 'saveCover', 'saveLocations']) {
       const start = source.indexOf(`async ${method}(`);
       const end = source.indexOf('\n  },', start);
       assert.ok(start >= 0 && source.slice(start, end).includes('_runBookResourceWrite'),
         `${method} 必须注册同书资源写入`);
     }
+    const storeFileStart = source.indexOf('async storeFile(');
+    const storeFileEnd = source.indexOf('\n  },', storeFileStart);
+    assert.ok(source.slice(storeFileStart, storeFileEnd).includes('_trackBookResourceWrite'),
+      'storeFile 必须在独占导入锁内注册同书资源写入');
     assert.equal(count(/'bookMeta_' \+ bookId/g), 1, 'bookMeta 前缀只能出现在 KEYS 声明中');
     assert.equal(count(/'highlights_' \+ bookId/g), 1, 'highlights 前缀只能出现在 KEYS 声明中');
     assert.equal(count(/'bookmarks_' \+ bookId/g), 1, 'bookmarks 前缀只能出现在 KEYS 声明中');
@@ -592,6 +596,79 @@ test.describe('EpubStorage 行为覆盖', () => {
       EpubStorage.removeFile = originalRemoveFile;
       EpubStorage._bookDeleteTasks?.delete(id);
       EpubStorage._deletingBookIds.delete(id);
+    }
+  });
+
+  test.it('删除标记阻止其他页面的迟到写入，重新导入后才解除', async () => {
+    const id = 'book-cross-context-delete';
+    await EpubStorage.storeFile('deleted.epub', new Uint8Array([1]), id);
+    await EpubStorage.savePosition(id, 'epubcfi(/6/2)', 10);
+    await EpubStorage.saveHighlights(id, [{ cfi: 'before-delete' }]);
+    await EpubStorage.addRecentBook({ id, title: 'Before delete' });
+
+    await EpubStorage.removeBook(id);
+    assert.ok(await EpubStorage._get('deletedBook_' + id), '删除标记必须跨页面持久化');
+
+    await EpubStorage.savePosition(id, 'epubcfi(/6/8)', 80);
+    await EpubStorage.saveReadingTime(id, 600);
+    await EpubStorage.saveHighlights(id, [{ cfi: 'late-highlight' }]);
+    await EpubStorage.saveBookmarks(id, [{ cfi: 'late-bookmark' }]);
+    await EpubStorage.addRecentBook({ id, title: 'Late write' });
+
+    assert.equal(await EpubStorage.getBookMeta(id), null);
+    assert.deepEqual(await EpubStorage.getHighlights(id), []);
+    assert.deepEqual(await EpubStorage.getBookmarks(id), []);
+    assert.equal((await EpubStorage.getRecentBooks()).some((book) => book.id === id), false);
+
+    await EpubStorage.storeFile('reimported.epub', new Uint8Array([2]), id);
+    await EpubStorage.savePosition(id, 'epubcfi(/6/10)', 90);
+    await EpubStorage.addRecentBook({ id, title: 'Reimported' });
+
+    assert.equal(await EpubStorage._get('deletedBook_' + id), undefined);
+    assert.equal((await EpubStorage.getPosition(id)).cfi, 'epubcfi(/6/10)');
+    assert.equal((await EpubStorage.getRecentBooks())[0].id, id);
+  });
+
+  test.it('Web Locks 对书籍写入、删除和全局读改写使用正确锁模式', async () => {
+    const calls = [];
+    EpubStorage._lockManager = {
+      async request(name, options, task) {
+        calls.push([name, options.mode]);
+        return task();
+      }
+    };
+
+    await EpubStorage.savePreferences({ theme: 'dark' });
+    await EpubStorage.savePosition('book-locks', 'epubcfi(/6/2)', 10);
+    await EpubStorage.removeBook('book-locks');
+    await EpubStorage.storeFile('locks.epub', new Uint8Array([1]), 'book-locks');
+
+    assert.ok(calls.some(([name, mode]) => name.endsWith('key:preferences') && mode === 'exclusive'));
+    assert.ok(calls.some(([name, mode]) => name.endsWith('book:book-locks') && mode === 'shared'));
+    assert.ok(calls.some(([name, mode]) => name.endsWith('book:book-locks') && mode === 'exclusive'));
+  });
+
+  test.it('subscribeBookDeletion 仅转发 local 区域的新删除标记', () => {
+    const originalOnChanged = chrome.storage.onChanged;
+    let listener = null;
+    let removed = null;
+    const received = [];
+    chrome.storage.onChanged = {
+      addListener(callback) { listener = callback; },
+      removeListener(callback) { removed = callback; }
+    };
+
+    try {
+      const unsubscribe = EpubStorage.subscribeBookDeletion((bookId) => received.push(bookId));
+      listener({ deletedBook_target: { newValue: 123 } }, 'sync');
+      listener({ bookMeta_target: { newValue: {} } }, 'local');
+      listener({ deletedBook_target: { oldValue: 123 } }, 'local');
+      listener({ deletedBook_target: { newValue: 456 } }, 'local');
+      unsubscribe();
+      assert.deepEqual(received, ['target']);
+      assert.equal(removed, listener);
+    } finally {
+      chrome.storage.onChanged = originalOnChanged;
     }
   });
 

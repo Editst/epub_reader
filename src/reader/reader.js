@@ -82,6 +82,11 @@
     persistence.mount();
     await runtime.mount();
 
+    EpubStorage.subscribeBookDeletion((deletedBookId) => {
+      if (!runtime.discardDeletedBook(deletedBookId)) return;
+      ui.showLoadError('这本书已从书架删除。若要继续阅读，请重新导入 EPUB 文件。');
+    });
+
     // ── URL 参数启动：bookId → 直接从缓存打开 ────────────────────────────────
     const params      = new URLSearchParams(window.location.search);
     const bookIdParam = params.get('bookId');
