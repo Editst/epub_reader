@@ -40,6 +40,21 @@ function loadIsolatedWindowExport(filePath, exportName, context = {}) {
     ReaderState: global.ReaderState,
     ...context
   };
+  if (
+    sandbox.EpubStorage &&
+    typeof sandbox.EpubStorage.updateBookmarks !== 'function' &&
+    typeof sandbox.EpubStorage.getBookmarks === 'function' &&
+    typeof sandbox.EpubStorage.saveBookmarks === 'function'
+  ) {
+    sandbox.EpubStorage.updateBookmarks = async (bookId, mutator) => {
+      const current = await sandbox.EpubStorage.getBookmarks(bookId);
+      const mutated = mutator(current.map((item) => ({ ...item })));
+      if (mutated === false) return current;
+      const updated = mutated || current;
+      await sandbox.EpubStorage.saveBookmarks(bookId, updated);
+      return updated;
+    };
+  }
   sandbox.window = sandbox.window || sandbox;
   vm.createContext(sandbox);
   vm.runInContext(`${code}; result = window.${exportName};`, sandbox, { filename: filePath });

@@ -261,6 +261,14 @@ async function getLocations(driver, bookId) {
   `, [bookId]);
 }
 
+async function getBookmarks(driver, bookId) {
+  return driver.evaluateAsync(`
+    const bookId = arguments[0];
+    const done = arguments[arguments.length - 1];
+    EpubStorage.getBookmarks(bookId).then(done, (error) => done({ __error: String(error) }));
+  `, [bookId]);
+}
+
 async function emulateDocumentVisibility(driver, hidden) {
   return driver.evaluate(`
     Object.defineProperty(document, 'hidden', {
@@ -554,6 +562,12 @@ async function run() {
       if (window.__e2eRealDateNow) Date.now = window.__e2eRealDateNow;
       return true;
     `);
+    const bookmarkButton = await driver.find('#btn-bookmark');
+    await driver.click(bookmarkButton);
+    const savedBookmark = await waitFor(async () => {
+      const bookmarks = await getBookmarks(driver, book.id);
+      return Array.isArray(bookmarks) && bookmarks.length === 1 ? bookmarks[0] : null;
+    }, '当前真实阅读位置未保存为书签');
     await assertNoRuntimeErrors(driver, '首次阅读');
 
     const readerWindow = await driver.currentWindowHandle();
@@ -567,10 +581,13 @@ async function run() {
     await delay(800);
 
     const restoredMeta = await getBookMeta(driver, book.id);
+    const restoredBookmarks = await getBookmarks(driver, book.id);
     const afterReopenPosition = restoredMeta.pos;
     assert.ok(restoredMeta.time > 0, '标签页隐藏/关闭时未持久化阅读时长');
     assert.ok(restoredMeta.speed?.sampledSeconds > 30, '标签页隐藏/关闭时未持久化有效阅读时长样本');
     assert.ok(restoredMeta.speed?.sampledProgress > 0.001, '标签页隐藏/关闭时未持久化有效阅读进度样本');
+    assert.equal(restoredBookmarks.some((item) => item.cfi === savedBookmark.cfi), true,
+      '关闭并重开 Reader 后书签未恢复');
     const speedEstimate = await driver.evaluate(`
       return Utils.estimateRemainingMinutes({
         remainingProgress: arguments[0],

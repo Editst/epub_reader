@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.26
+版本：v2.5.27
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -279,6 +279,9 @@ getHighlights(bookId: string): Promise<Highlight[]>
 saveHighlights(bookId: string, highlights: Highlight[]): Promise<void>
 // 全量覆写，调用方负责维护数组
 
+updateHighlights(bookId: string, mutator: (items: Highlight[]) => Highlight[] | false): Promise<Highlight[] | undefined>
+// 在 highlights 资源锁内完成读改写；返回 false 取消写入
+
 removeHighlights(bookId: string): Promise<void>
 
 getAllHighlights(): Promise<Record<string, Highlight[]>>
@@ -294,6 +297,8 @@ getBookmarks(bookId: string): Promise<Bookmark[]>
 // progress: 0-100 百分比
 
 saveBookmarks(bookId: string, bookmarks: Bookmark[]): Promise<void>
+updateBookmarks(bookId: string, mutator: (items: Bookmark[]) => Bookmark[] | false): Promise<Bookmark[] | undefined>
+// 在 bookmarks 资源锁内完成读改写；返回 false 取消写入
 removeBookmarks(bookId: string): Promise<void>
 ```
 

@@ -213,7 +213,7 @@ const EpubStorage = {
   // 有效 session 条件（reader-persistence.js flushSpeedSession）：
   //   deltaProgress ∈ (0.001, 0.30)  读了 0.1%–30%
   //   deltaSeconds  > 30              持续 30s 以上
-  //   isJump: deltaProgress > 0.05 → weight 0.3，否则 weight 1.0
+  //   权重：长时间连续阅读为 1；较短或 8%+ 样本为 0.6；20%+ 跳读为 0.2
 
   async saveReadingSpeed(bookId, speed) {
     if (!bookId || !this._isRecord(speed)) return;
@@ -269,6 +269,12 @@ const EpubStorage = {
     );
   },
 
+  async updateHighlights(bookId, mutator) {
+    return this._updateBookRecordList(
+      bookId, 'highlights', KEYS.highlights(bookId), 'cfi', mutator
+    );
+  },
+
   async removeHighlights(bookId) {
     await this._remove(KEYS.highlights(bookId));
   },
@@ -310,6 +316,12 @@ const EpubStorage = {
     if (!bookId || !Array.isArray(bookmarks)) return;
     return this._runBookResourceWrite(bookId, 'bookmarks', () =>
       this._set({ [KEYS.bookmarks(bookId)]: bookmarks })
+    );
+  },
+
+  async updateBookmarks(bookId, mutator) {
+    return this._updateBookRecordList(
+      bookId, 'bookmarks', KEYS.bookmarks(bookId), 'cfi', mutator
     );
   },
 
@@ -616,6 +628,22 @@ const EpubStorage = {
     return this._trackBookResourceWrite(bookId, () =>
       this._runWritableBookTask(bookId, resourceName, task)
     );
+  },
+
+  async _updateBookRecordList(bookId, resourceName, key, requiredField, mutator) {
+    if (!bookId || typeof mutator !== 'function') return undefined;
+    return this._runBookResourceWrite(bookId, resourceName, async () => {
+      const stored = this._normalizeRecordList(await this._get(key), requiredField);
+      const mutableRecords = stored.map((record) => ({ ...record }));
+      const mutated = mutator(mutableRecords);
+      if (mutated === false) return stored;
+      const updated = this._normalizeRecordList(
+        Array.isArray(mutated) ? mutated : mutableRecords,
+        requiredField
+      );
+      await this._set({ [key]: updated });
+      return updated;
+    });
   },
 
   async _trackBookResourceWrite(bookId, task) {

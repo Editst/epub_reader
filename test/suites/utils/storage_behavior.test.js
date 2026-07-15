@@ -421,6 +421,38 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual(Object.keys(all).sort(), ['book-a', 'book-orphan']);
   });
 
+  test.it('高亮与书签的资源锁事务保留并发标签页各自的 CFI 变更', async () => {
+    const exclusiveQueues = new Map();
+    EpubStorage._lockManager = {
+      request(name, options, task) {
+        if (options.mode === 'shared') return task();
+        const previous = exclusiveQueues.get(name) || Promise.resolve();
+        const next = previous.catch(() => {}).then(task);
+        exclusiveQueues.set(name, next.catch(() => {}));
+        return next;
+      }
+    };
+    const id = 'book-list-transactions';
+    await EpubStorage.saveHighlights(id, [{ cfi: 'base', text: 'base' }]);
+    await EpubStorage.saveBookmarks(id, [{ cfi: 'base', chapter: 'base' }]);
+
+    await Promise.all([
+      EpubStorage.updateHighlights(id, (items) => [...items, { cfi: 'highlight-a', text: 'A' }]),
+      EpubStorage.updateHighlights(id, (items) => [...items, { cfi: 'highlight-b', text: 'B' }]),
+      EpubStorage.updateBookmarks(id, (items) => [...items, { cfi: 'bookmark-a', chapter: 'A' }]),
+      EpubStorage.updateBookmarks(id, (items) => [...items, { cfi: 'bookmark-b', chapter: 'B' }])
+    ]);
+
+    assert.deepEqual(
+      (await EpubStorage.getHighlights(id)).map((item) => item.cfi).sort(),
+      ['base', 'highlight-a', 'highlight-b']
+    );
+    assert.deepEqual(
+      (await EpubStorage.getBookmarks(id)).map((item) => item.cfi).sort(),
+      ['base', 'bookmark-a', 'bookmark-b']
+    );
+  });
+
   test.it('storage.js 集中声明存储 key 与 IndexedDB store 名称', () => {
     const source = fs.readFileSync('src/utils/storage.js', 'utf8');
     const count = (pattern) => (source.match(pattern) || []).length;

@@ -55,11 +55,29 @@
     _internalAction = false;
   }
 
-  function saveHighlightsSafely(bookId, nextHighlights) {
-    return Utils.safeWrite(
-      () => EpubStorage.saveHighlights(bookId, nextHighlights),
+  async function syncHighlightSafely(bookId, cfi) {
+    const contextSeq = _contextSeq;
+    const desiredRecord = highlights.find((highlight) => highlight.cfi === cfi);
+    const desired = desiredRecord ? { ...desiredRecord } : null;
+    const updated = await Utils.safeWrite(
+      () => EpubStorage.updateHighlights(bookId, (current) => {
+        if (contextSeq !== _contextSeq || bookId !== _bookId) return false;
+        const index = current.findIndex((highlight) => highlight.cfi === cfi);
+        if (!desired) {
+          if (index >= 0) current.splice(index, 1);
+        } else if (index >= 0) {
+          current[index] = { ...desired };
+        } else {
+          current.push({ ...desired });
+        }
+        return current;
+      }),
       '[Highlights] save highlights failed:'
     );
+    if (contextSeq === _contextSeq && bookId === _bookId && Array.isArray(updated)) {
+      highlights = updated;
+    }
+    return updated;
   }
 
   function isNoteOnlyHighlight(hl) {
@@ -241,7 +259,7 @@
         if (_activeHighlightCfi) {
           updateHighlightData(_activeHighlightCfi, { color });
           reRenderHighlight(_activeHighlightCfi);
-          await saveHighlightsSafely(bookId, highlights);
+          await syncHighlightSafely(bookId, _activeHighlightCfi);
         } else if (_currentCfiRange) {
           const cfiRange = _currentCfiRange;
           const existingIdx = highlights.findIndex(h => h.cfi === cfiRange);
@@ -262,7 +280,7 @@
             renderHighlight(newHl);
           }
           if (!isCurrentContext(contextSeq, bookId, rendition)) return;
-          await saveHighlightsSafely(bookId, highlights);
+          await syncHighlightSafely(bookId, cfiRange);
           clearNativeSelection();
         }
         if (!isCurrentContext(contextSeq, bookId, rendition)) return;
@@ -360,7 +378,7 @@
           rendition.annotations.remove(activeCfi, "underline");
           _renderedHighlightCfis.delete(activeCfi);
           highlights = highlights.filter(h => h.cfi !== activeCfi);
-          await saveHighlightsSafely(bookId, highlights);
+          await syncHighlightSafely(bookId, activeCfi);
           if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           _activeHighlightCfi = null;
           _pendingCfi = null;
@@ -397,7 +415,7 @@
           if (hl) {
               highlights = highlights.filter(h => h.cfi !== targetCfi);
               reRenderHighlight(targetCfi);
-              await saveHighlightsSafely(bookId, highlights);
+              await syncHighlightSafely(bookId, targetCfi);
               if (!isCurrentContext(contextSeq, bookId, rendition)) return;
           } else {
               clearNativeSelection();
@@ -427,7 +445,7 @@
       }
 
       if (!isCurrentContext(contextSeq, bookId, rendition)) return;
-      await saveHighlightsSafely(bookId, highlights);
+      await syncHighlightSafely(bookId, targetCfi);
       if (!isCurrentContext(contextSeq, bookId, rendition)) return;
       closeNotePopup();
   }

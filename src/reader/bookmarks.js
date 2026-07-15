@@ -46,26 +46,24 @@
 
   async toggle(cfi, chapterName, progress) {
     const bookId = this.bookId;
-    let bookmarks = await EpubStorage.getBookmarks(bookId);
+    const bookmarks = await EpubStorage.updateBookmarks(bookId, (current) => {
+      if (bookId !== this.bookId) return false;
+      const existing = current.findIndex(b => b.cfi === cfi);
+      if (existing >= 0) {
+        current.splice(existing, 1);
+      } else {
+        current.push({
+          cfi,
+          chapter: chapterName,
+          progress: Math.round(progress * 1000) / 10,
+          timestamp: Date.now()
+        });
+        current.sort((a, b) => a.progress - b.progress);
+      }
+      return current;
+    });
     if (bookId !== this.bookId) return;
-    const existing = bookmarks.findIndex(b => b.cfi === cfi);
-
-    if (existing >= 0) {
-      bookmarks.splice(existing, 1);
-    } else {
-      bookmarks.push({
-        cfi,
-        chapter: chapterName,
-        progress: Math.round(progress * 1000) / 10,
-        timestamp: Date.now()
-      });
-      // Sort by progress
-      bookmarks.sort((a, b) => a.progress - b.progress);
-    }
-
-    await EpubStorage.saveBookmarks(bookId, bookmarks);
-    if (bookId !== this.bookId) return;
-    this.renderList(bookmarks);
+    if (Array.isArray(bookmarks)) this.renderList(bookmarks);
   },
 
   async isBookmarked(cfi) {
@@ -136,12 +134,14 @@
         e.stopPropagation();
         try {
           const bookId = this.bookId;
-          let bms = await EpubStorage.getBookmarks(bookId);
+          const bms = await EpubStorage.updateBookmarks(
+            bookId,
+            (current) => bookId === this.bookId
+              ? current.filter(b => b.cfi !== bm.cfi)
+              : false
+          );
           if (bookId !== this.bookId) return;
-          bms = bms.filter(b => b.cfi !== bm.cfi);
-          await EpubStorage.saveBookmarks(bookId, bms);
-          if (bookId !== this.bookId) return;
-          this.renderList(bms);
+          if (Array.isArray(bms)) this.renderList(bms);
         } catch (err) {
           console.warn('[Bookmarks] remove bookmark failed:', err);
         }

@@ -143,6 +143,16 @@ function loadHighlights(storedHighlights, options = {}) {
   if (options.EpubStorage) {
     context.EpubStorage = options.EpubStorage;
   }
+  if (typeof context.EpubStorage.updateHighlights !== 'function') {
+    context.EpubStorage.updateHighlights = async (bookId, mutator) => {
+      const current = await context.EpubStorage.getHighlights(bookId);
+      const mutated = mutator(current.map((item) => ({ ...item })));
+      if (mutated === false) return current;
+      const updated = mutated || current;
+      await context.EpubStorage.saveHighlights(bookId, updated);
+      return updated;
+    };
+  }
   if (options.console) {
     context.console = options.console;
   }
@@ -342,6 +352,7 @@ test.describe('Reader Highlights 行为', () => {
       target: createElement('rendered-highlight')
     }, 'epubcfi(/6/2)');
     elements.get('btn-clear-hl').dispatch('click', { stopPropagation() {} });
+    await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(annotations.length, 0);
     assert.deepEqual(stored, []);
