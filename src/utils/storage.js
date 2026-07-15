@@ -74,7 +74,6 @@ const EpubStorage = {
       fontSize:        18,
       fontFamily:      '',
       lineHeight:      1.8,
-      letterSpacing:   0,
       paragraphIndent: true,
       spread:          'auto',
       layout:          'paginated',
@@ -88,10 +87,15 @@ const EpubStorage = {
   // ── Recent Books ────────────────────────────────────────────────────────────
 
   async addRecentBook(book) {
-    if (!this._isRecord(book) || !book.id || this._deletingBookIds.has(book.id)) return;
+    if (
+      !this._isRecord(book) ||
+      typeof book.id !== 'string' ||
+      !book.id.trim() ||
+      this._deletingBookIds.has(book.id)
+    ) return;
     return this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
       if (this._deletingBookIds.has(book.id)) return recent;
-      recent = recent.filter(b => b.id !== book.id);
+      recent = this._normalizeRecordList(recent, 'id').filter(b => b.id !== book.id);
       recent.unshift({ ...book, lastOpened: Date.now() });
       return recent.slice(0, 20);
     });
@@ -99,7 +103,7 @@ const EpubStorage = {
 
   async getRecentBooks() {
     const recent = await this._get(KEYS.recentBooks);
-    return Array.isArray(recent) ? recent : [];
+    return this._normalizeRecordList(recent, 'id');
   },
 
   async removeRecentBook(bookId) {
@@ -107,7 +111,7 @@ const EpubStorage = {
       '_recentBooksQueue',
       KEYS.recentBooks,
       [],
-      (recent) => recent.filter(b => b.id !== bookId)
+      (recent) => this._normalizeRecordList(recent, 'id').filter(b => b.id !== bookId)
     );
   },
 
@@ -138,9 +142,7 @@ const EpubStorage = {
     });
   },
 
-  /**
-   * Patch 位置字段。经 300ms 防抖后由 schedulePositionSave 调用。
-   */
+  /** Patch 位置字段，由 Reader 的位置事件与生命周期 flush 调用。 */
   async savePosition(bookId, cfi, percentage = null, locator = undefined) {
     if (!bookId) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
@@ -245,7 +247,7 @@ const EpubStorage = {
 
   async getHighlights(bookId) {
     const highlights = await this._get(KEYS.highlights(bookId));
-    return Array.isArray(highlights) ? highlights : [];
+    return this._normalizeRecordList(highlights, 'cfi');
   },
 
   async saveHighlights(bookId, highlights) {
@@ -277,8 +279,8 @@ const EpubStorage = {
     }
 
     for (const bookId of bookIds) {
-      const hls = allItems[KEYS.highlights(bookId)];
-      if (Array.isArray(hls) && hls.length > 0) result[bookId] = hls;
+      const hls = this._normalizeRecordList(allItems[KEYS.highlights(bookId)], 'cfi');
+      if (hls.length > 0) result[bookId] = hls;
     }
 
     this._remove(KEYS.legacyHighlightIndex).catch(() => {});
@@ -289,7 +291,7 @@ const EpubStorage = {
 
   async getBookmarks(bookId) {
     const bookmarks = await this._get(KEYS.bookmarks(bookId));
-    return Array.isArray(bookmarks) ? bookmarks : [];
+    return this._normalizeRecordList(bookmarks, 'cfi');
   },
 
   async saveBookmarks(bookId, bookmarks) {
@@ -588,12 +590,14 @@ const EpubStorage = {
       this._get(KEYS.legacyPosition(bookId)),
       this._get(KEYS.legacyReadingTime(bookId))
     ]);
-    if (!pos && (typeof time !== 'number')) return null;
-    return {
+    const hasLegacyTime = typeof time === 'number';
+    if (!pos && !hasLegacyTime) return null;
+    const normalized = this._normalizeBookMeta({
       pos:   pos || null,
-      time:  (typeof time === 'number') ? time : 0,
+      time:  hasLegacyTime ? time : 0,
       speed: this._createDefaultSpeed()
-    };
+    });
+    return normalized && (normalized.pos || hasLegacyTime) ? normalized : null;
   },
 
   _createDefaultBookMeta() {
@@ -612,18 +616,37 @@ const EpubStorage = {
     return !!value && typeof value === 'object' && !Array.isArray(value);
   },
 
+  _normalizeRecordList(value, requiredField) {
+    if (!Array.isArray(value)) return [];
+    return value.filter((item) =>
+      this._isRecord(item) &&
+      typeof item[requiredField] === 'string' &&
+      item[requiredField].trim().length > 0
+    );
+  },
+
   _normalizeBookMeta(meta) {
     if (!this._isRecord(meta)) return null;
     const speed = this._isRecord(meta.speed) ? meta.speed : {};
+    let pos = null;
+    if (this._isRecord(meta.pos) && typeof meta.pos.cfi === 'string' && meta.pos.cfi) {
+      pos = {
+        ...meta.pos,
+        percentage: Number.isFinite(meta.pos.percentage)
+          ? Math.min(100, Math.max(0, meta.pos.percentage))
+          : null
+      };
+      if (!this._isRecord(pos.locator)) delete pos.locator;
+    }
     return {
       ...meta,
-      pos: this._isRecord(meta.pos) ? meta.pos : null,
-      time: Number.isFinite(meta.time) ? meta.time : 0,
+      pos,
+      time: Number.isFinite(meta.time) ? Math.max(0, Math.floor(meta.time)) : 0,
       speed: {
-        sampledSeconds: Number.isFinite(speed.sampledSeconds) ? speed.sampledSeconds : 0,
-        sampledProgress: Number.isFinite(speed.sampledProgress) ? speed.sampledProgress : 0,
+        sampledSeconds: Number.isFinite(speed.sampledSeconds) ? Math.max(0, speed.sampledSeconds) : 0,
+        sampledProgress: Number.isFinite(speed.sampledProgress) ? Math.max(0, speed.sampledProgress) : 0,
         sessions: Array.isArray(speed.sessions) ? speed.sessions : [],
-        sessionCount: Number.isFinite(speed.sessionCount) ? speed.sessionCount : 0
+        sessionCount: Number.isFinite(speed.sessionCount) ? Math.max(0, Math.floor(speed.sessionCount)) : 0
       }
     };
   },

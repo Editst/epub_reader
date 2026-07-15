@@ -15,10 +15,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.rendition, null);
     assert.equal(state.currentBookId, '');
     assert.equal(state.isBookLoaded, false);
-    assert.equal(state.hasLocations, false);
     assert.equal(state.locationsStatus, 'idle');
-    assert.equal(state.locationsBreak, null);
-    assert.equal(state.locationsError, null);
     assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
     assert.equal(state.currentStableLocator, null);
@@ -47,10 +44,7 @@ test.describe('ReaderState', () => {
     state.isRestoringPosition = true;
     state.isRestoreAnchorProtected = true;
     state.lastPositionSave = Promise.resolve();
-    state.hasLocations = true;
     state.locationsStatus = 'ready';
-    state.locationsBreak = 3200;
-    state.locationsError = 'boom';
     state.readingTimer = 11;
     state.posTimer = 22;
 
@@ -70,10 +64,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.isRestoringPosition, false);
     assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
-    assert.equal(state.hasLocations, false);
     assert.equal(state.locationsStatus, 'idle');
-    assert.equal(state.locationsBreak, null);
-    assert.equal(state.locationsError, null);
     assert.equal(state.readingTimer, null);
     assert.equal(state.posTimer, null);
     assert.deepEqual(cleared, [['interval', 11], ['timeout', 22]]);

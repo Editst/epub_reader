@@ -265,6 +265,7 @@
           await saveHighlightsSafely(bookId, highlights);
           clearNativeSelection();
         }
+        if (!isCurrentContext(contextSeq, bookId, rendition)) return;
         closeToolbar();
       });
     });
@@ -382,7 +383,7 @@
   async function handleSaveNote() {
       const targetCfi = _activeHighlightCfi || _pendingCfi;
       if (!targetCfi) {
-          closeNotePopup();
+          closePanels();
           return;
       }
 
@@ -392,6 +393,19 @@
       const rendition = _rendition;
       
       let hl = highlights.find(h => h.cfi === targetCfi);
+      if (!note && (!hl || isNoteOnlyHighlight(hl))) {
+          if (hl) {
+              highlights = highlights.filter(h => h.cfi !== targetCfi);
+              reRenderHighlight(targetCfi);
+              await saveHighlightsSafely(bookId, highlights);
+              if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+          } else {
+              clearNativeSelection();
+          }
+          closePanels();
+          return;
+      }
+
       if (hl) {
           hl.note = note;
           updateHighlightData(targetCfi, { note });
@@ -414,6 +428,7 @@
 
       if (!isCurrentContext(contextSeq, bookId, rendition)) return;
       await saveHighlightsSafely(bookId, highlights);
+      if (!isCurrentContext(contextSeq, bookId, rendition)) return;
       closeNotePopup();
   }
 

@@ -504,9 +504,9 @@
     function _handleKeyNav(e, runtime) {
       if (!state.isBookLoaded) return;
       const active = document.activeElement;
-      const tag = active ? active.tagName : '';
+      const tag = e.target?.tagName || (active ? active.tagName : '');
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
-        if (e.key === 'Escape') active.blur();
+        if (e.key === 'Escape') (e.target?.blur ? e.target : active)?.blur();
         return;
       }
       switch (e.key) {

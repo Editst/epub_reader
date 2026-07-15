@@ -51,6 +51,15 @@
       }
     }
 
+    async function _attemptStorage(label, operation, fallback) {
+      try {
+        return await operation();
+      } catch (e) {
+        console.warn(`[Runtime] ${label} failed, using fallback:`, e);
+        return fallback;
+      }
+    }
+
     // ── Rendition 工厂 ───────────────────────────────────────────────────────
     // openBook 与 setLayout 共享的 rendition 创建 + 主题 + hook 逻辑
 
@@ -403,13 +412,27 @@
       const shouldFlushSession = !!(oldBookId && state.isBookLoaded);
 
       if (shouldFlushSession) {
-        try {
-          await persistence.flushPositionSave();
-          await EpubStorage.saveReadingTime(oldBookId, state.activeReadingSeconds);
-          await persistence.flushSpeedSession(null);
-        } catch (e) {
-          console.warn('[Runtime] teardown flush failed:', e);
-        }
+        const flushTasks = [
+          () => typeof persistence.flushPositionSave === 'function'
+            ? persistence.flushPositionSave()
+            : undefined,
+          () => EpubStorage.saveReadingTime(oldBookId, state.activeReadingSeconds),
+          () => typeof persistence.flushSpeedSession === 'function'
+            ? persistence.flushSpeedSession(null)
+            : undefined
+        ].map((task) => {
+          try {
+            return Promise.resolve(task());
+          } catch (e) {
+            return Promise.reject(e);
+          }
+        });
+        const flushResults = await Promise.allSettled(flushTasks);
+        flushResults.forEach((result) => {
+          if (result.status === 'rejected') {
+            console.warn('[Runtime] teardown flush failed:', result.reason);
+          }
+        });
       }
 
       _destroyActiveBookResources();
@@ -472,10 +495,7 @@
     function _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking) {
       console.info('[Runtime] locations_cache_hit:', true);
       if (!cachedLocationsLoaded) state.book.locations.load(cachedLocsJSON);
-      state.hasLocations = true;
       state.locationsStatus = 'ready';
-      state.locationsBreak = null;
-      state.locationsError = null;
       if (typeof ui.setLocationIndexStatus === 'function') {
         ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
       }
@@ -484,10 +504,7 @@
 
     function _scheduleLocationsGeneration(bookId, fileData, activeBook, initSpeedTracking) {
       const locationsBreak = chooseLocationsBreak(fileData);
-      state.hasLocations = false;
       state.locationsStatus = 'pending';
-      state.locationsBreak = locationsBreak;
-      state.locationsError = null;
       if (typeof ui.setLocationIndexStatus === 'function') {
         ui.setLocationIndexStatus('pending', '准备生成阅读定位索引...');
       }
@@ -509,9 +526,7 @@
           await EpubStorage.saveLocations(bookId, locsJSON);
           if (state.currentBookId !== bookId || state.book !== activeBook) return;
 
-          state.hasLocations = true;
           state.locationsStatus = 'ready';
-          state.locationsError = null;
           console.info('[Runtime] locations_generate_duration(ms):', Date.now() - generationStartedAt);
           _applyLocationsProgress(initSpeedTracking);
           if (typeof ui.setLocationIndexStatus === 'function') {
@@ -520,9 +535,7 @@
         } catch (e) {
           if (state.currentBookId !== bookId || state.book !== activeBook) return;
 
-          state.hasLocations = false;
           state.locationsStatus = 'failed';
-          state.locationsError = e && e.message ? e.message : String(e);
           console.warn('[Runtime] locations generate failed:', e);
           if (typeof ui.setLocationIndexStatus === 'function') {
             ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
@@ -547,12 +560,20 @@
       state.navLock = false;
 
       // ── 加载 meta & prefs ───────────────────────────────────────────────────
-      const prefs = await EpubStorage.getPreferences();
+      const prefs = await _attemptStorage(
+        'load preferences',
+        () => EpubStorage.getPreferences(),
+        null
+      );
       _assertOpenActive(openLifecycleSeq);
       state.prefs = { ...state.prefs, ...(prefs || {}) };
       ui.syncPrefsToControls();
 
-      const meta = await EpubStorage.getBookMeta(bookId);
+      const meta = await _attemptStorage(
+        'load book metadata',
+        () => EpubStorage.getBookMeta(bookId),
+        null
+      );
       _assertOpenActive(openLifecycleSeq);
       state.activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
       // 直接初始化内存缓存，避免再次读取同一份 bookMeta。
@@ -600,14 +621,17 @@
       _assertOpenActive(openLifecycleSeq);
 
       // ── savedPos → 进度条初始值 ─────────────────────────────────────────────
-      const savedPos = await EpubStorage.getPosition(bookId);
-      _assertOpenActive(openLifecycleSeq);
+      const savedPos = meta && meta.pos ? meta.pos : null;
       if (savedPos && savedPos.percentage !== undefined) {
         const initialPercent = Math.round(savedPos.percentage * 10) / 10;
         ui.updateProgress(initialPercent);
       }
 
-      let cachedLocsJSON = await EpubStorage.getLocations(bookId);
+      let cachedLocsJSON = await _attemptStorage(
+        'load locations cache',
+        () => EpubStorage.getLocations(bookId),
+        null
+      );
       _assertOpenActive(openLifecycleSeq);
       let cachedLocationsLoaded = _loadCachedLocations(cachedLocsJSON);
       if (cachedLocsJSON && !cachedLocationsLoaded) cachedLocsJSON = null;
@@ -643,12 +667,16 @@
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
       // ── recentBooks ─────────────────────────────────────────────────────────
-      await EpubStorage.addRecentBook({
-        id:       bookId,
-        title:    bookMeta.title   || '',
-        author:   bookMeta.creator || '',
-        filename: state.currentFileName
-      });
+      await _attemptStorage(
+        'update recent books',
+        () => EpubStorage.addRecentBook({
+          id:       bookId,
+          title:    bookMeta.title   || '',
+          author:   bookMeta.creator || '',
+          filename: state.currentFileName
+        }),
+        undefined
+      );
       _assertOpenActive(openLifecycleSeq);
 
       // ── 子模块 mount（统一生命周期） ─────────────────────────────────────────

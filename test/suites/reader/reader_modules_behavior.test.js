@@ -340,7 +340,7 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(callbacks.length, 1);
   });
 
-  test.it('Annotations 注释弹窗会清理事件属性与未加引号 javascript 链接', () => {
+  test.it('Annotations 注释弹窗会移除主动内容、样式与书内属性', () => {
     const { document } = createMockDocument([
       'annotation-overlay',
       'annotation-popup',
@@ -360,13 +360,14 @@ test.describe('Reader 模块基础行为', () => {
 
       function syncElements() {
         elements.splice(0);
-        raw.replace(/<([a-z0-9:-]+)([^>]*)>/gi, (_tagMatch, _tagName, attrsText) => {
+        raw.replace(/<([a-z0-9:-]+)([^>]*)>/gi, (_tagMatch, tagName, attrsText) => {
           const attrs = [];
           attrsText.replace(attrPattern, (_attrMatch, name, dq, sq, bare) => {
             attrs.push({ name, value: dq ?? sq ?? bare ?? '' });
             return '';
           });
           elements.push({
+            tagName: tagName.toUpperCase(),
             attributes: attrs,
             removeAttribute(name) {
               const attrRe = new RegExp(`\\s+${escapeRegExp(name)}(?:\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]*))?`, 'gi');
@@ -375,6 +376,12 @@ test.describe('Reader 模块基础行为', () => {
             setAttribute(name, value) {
               const attrRe = new RegExp(`(\\s+${escapeRegExp(name)}\\s*=\\s*)(?:"[^"]*"|'[^']*'|[^\\s>]*)`, 'i');
               raw = raw.replace(attrRe, `$1"${value}"`);
+            },
+            remove() {
+              const escapedTag = escapeRegExp(tagName);
+              const paired = new RegExp(`<${escapedTag}\\b[^>]*>[\\s\\S]*?<\\/${escapedTag}\\s*>`, 'gi');
+              const single = new RegExp(`<${escapedTag}\\b[^>]*\\/?>`, 'gi');
+              raw = raw.replace(paired, '').replace(single, '');
             }
           });
           return '';
@@ -396,15 +403,18 @@ test.describe('Reader 模块基础行为', () => {
     const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations', { document });
     Annotations.init();
     Annotations._displayContent(
-      '<a href=javascript:alert(1) onclick=alert(2)>危险</a><img src="java\nscript:alert(3)" onerror="alert(4)">',
+      '<style>body{display:none}</style><iframe srcdoc="危险"></iframe>' +
+        '<a href=javascript:alert(1) onclick=alert(2)>危险</a>' +
+        '<p class="book-style" style="position:fixed" onmouseover="alert(3)">安全正文</p>' +
+        '<img src="java\nscript:alert(4)" onerror="alert(5)">',
       'chapter.xhtml#note'
     );
 
     const html = document.getElementById('annotation-body').innerHTML;
     assert.doesNotMatch(html, /javascript:/i);
-    assert.doesNotMatch(html, /\son(?:click|error)\s*=/i);
-    assert.match(html, /href="#"/);
-    assert.match(html, /src="#"/);
+    assert.doesNotMatch(html, /<(?:style|iframe|img)\b/i);
+    assert.doesNotMatch(html, /\s(?:on\w+|style|class|href|src|srcdoc)\s*=/i);
+    assert.match(html, /安全正文/);
   });
 
   test.it('Annotations 可识别 CSS vertical-align 上标脚注链接', () => {
@@ -2177,6 +2187,41 @@ test.describe('Reader 模块基础行为', () => {
       deltaY: 1,
       deltaX: 0,
       preventDefault() {}
+    });
+
+    assert.equal(nextCalls, 0);
+  });
+
+  test.it('ReaderUi 不拦截 EPUB iframe 输入控件的方向键', () => {
+    const { document } = createMockDocument([]);
+    const { document: iframeDocument } = createMockDocument([]);
+    const contentHooks = [];
+    const rendition = {
+      hooks: { content: { register(fn) { contentHooks.push(fn); } } }
+    };
+    const state = {
+      rendition,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    let nextCalls = 0;
+    ui.setupRenditionKeyEvents(rendition, {}, {
+      next() { nextCalls++; },
+      prev() {}
+    });
+    contentHooks[0]({ document: iframeDocument });
+
+    iframeDocument.dispatchEvent('keydown', {
+      key: 'ArrowRight',
+      target: { tagName: 'INPUT', blur() {} },
+      preventDefault() { throw new Error('输入框方向键不应被阻止'); },
+      stopImmediatePropagation() { throw new Error('输入框方向键不应被截断'); }
     });
 
     assert.equal(nextCalls, 0);

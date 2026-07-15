@@ -2,7 +2,7 @@
  * reader-persistence.js — 位置/时间/速度写入策略
  *
  * 职责：
- *   - schedulePositionSave：300ms 防抖写入位置
+ *   - schedulePositionSave：立即写入位置，并保留 300ms 最新事件保护窗
  *   - flushPositionSave：立即写入（页面隐藏时）
  *   - flushSpeedSession：结束 session，累加 cachedSpeed 写入 storage
  *   - onRelocated：relocated 事件主处理器（更新进度 / 章节 / 速度追踪）
@@ -16,7 +16,7 @@
   'use strict';
 
   // ── 常量 ───────────────────────────────────────────────────────────────────
-  const POSITION_SAVE_DEBOUNCE_MS      = 300;
+  const POSITION_EVENT_SETTLE_MS       = 300;
   const SPEED_MIN_PROGRESS_DELTA       = 0.001;
   const SPEED_MAX_PROGRESS_DELTA       = 0.30;
   const SPEED_MIN_SESSION_SECONDS      = 30;
@@ -98,7 +98,7 @@
       clearTimeout(state.posTimer);
       state.posTimer = setTimeout(() => {
         state.posTimer = null;
-      }, POSITION_SAVE_DEBOUNCE_MS);
+      }, POSITION_EVENT_SETTLE_MS);
     }
 
     function _buildDisplayedPageLocator(location, restoreCfi) {
@@ -326,7 +326,7 @@
 
     function _buildPositionFromLocation(location) {
       if (!location || !location.start || !location.start.cfi) {
-        return { cfi: null, percent: null, locator: null, sourceCfi: null };
+        return { cfi: null, percent: null, locator: null };
       }
       const sourceCfi = location.start.cfi;
       const restoreCfi = _buildRestoreAnchorCfi(sourceCfi, location);
@@ -338,7 +338,7 @@
         const progress = location.start.percentage <= 1 ? location.start.percentage * 100 : location.start.percentage;
         percent = Math.round(progress * 10) / 10;
       }
-      return { cfi: sourceCfi, percent, locator: _buildDisplayedPageLocator(location, restoreCfi), sourceCfi };
+      return { cfi: sourceCfi, percent, locator: _buildDisplayedPageLocator(location, restoreCfi) };
     }
 
     function _refreshStablePositionFromRendition() {
@@ -384,8 +384,16 @@
     async function flushSpeedSession(newStartProgress = null) {
       if (!state.sessionStart || !state.currentBookId || !state.isBookLoaded) return;
 
-      const deltaProgress = state.lastProgress - state.sessionStart.progress;
-      const deltaSeconds  = (Date.now() - state.sessionStart.timestamp) / 1000;
+      const sessionStart = state.sessionStart;
+      const bookId = state.currentBookId;
+      const now = Date.now();
+      const deltaProgress = state.lastProgress - sessionStart.progress;
+      const deltaSeconds  = (now - sessionStart.timestamp) / 1000;
+
+      // 在任何 await 前转移会话所有权；迟到的旧写入不得清除后来建立的新会话。
+      state.sessionStart = (newStartProgress !== null)
+        ? { progress: newStartProgress, timestamp: now }
+        : null;
 
       if (deltaProgress > SPEED_MIN_PROGRESS_DELTA && deltaProgress < SPEED_MAX_PROGRESS_DELTA && deltaSeconds > SPEED_MIN_SESSION_SECONDS) {
         try {
@@ -397,15 +405,12 @@
             sampledSeconds:  state.cachedSpeed.sampledSeconds  + (deltaSeconds  * weight),
             sampledProgress: state.cachedSpeed.sampledProgress + (deltaProgress * weight)
           };
-          await EpubStorage.saveReadingSpeed(state.currentBookId, state.cachedSpeed);
+          await EpubStorage.saveReadingSpeed(bookId, state.cachedSpeed);
         } catch (e) {
           console.warn('[Persistence] Failed to save speed sample:', e);
         }
       }
 
-      state.sessionStart = (newStartProgress !== null)
-        ? { progress: newStartProgress, timestamp: Date.now() }
-        : null;
     }
 
     // ── Location / Progress ───────────────────────────────────────────────────

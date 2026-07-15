@@ -97,7 +97,7 @@ test.describe('ReaderPersistence', () => {
     };
   }
 
-  test.it('schedulePositionSave 立即保存首个位置并 debounce 最后位置', async () => {
+  test.it('schedulePositionSave 立即保存并刷新最新事件保护窗', async () => {
     const state = {
       posTimer: null
     };
@@ -1129,6 +1129,38 @@ test.describe('ReaderPersistence', () => {
     assert.deepEqual(saveTimeCalls, [['book-4', 120]]);
     assert.equal(speedCalls.length, 1);
     assert.equal(state.sessionStart.progress, 0.5);
+  });
+
+  test.it('迟到的速度保存不得清除页面重新可见后建立的新会话', async () => {
+    let releaseSpeedSave;
+    const originalSaveReadingSpeed = EpubStorage.saveReadingSpeed;
+    EpubStorage.saveReadingSpeed = async () => {
+      await new Promise((resolve) => { releaseSpeedSave = resolve; });
+    };
+
+    const state = {
+      currentBookId: 'book-speed-race',
+      isBookLoaded: true,
+      sessionStart: { progress: 0.2, timestamp: Date.now() - 60_000 },
+      lastProgress: 0.3,
+      cachedSpeed: { sampledSeconds: 0, sampledProgress: 0 }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateReadingStatsText() {} }
+    });
+
+    try {
+      const flush = persistence.flushSpeedSession(null);
+      await Promise.resolve();
+      state.sessionStart = { progress: 0.3, timestamp: Date.now() };
+      releaseSpeedSave();
+      await flush;
+    } finally {
+      EpubStorage.saveReadingSpeed = originalSaveReadingSpeed;
+    }
+
+    assert.equal(state.sessionStart.progress, 0.3);
   });
 
   test.it('visibilitychange 阅读时长保存失败只记录告警', async () => {

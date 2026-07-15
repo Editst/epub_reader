@@ -390,7 +390,7 @@ test.describe('ReaderRuntime', () => {
     }
   });
 
-  test.it('openBook 通过 lifecycle 挂载 Bookmarks/Search/Highlights，不再额外直调', async () => {
+  test.it('openBook 的 recentBooks 写入失败不阻断 lifecycle 挂载', async () => {
     const { document } = createMockDocument([
       'reader-main',
       'book-title',
@@ -447,6 +447,8 @@ test.describe('ReaderRuntime', () => {
     const originalGetPosition = EpubStorage.getPosition;
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
+    const originalWarn = console.warn;
+    const warnings = [];
     EpubStorage.getPreferences = async () => ({
       layout: 'paginated',
       theme: 'custom',
@@ -455,8 +457,9 @@ test.describe('ReaderRuntime', () => {
     });
     EpubStorage.getBookMeta = async () => null;
     EpubStorage.getPosition = async () => null;
-    EpubStorage.addRecentBook = async () => {};
+    EpubStorage.addRecentBook = async () => { throw new Error('recent write failed'); };
     EpubStorage.getLocations = async () => 'cached-locations';
+    console.warn = (...args) => warnings.push(args);
 
     try {
       const state = {
@@ -500,6 +503,7 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.getPosition = originalGetPosition;
       EpubStorage.addRecentBook = originalAddRecentBook;
       EpubStorage.getLocations = originalGetLocations;
+      console.warn = originalWarn;
     }
 
     assert.equal(mountCalls.length, 1);
@@ -509,6 +513,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(syncedPrefs[0].customBg, '#112233');
     assert.equal(syncedPrefs[0].customText, '#ddeeff');
     assert.deepEqual(directCalls, { toc: 0, bookmarks: 0, search: 0, highlights: 0 });
+    assert.match(String(warnings[0]?.[0] || ''), /update recent books failed/);
   });
 
   test.it('openBook 并发调用串行执行且前一任务失败不阻断后一任务', async () => {
@@ -519,12 +524,16 @@ test.describe('ReaderRuntime', () => {
     global.setTimeout = (fn) => { fn(); return 1; };
 
     const openedBookIds = [];
+    let epubCalls = 0;
     global.ePub = () => {
+      const shouldFailDisplay = ++epubCalls === 1;
       const rendition = {
         hooks: { content: { register() {} } },
         themes: { default() {}, override() {} },
         on() {},
-        async display() {},
+        async display() {
+          if (shouldFailDisplay) throw new Error('first render failed');
+        },
         currentLocation() {
           return { start: { cfi: 'epubcfi(/6/2)', href: 'chapter.xhtml', index: 0 } };
         },
@@ -593,7 +602,7 @@ test.describe('ReaderRuntime', () => {
       const readsBeforeFirstSettled = preferenceReads;
 
       rejectFirstPreferences(new Error('first open failed'));
-      await assert.rejects(firstOpen, /first open failed/);
+      await assert.rejects(firstOpen, /first render failed/);
       await secondOpen;
 
       assert.equal(readsBeforeFirstSettled, 1, '第二次打开必须等待第一次完整 settled');
@@ -1564,7 +1573,6 @@ test.describe('ReaderRuntime', () => {
     assert.equal(generateBreak, 4800);
     assert.equal(savedLocations, 'locations-json');
     assert.equal(state.locationsStatus, 'ready');
-    assert.equal(state.hasLocations, true);
     assert.deepEqual(relocatedCalls, ['epubcfi(/6/2)']);
     assert.deepEqual(locationStatusCalls, [
       ['pending', '准备生成阅读定位索引...'],
@@ -1680,8 +1688,12 @@ test.describe('ReaderRuntime', () => {
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
     EpubStorage.getPreferences = async () => prefs;
-    EpubStorage.getBookMeta = async () => null;
-    EpubStorage.getPosition = async () => savedPos;
+    EpubStorage.getBookMeta = async () => ({ pos: savedPos, time: 0, speed: null });
+    let positionReads = 0;
+    EpubStorage.getPosition = async () => {
+      positionReads++;
+      return savedPos;
+    };
     EpubStorage.addRecentBook = async () => {};
     EpubStorage.getLocations = async () => locationsJson;
 
@@ -1730,7 +1742,10 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.addRecentBook = originalAddRecentBook;
     EpubStorage.getLocations = originalGetLocations;
 
-    return { displayCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls, state, idleTask };
+    return {
+      displayCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls,
+      state, idleTask, positionReads
+    };
   }
 
   test.it('openBook 有 locator.restoreCfi 时用其显示，但 currentStableCfi 保持 pos.cfi', async () => {
@@ -1758,6 +1773,7 @@ test.describe('ReaderRuntime', () => {
     });
 
     assert.deepEqual(result.displayCalls, ['epubcfi(/6/8!/4/3)']);
+    assert.equal(result.positionReads, 0, '已读取 bookMeta 后不得重复读取同一位置数据');
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
     assert.equal(result.state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/3)');
   });
@@ -1901,8 +1917,7 @@ test.describe('ReaderRuntime', () => {
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
     EpubStorage.getPreferences = async () => ({ layout: 'paginated', spread: 'none', theme: 'light' });
-    EpubStorage.getBookMeta = async () => null;
-    EpubStorage.getPosition = async () => ({
+    const savedPosition = {
       cfi: 'epubcfi(/6/22!/4/84/1:0)',
       percentage: 61.3,
       locator: {
@@ -1923,7 +1938,9 @@ test.describe('ReaderRuntime', () => {
           spread: 'none'
         }
       }
-    });
+    };
+    EpubStorage.getBookMeta = async () => ({ pos: savedPosition, time: 0, speed: null });
+    EpubStorage.getPosition = async () => savedPosition;
     EpubStorage.addRecentBook = async () => {};
     EpubStorage.getLocations = async () => 'cached-locations';
 
@@ -2407,7 +2424,7 @@ test.describe('ReaderRuntime', () => {
     assert.deepEqual(Array.from(new Uint8Array(epubInput)), [1, 2, 3]);
   });
 
-  test.it('openBook 切换书籍前会落盘旧会话并销毁旧 rendition', async () => {
+  test.it('openBook 切书时单项落盘失败仍收口其余会话并销毁旧资源', async () => {
     const { document } = createMockDocument(['reader-main', 'book-title', 'chapter-title', 'progress-location']);
     global.document = document;
     global.requestAnimationFrame = (fn) => fn();
@@ -2465,6 +2482,7 @@ test.describe('ReaderRuntime', () => {
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
     const originalSaveReadingTime = EpubStorage.saveReadingTime;
+    const originalWarn = console.warn;
 
     EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
     EpubStorage.getBookMeta = async () => null;
@@ -2473,7 +2491,9 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.getLocations = async () => 'cached-locations';
     EpubStorage.saveReadingTime = async (bookId, seconds) => {
       events.push(['save-time', bookId, seconds]);
+      throw new Error('time write failed');
     };
+    console.warn = () => {};
 
     try {
       const state = {
@@ -2533,6 +2553,7 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.addRecentBook = originalAddRecentBook;
       EpubStorage.getLocations = originalGetLocations;
       EpubStorage.saveReadingTime = originalSaveReadingTime;
+      console.warn = originalWarn;
     }
   });
 
@@ -2552,7 +2573,6 @@ test.describe('ReaderRuntime', () => {
       isLayoutStable: true,
       navLock: true,
       activeReadingSeconds: 10,
-      hasLocations: true,
       locationsStatus: 'ready'
     };
     let unmounted = 0;
@@ -2575,7 +2595,6 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.isLayoutStable, false);
     assert.equal(state.navLock, false);
     assert.equal(state.activeReadingSeconds, 0);
-    assert.equal(state.hasLocations, false);
     assert.equal(state.locationsStatus, 'idle');
   });
 
@@ -2794,8 +2813,9 @@ test.describe('ReaderRuntime', () => {
     global.fetch = async () => ({ blob: async () => ({}) });
 
     EpubStorage.getPreferences = async () => ({ layout: 'paginated', fontSize: 18 });
-    EpubStorage.getBookMeta = async () => null;
-    EpubStorage.getPosition = async () => ({ cfi: 'epubcfi(/6/8)', percentage: 30, locator: { strategy: 'epubjs-displayed-page-v1', layout: 'paginated', href: 'ch.xhtml', index: 2, page: 5, total: 12, prefsSignature: {} } });
+    const savedPosition = { cfi: 'epubcfi(/6/8)', percentage: 30, locator: { strategy: 'epubjs-displayed-page-v1', layout: 'paginated', href: 'ch.xhtml', index: 2, page: 5, total: 12, prefsSignature: {} } };
+    EpubStorage.getBookMeta = async () => ({ pos: savedPosition, time: 0, speed: null });
+    EpubStorage.getPosition = async () => savedPosition;
     EpubStorage.addRecentBook = async () => {};
     EpubStorage.getLocations = async () => 'cached-locs';
 
@@ -2885,9 +2905,10 @@ test.describe('ReaderRuntime', () => {
     global.fetch = async () => ({ blob: async () => ({}) });
 
     EpubStorage.getPreferences = async () => ({ layout: 'paginated', fontSize: 18 });
-    EpubStorage.getBookMeta = async () => null;
     // savedPos CFI = epubcfi(/6/8), but currentLocation returns epubcfi(/6/10) — different!
-    EpubStorage.getPosition = async () => ({ cfi: 'epubcfi(/6/8)', percentage: 30, locator: { strategy: 'epubjs-displayed-page-v1', layout: 'paginated', href: 'ch.xhtml', index: 2, page: 5, total: 12, prefsSignature: {} } });
+    const savedPosition = { cfi: 'epubcfi(/6/8)', percentage: 30, locator: { strategy: 'epubjs-displayed-page-v1', layout: 'paginated', href: 'ch.xhtml', index: 2, page: 5, total: 12, prefsSignature: {} } };
+    EpubStorage.getBookMeta = async () => ({ pos: savedPosition, time: 0, speed: null });
+    EpubStorage.getPosition = async () => savedPosition;
     EpubStorage.addRecentBook = async () => {};
     EpubStorage.getLocations = async () => 'cached-locs';
 

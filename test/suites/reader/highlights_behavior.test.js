@@ -515,4 +515,50 @@ test.describe('Reader Highlights 行为', () => {
     assert.equal(warnCalls.length, 1);
     assert.match(String(warnCalls[0][0]), /reRenderHighlight failed/);
   });
+
+  test.it('清空纯笔记内容会删除不可见记录', async () => {
+    const stored = [{
+      cfi: 'epubcfi(/6/2)', text: 'A', color: 'transparent', note: '旧笔记', timestamp: 1
+    }];
+    const { Highlights, rendition, annotations, elements } = loadHighlights(stored);
+
+    await Highlights.setBookDetails('book-note-only', rendition);
+    annotations[0].cb({
+      stopPropagation() {},
+      target: createElement('rendered-note')
+    });
+    elements.get('note-textarea').value = '   ';
+    elements.get('btn-save-note').dispatch('click', {});
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(stored, []);
+    assert.equal(annotations.length, 0);
+  });
+
+  test.it('新建空白纯笔记不会产生幽灵记录', async () => {
+    const stored = [];
+    const { Highlights, rendition, elements } = loadHighlights(stored);
+
+    await Highlights.setBookDetails('book-empty-note', rendition);
+    rendition.triggerSelected('epubcfi(/6/4)', {
+      window: {
+        frameElement: { getBoundingClientRect() { return { top: 0, left: 0 }; } },
+        getSelection() {
+          return {
+            rangeCount: 1,
+            getRangeAt() {
+              return { getBoundingClientRect() { return { top: 10, left: 10, width: 10 }; } };
+            }
+          };
+        }
+      }
+    });
+    elements.get('btn-add-note').dispatch('click', { stopPropagation() {} });
+    elements.get('note-textarea').value = '';
+    elements.get('btn-save-note').dispatch('click', {});
+    await Promise.resolve();
+
+    assert.deepEqual(stored, []);
+  });
 });

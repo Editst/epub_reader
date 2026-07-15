@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.19
+版本：v2.5.20
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -133,7 +133,7 @@ epub_reader/
 
 ### 4.2 完整数据生命周期
 1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`；Reader 页本地导入必须等待 `storeFile()` 落盘后再 `openBook()`。
-2. **阅读**：`onRelocated` → `schedulePositionSave`（首次立即写入，连续变化 300ms 后补写最终位置）→ `bookMeta_<id>`。
+2. **阅读**：`onRelocated` → `schedulePositionSave`（每次有意义的位置变化立即写入，并开启 300ms 最新事件保护窗）→ `bookMeta_<id>`。
 3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
 4. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
 5. **清理**：用户主动删除时，`removeBook` 等待同书 `bookMeta` 与其他资源写入收尾，并行删除 7 项关联数据；自动 LRU 只删除 IndexedDB `files` 中超限的 EPUB 文件缓存，保留 recentBooks、bookMeta、highlights、bookmarks、covers 和 locations，避免误删阅读进度、书签与标注。
@@ -202,7 +202,7 @@ IndexedDB (DB v4)
 savePreferences(prefs: Partial<Preferences>): Promise<void>
 getPreferences(): Promise<Preferences>
 // Preferences: { theme, fontSize, fontFamily, lineHeight,
-//               letterSpacing, paragraphIndent, spread, layout,
+//               paragraphIndent, spread, layout,
 //               customBg, customText, homeView }
 // savePreferences 必须通过内部队列串行执行 read-modify-write 增量合并
 // 多入口并发保存时不得互相覆盖不同字段
@@ -382,7 +382,7 @@ DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
 
 `EpubStorage` 通过实例字段 `_dbGateway` 访问上述接口；生产环境默认绑定 `DbGateway`，测试注入内存实现，禁止通过覆写公开存储方法绕过生产逻辑。
 
-偏好和最近书籍的 read-modify-write 统一通过 `_enqueueKeyWrite()` 串行执行。所有公开读取接口在存储边界校验容器类型；损坏的 preferences、recentBooks、highlights、bookmarks 或 `bookMeta` 字段降级为安全默认结构，不把错误类型传播到页面和 Reader 模块。
+偏好和最近书籍的 read-modify-write 统一通过 `_enqueueKeyWrite()` 串行执行。公开读取接口在存储边界同时校验容器与条目：recentBooks/highlights/bookmarks 过滤缺少字符串主键的损坏记录；`bookMeta.pos`、时长与速度数值归一化到有效范围，不把错误类型或负值传播到页面和 Reader 模块。
 
 ---
 
@@ -432,10 +432,7 @@ IIFE 模块，暴露为 `window.ReaderState`。声明状态结构与工具函数
 ### 状态字段
 
 ```typescript
-state.hasLocations: boolean
 state.locationsStatus: 'idle' | 'pending' | 'generating' | 'ready' | 'failed'
-state.locationsBreak: number | null
-state.locationsError: string | null
 state.lastPositionSave: Promise<void> | null
 state.currentStableCfi: string | null
 state.currentStableLocator: object | null
@@ -462,8 +459,7 @@ buildPrefsSignature(prefs: object): object
 // 生成偏好设置签名快照，用于 locator 布局变化检测
 ```
 
-**v2.4.6 运行约束**：
-- `hasLocations` 表示当前书籍是否已有可用定位索引。
+**运行约束**：
 - `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
 - `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
 - `currentStableCfi` 保存可落盘位置锚点：分页与滚动模式均以 `location.start.cfi` 为兼容主锚点。
@@ -550,6 +546,8 @@ _mountFeatureModules(): void
 - 分页模式下，若保存位置包含与 `pos.cfi` 同源的 `locator.restoreCfi`，恢复显示应优先使用该 CFI；`state.currentStableCfi` 仍保持 `pos.cfi`，防止关闭刷新时把兼容主锚点改写成临时显示锚点。
 - fresh rendition 首次 `display(displayCfi)` 后，`currentLocation()` 可能短暂回报同章节旧分页；若 href/index、页总数、偏好签名均匹配且页码不一致，只允许在恢复保护期内重放一次同一个 `displayCfi`，不得调用 `next()/prev()`。
 - 若缓存 locations 可用且 `pos.cfi` 对应百分比与 `pos.percentage` 明显不一致，应视为分裂快照，用 `locations.cfiFromPercentage()` 兜底恢复并清空旧 locator。
+- `openBook()` 只读取一次 `bookMeta`，位置、时长和速度均复用同一快照，不得再通过 `getPosition()` 重复读取同一 key。
+- preferences、bookMeta、locations 缓存或 recentBooks 更新失败属于非关键存储故障：记录告警并使用默认值继续阅读；EPUB 解析、ready、metadata、navigation 与首屏 display 失败才进入打开事务回滚。
 - 若缓存 locations 加载失败，应按无缓存处理：先完成正文显示，再异步调度 locations 重建，不得阻断 `openBook()`。
 - 分页模式下，`displayCfi` 恢复完成后应设置 `isRestoreAnchorProtected=true`；`next()`/`prev()`/`displayPercentage()` 以及非恢复期的 `rendition.display()` 会解除该保护。
 - `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
@@ -571,7 +569,7 @@ _mountFeatureModules(): void
 - ReaderUi 本地导入从 `file.arrayBuffer()` 开始串行，覆盖 bookId 生成、文件落盘和 runtime 打开；连续文件选择或拖放必须按用户触发顺序完成，不能因文件大小不同而反转最终打开顺序。
 
 **打开失败回滚约束**：
-- `_openBook()` 是事务包装：先 teardown 旧书，再执行 `_initializeBook()`；偏好、解析、ready、metadata、navigation、位置或 display 任一步失败，都必须再次统一 teardown 后原样抛出异常。
+- `_openBook()` 是事务包装：先 teardown 旧书，再执行 `_initializeBook()`；EPUB 解析、ready、metadata、navigation 或 display 等关键阶段失败，必须再次统一 teardown 后原样抛出异常。
 - 失败回滚必须 unmount 功能模块并销毁已创建的 rendition/book，最终清空 `book/rendition/currentBookId/currentFileName`、导航与恢复锁及阅读 session；不得把半初始化书籍留作当前上下文。
 - `_teardownActiveBookForReplacement()` 在尚无 book/rendition 时也必须清空标识并重置 session，覆盖创建资源前的早期失败；清理自身的告警不得替换原始打开错误。
 
@@ -607,7 +605,7 @@ startReadingTimer(): void
 
 | 常量 | 默认值 | 用途 |
 |------|--------|------|
-| `POSITION_SAVE_DEBOUNCE_MS` | 300 | 连续变化防抖 |
+| `POSITION_EVENT_SETTLE_MS` | 300 | 最新位置事件保护窗 |
 | `SPEED_MIN_PROGRESS_DELTA` | 0.001 | 最小进度变化阈值 |
 | `SPEED_MAX_PROGRESS_DELTA` | 0.30 | 单次有效采样最大进度 |
 | `SPEED_MIN_SESSION_SECONDS` | 30 | 最短有效采样时长 |
@@ -617,18 +615,19 @@ startReadingTimer(): void
 | `READING_STATS_UPDATE_INTERVAL_S` | 60 | ETA 刷新周期 |
 
 **行为约束**：
-- `schedulePositionSave()` 在没有待处理防抖写入时立即启动一次位置保存。
-- 连续位置变化仍保留 300ms 防抖，用最终 `pos.cfi + locator.restoreCfi` 覆盖首个位置。
+- `schedulePositionSave()` 对每次有意义的位置变化立即启动保存，并刷新 300ms 保护窗；该 timer 不承担延迟写入职责。
+- 保护窗存在时，刷新/关闭不得用可能滞后的 `rendition.currentLocation()` 覆盖 relocated 已确认的新位置。
 - `onRelocated()` 的 UI 更新与即时持久化优先使用事件参数；`rendition.currentLocation()` 在同一 tick 内可能仍是上一页，只在事件缺失 CFI 时兜底。
 - `_isPositionMeaningfullyChanged()` 字符串精确比较新旧 CFI；即使 CFI 相同，只要 locator、`restoreCfi` 或百分比变化，也必须触发 `schedulePositionSave()`。
-- `flushPositionSave()` 必须清理防抖 timer；若已有待执行的防抖位置写入，直接保存 `currentStableCfi/currentStableLocator/lastPercent`，不得重新采样旧 `currentLocation()` 覆盖刚翻到的新页；仅在无 pending 且 `isRestoreAnchorProtected=false` 时，刷新/关闭前重新采样 `currentLocation()` 并重建完整 position；若保护仍为 true，直接保存当前稳定锚点。
+- `flushPositionSave()` 必须清理位置事件保护 timer；若保护窗仍存在，直接保存 `currentStableCfi/currentStableLocator/lastPercent`，不得重新采样旧 `currentLocation()` 覆盖刚翻到的新页；仅在无保护窗且 `isRestoreAnchorProtected=false` 时，刷新/关闭前重新采样并重建完整 position；若恢复锚点保护仍为 true，直接保存当前稳定锚点。
 - 分页恢复锚点生成依赖 `rendition.getContents()`、`caretRangeFromPoint/caretPositionFromPoint` 与 `contents.cfiFromRange()`，优先从当前 displayed page 所在列的可视区域取样；取样失败时再用 `contents.range(sourceCfi)` 从 `start.cfi` 向页内轻微前移。locator 必须同时写入 `sourceCfi`。生成失败时必须降级为无 `restoreCfi` 的 `location.start.cfi`，不得影响阅读。
 - `onRelocated()` 在 `isRestoringPosition=true` 或 `isRestoreAnchorProtected=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
 - 书签按钮状态查询必须只让最新一次结果更新 UI；快速翻页或卸载时，旧页/旧书的 `Bookmarks.isBookmarked()` 慢返回不得覆盖当前页状态。
-- `updateReadingStats()` 在 `hasLocations=false` 时，ETA 必须显示为 `--`。
+- `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
 - `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时调用 `flushPositionSave()` 兜底。
 - 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。
+- `flushSpeedSession()` 必须在第一个 `await` 前转移 `sessionStart` 所有权；旧速度写入迟到完成不得清除页面重新可见后建立的新会话。切书时位置、时长和速度三项 flush 必须全部 settled，单项失败不得跳过其余清理。
 ---
 
 ## ReaderUi（reader/reader-ui.js）
@@ -685,6 +684,7 @@ closeAllPanels(): void
 - 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
 - 切书时 `ReaderState.resetReadingSession()` 必须同步清除 `isResizing` 与 `isRestoringPosition`；旧书迟到 RAF/timer 不得操作新 rendition，也不得改写新书保护状态。
 - 当前 reflow 完成后必须恢复捕获的 `start.cfi`，释放两类保护锁，再将当前 rendition 的位置交给 persistence。
+- EPUB iframe 内 `input/select/textarea` 的键盘事件不得触发宿主翻页；键盘分支优先检查事件实际 target，再回退宿主 `activeElement`。
 
 **v2.5.12 外观偏好边界**：
 - `openBook()` 每次读取 preferences 后必须完整合并到 `state.prefs`，再由 `ui.syncPrefsToControls()` 统一归一化；不得维护容易遗漏 `theme/customBg/customText` 的逐字段复制清单。
@@ -713,6 +713,7 @@ Highlights.setBookDetails(
 // getHighlights/saveHighlights 失败应记录告警并降级，不得阻断 Reader 打开或产生未处理拒绝
 // v2.5.3：只有显式 color === 'transparent' 才视为纯笔记；缺失/损坏颜色必须回退默认高亮色，避免不可见高亮
 // v2.5.16：iframe/高亮点击、延迟弹窗和内部交互锁必须校验 book/rendition 代次
+// 空白新笔记不得持久化；已有纯笔记清空内容时应删除记录，避免不可见幽灵数据
 
 Highlights.closePanels(): void
 // 关闭工具栏和笔记弹窗，清除所有 CFI 状态
@@ -904,8 +905,8 @@ Annotations.unmount(): void
 - `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 50` 控制；缓存读命中必须刷新 LRU 顺序。
 - `setBook()` 发现 book 实例变化以及 `unmount()` 时必须清空 `_sectionDocCache`，避免旧书尾注内容污染新书。
 
-**v2.4.7 安全约束**：
-- 注释弹窗展示 EPUB 内联 HTML 前，必须用 template DOM 解析后逐属性清洗，移除 `on*` 事件属性、`srcdoc`，并将 `href/src/xlink:href` 中的 `javascript:` URL 改为 `#`；不得仅依赖正则处理 quoted href。
+**安全约束**：
+- 注释弹窗展示 EPUB 内联 HTML 前，必须用 template DOM 解析；移除脚本、样式、iframe、表单、媒体、SVG 等主动内容，并剥离保留排版节点的全部书内属性，防止事件、URL、CSS 和宿主样式碰撞进入扩展页面。环境不支持 template 时只保留转义后的纯文本，不得依赖正则拼接“已清洗 HTML”。
 
 ---
 

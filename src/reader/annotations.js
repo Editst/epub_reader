@@ -101,6 +101,12 @@ const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set(['hr', 'h1', 'h2', 'h3', 'h4', 'h5',
 const _FOOTNOTE_SECTION_CACHE_LIMIT = 50;
 const _DOCUMENT_POSITION_DISCONNECTED = 1;
 const _DOCUMENT_POSITION_PRECEDING = 2;
+const _POPUP_BLOCKED_TAGS = new Set([
+  'script', 'style', 'template', 'iframe', 'frame', 'frameset', 'object', 'embed',
+  'applet', 'link', 'meta', 'base', 'form', 'input', 'button', 'textarea',
+  'select', 'option', 'img', 'picture', 'source', 'video', 'audio', 'track',
+  'svg', 'math', 'canvas', 'marquee'
+]);
 
 const _hookedRenditions = new WeakSet();
 const _hookedContentDocuments = new WeakSet();
@@ -411,13 +417,6 @@ function _isIsolatedSourceLink(link, text) {
   return !!blockText && (linkText.length / blockText.length) >= _ISOLATED_LINK_PARENT_RATIO;
 }
 
-function _isUnsafeUrl(value) {
-  return String(value || '')
-    .replace(/[\u0000-\u001F\u007F\s]+/g, '')
-    .toLowerCase()
-    .startsWith('javascript:');
-}
-
 function _sanitizePopupHtml(html) {
   const stripped = String(html || '')
     .replace(_RE.cleanBackref, '')
@@ -425,26 +424,20 @@ function _sanitizePopupHtml(html) {
 
   const template = document.createElement('template');
   if (!template || !('innerHTML' in template)) {
-    return stripped
-      .replace(/\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, '')
-      .replace(/\s+(href|src|xlink:href)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]*))/gi, (m, attr, dq, sq, bare) => {
-        const value = dq ?? sq ?? bare ?? '';
-        return _isUnsafeUrl(value) ? ` ${attr}="#"` : m;
-      });
+    return `<p>${_escapeHtmlText(_stripHtmlToText(stripped))}</p>`;
   }
 
   template.innerHTML = stripped;
   const root = template.content || template;
   root.querySelectorAll('*').forEach((el) => {
+    const tagName = String(el.tagName || '').toLowerCase();
+    if (_POPUP_BLOCKED_TAGS.has(tagName)) {
+      el.remove();
+      return;
+    }
     Array.from(el.attributes || []).forEach((attr) => {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith('on') || name === 'srcdoc') {
-        el.removeAttribute(attr.name);
-        return;
-      }
-      if ((name === 'href' || name === 'src' || name === 'xlink:href') && _isUnsafeUrl(attr.value)) {
-        el.setAttribute(attr.name, '#');
-      }
+      // 注释只保留排版标签与文本；书内属性在扩展宿主页没有可信语义。
+      el.removeAttribute(attr.name);
     });
   });
   return template.innerHTML;

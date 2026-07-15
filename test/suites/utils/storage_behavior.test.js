@@ -22,14 +22,14 @@ test.describe('EpubStorage 行为覆盖', () => {
   test.it('损坏的持久化容器类型在存储边界降级为空结构', async () => {
     await new Promise((resolve) => chrome.storage.local.set({
       preferences: 'invalid-preferences',
-      recentBooks: { id: 'not-an-array' },
+      recentBooks: [null, 'bad', { title: 'missing id' }, { id: '  ' }, { id: 'valid-book', title: 'Valid' }],
       highlights_corrupt: { cfi: 'not-an-array' },
       bookmarks_corrupt: 'not-an-array',
       bookMeta_corrupt: 'not-an-object',
       bookMeta_nested_corrupt: {
-        pos: 'not-an-object',
-        time: 'not-a-number',
-        speed: { sampledSeconds: 'bad', sampledProgress: null, sessions: 'bad', sessionCount: NaN }
+        pos: { cfi: 42, percentage: 999 },
+        time: -5,
+        speed: { sampledSeconds: -1, sampledProgress: -2, sessions: 'bad', sessionCount: -3 }
       }
     }, resolve));
 
@@ -42,7 +42,7 @@ test.describe('EpubStorage 行为覆盖', () => {
     ]);
 
     assert.equal(prefs.theme, 'light');
-    assert.deepEqual(recent, []);
+    assert.deepEqual(recent, [{ id: 'valid-book', title: 'Valid' }]);
     assert.deepEqual(highlights, []);
     assert.deepEqual(bookmarks, []);
     assert.equal(meta, null);
@@ -53,6 +53,15 @@ test.describe('EpubStorage 行为覆盖', () => {
       time: 0,
       speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
     });
+
+    await new Promise((resolve) => chrome.storage.local.set({
+      highlights_items: [null, { text: 'missing cfi' }, { cfi: 'valid-highlight' }],
+      bookmarks_items: ['bad', { chapter: 'missing cfi' }, { cfi: '  ' }, { cfi: 'valid-bookmark' }],
+      pos_legacy_corrupt: { cfi: 42 }
+    }, resolve));
+    assert.deepEqual(await EpubStorage.getHighlights('items'), [{ cfi: 'valid-highlight' }]);
+    assert.deepEqual(await EpubStorage.getBookmarks('items'), [{ cfi: 'valid-bookmark' }]);
+    assert.equal(await EpubStorage.getBookMeta('legacy_corrupt'), null);
 
     await EpubStorage.savePosition('corrupt', 'epubcfi(/6/4)', 25);
     assert.equal((await EpubStorage.getPosition('corrupt')).cfi, 'epubcfi(/6/4)');
