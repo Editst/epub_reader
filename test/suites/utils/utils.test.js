@@ -115,6 +115,14 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
       cachedSpeed: { sampledSeconds: 10, sampledProgress: 0.001 }
     });
     assert.ok(low.isEstimating);
+    assert.equal(low.minutes, null);
+    assert.equal(low.source, 'insufficient');
+
+    const obsoleteFallback = Utils.estimateRemainingMinutes({
+      remainingProgress: 0.8,
+      fallbackMinutes: 100
+    });
+    assert.equal(obsoleteFallback.minutes, null, '不得用与 locations break 脱节的静态字数生成伪精确 ETA');
   });
 
   test.it('sanitizeColor: 安全性与格式拦截', () => {

@@ -2,7 +2,7 @@
 
 Chrome MV3 EPUB 阅读器扩展。无框架、无构建步骤，直接加载 `src/` 作为 unpacked extension；电子书文件、阅读进度、标注和偏好均保存在浏览器本地。
 
-[![Version](https://img.shields.io/badge/version-2.5.22-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-2.5.23-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## 核心功能

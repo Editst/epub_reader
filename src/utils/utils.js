@@ -161,7 +161,7 @@ const Utils = {
    * 统一 ETA 估算逻辑。
    * 返回 { minutes, isEstimating, source }
    */
-  estimateRemainingMinutes({ remainingProgress, cachedSpeed, session, fallbackMinutes }) {
+  estimateRemainingMinutes({ remainingProgress, cachedSpeed, session }) {
     if (!Number.isFinite(remainingProgress) || remainingProgress <= 0) {
       return { minutes: 0, isEstimating: false, source: 'done' };
     }
@@ -186,14 +186,6 @@ const Utils = {
           source: 'session'
         };
       }
-    }
-
-    if (Number.isFinite(fallbackMinutes)) {
-      return {
-        minutes: Math.max(0, Math.round(fallbackMinutes * remainingProgress)),
-        isEstimating: true,
-        source: 'fallback'
-      };
     }
 
     return { minutes: null, isEstimating: true, source: 'insufficient' };

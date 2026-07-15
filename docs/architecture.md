@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.22
+版本：v2.5.23
 更新：2026-07-15
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -610,6 +610,7 @@ startReadingTimer(): void
 | `SPEED_MAX_PROGRESS_DELTA` | 0.30 | 单次有效采样最大进度 |
 | `SPEED_MIN_SESSION_SECONDS` | 30 | 最短有效采样时长 |
 | `JUMP_DETECTION_THRESHOLD` | 0.05 | 跳读判定阈值 |
+| `JUMP_DETECTION_LOCATION_STEPS` | 1.5 | 稀疏 locations 下允许的自然量化步长 |
 | `READING_TIMER_INTERVAL_MS` | 1000 | 阅读计时周期 |
 | `READING_TIME_FLUSH_INTERVAL_S` | 10 | 阅读时长落盘周期 |
 | `READING_STATS_UPDATE_INTERVAL_S` | 60 | ETA 刷新周期 |
@@ -625,7 +626,7 @@ startReadingTimer(): void
 - 书签按钮状态查询必须只让最新一次结果更新 UI；快速翻页或卸载时，旧页/旧书的 `Bookmarks.isBookmarked()` 慢返回不得覆盖当前页状态。
 - `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
-- `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时调用 `flushPositionSave()` 兜底。
+- `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时同时发起位置、阅读时长和速度 flush；页面重新可见时即使进度为 0% 也必须重启速度会话。
 - 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。
 - `flushSpeedSession()` 必须在第一个 `await` 前转移 `sessionStart` 所有权；旧速度写入迟到完成不得清除页面重新可见后建立的新会话。切书时位置、时长和速度三项 flush 必须全部 settled，单项失败不得跳过其余清理。
 ---

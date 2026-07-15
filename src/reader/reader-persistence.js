@@ -21,8 +21,7 @@
   const SPEED_MAX_PROGRESS_DELTA       = 0.30;
   const SPEED_MIN_SESSION_SECONDS      = 30;
   const JUMP_DETECTION_THRESHOLD       = 0.05;
-  const CHARS_PER_LOCATION_ESTIMATE    = 150;
-  const READING_SPEED_CHARS_PER_MINUTE = 400;
+  const JUMP_DETECTION_LOCATION_STEPS  = 1.5;
   const READING_TIMER_INTERVAL_MS      = 1000;
   const READING_TIME_FLUSH_INTERVAL_S  = 10;
   const READING_STATS_UPDATE_INTERVAL_S = 60;
@@ -415,6 +414,20 @@
 
     // ── Location / Progress ───────────────────────────────────────────────────
 
+    function _getJumpDetectionThreshold() {
+      const locations = state.book && state.book.locations;
+      const locationCount = locations && typeof locations.length === 'function'
+        ? locations.length()
+        : 0;
+      if (!Number.isFinite(locationCount) || locationCount <= 1) {
+        return JUMP_DETECTION_THRESHOLD;
+      }
+      return Math.max(
+        JUMP_DETECTION_THRESHOLD,
+        JUMP_DETECTION_LOCATION_STEPS / (locationCount - 1)
+      );
+    }
+
     /**
      * relocated 事件主处理器。
      *
@@ -431,7 +444,7 @@
         ui.updateProgress(percent);
 
         // 跳跃检测：>5% 视为手动跳转，结束当前 session 并以新位置续期
-        if (state.sessionStart && Math.abs(progress - state.lastProgress) > JUMP_DETECTION_THRESHOLD) {
+        if (state.sessionStart && Math.abs(progress - state.lastProgress) > _getJumpDetectionThreshold()) {
           flushSpeedSession(progress);  // async，非阻塞
         }
         state.lastProgress = progress;
@@ -510,7 +523,7 @@
      * ETA 策略（加权版）：
      *   1. 历史累积速度 cachedSpeed（sampledProgress>1%, sampledSeconds>120s）
      *   2. 当前 session 实时速度（deltaSeconds>30, deltaProgress>0.3%）
-     *   3. Fallback：静态估算（每 location ≈ 150字，400字/分钟）
+     *   3. 样本不足时明确显示“估算中”，不使用与 locations break 脱节的伪精确值
      */
     function updateReadingStats() {
       if (!state.rendition || !state.book) return;
@@ -528,9 +541,6 @@
 
         if (progress >= 0 && progress <= 1) {
           const remainingProgress = 1 - progress;
-          const totalLocations  = state.book.locations.length();
-          const charsTotal      = totalLocations * CHARS_PER_LOCATION_ESTIMATE;
-          const estTotalMinutes = charsTotal / READING_SPEED_CHARS_PER_MINUTE;
           const eta = Utils.estimateRemainingMinutes({
             remainingProgress,
             cachedSpeed: state.cachedSpeed,
@@ -538,8 +548,7 @@
               startProgress: state.sessionStart.progress,
               lastProgress:  state.lastProgress,
               deltaSeconds:  (Date.now() - state.sessionStart.timestamp) / 1000
-            } : null,
-            fallbackMinutes: estTotalMinutes
+            } : null
           });
 
           if (eta.minutes === null || eta.isEstimating) {
@@ -590,7 +599,12 @@
         }
       } else {
         // 页面重新激活：以当前位置为新 session 起点
-        if (state.isBookLoaded && state.lastProgress > 0) {
+        if (
+          state.isBookLoaded &&
+          Number.isFinite(state.lastProgress) &&
+          state.lastProgress >= 0 &&
+          state.lastProgress <= 1
+        ) {
           state.sessionStart = { progress: state.lastProgress, timestamp: Date.now() };
         }
       }
@@ -601,6 +615,8 @@
     function _onBeforeUnload() {
       if (state.currentBookId && state.isBookLoaded) {
         flushPositionSave();
+        _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
+        flushSpeedSession(null);
       }
     }
 

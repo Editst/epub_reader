@@ -245,6 +245,25 @@ async function getPosition(driver, bookId) {
   `, [bookId]);
 }
 
+async function getBookMeta(driver, bookId) {
+  return driver.evaluateAsync(`
+    const bookId = arguments[0];
+    const done = arguments[arguments.length - 1];
+    EpubStorage.getBookMeta(bookId).then(done, (error) => done({ __error: String(error) }));
+  `, [bookId]);
+}
+
+async function emulateDocumentVisibility(driver, hidden) {
+  return driver.evaluate(`
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      value: arguments[0]
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return document.hidden;
+  `, [hidden]);
+}
+
 async function waitForBookLoaded(driver, expectedTitle) {
   return waitFor(async () => driver.evaluate(`
     const iframe = document.querySelector('#epub-viewer iframe');
@@ -483,10 +502,21 @@ async function run() {
       await delay(350);
     }
 
-    const savedPosition = await waitFor(async () => {
+    const navigatedPosition = await waitFor(async () => {
       const position = await getPosition(driver, book.id);
       return position && position.cfi !== initialPosition.cfi ? position : null;
     }, '连续翻页后位置没有更新');
+    await driver.evaluate(`
+      window.__e2eRealDateNow = Date.now.bind(Date);
+      const advancedNow = window.__e2eRealDateNow() + 180000;
+      Date.now = () => advancedNow;
+      return true;
+    `);
+    await driver.click(nextButton);
+    const savedPosition = await waitFor(async () => {
+      const position = await getPosition(driver, book.id);
+      return position && position.cfi !== navigatedPosition.cfi ? position : null;
+    }, '速度采样前的最终翻页位置没有更新');
     const beforeReopenFingerprint = await waitFor(async () => {
       const samples = await visibleFingerprint(driver);
       return samples.length ? samples : null;
@@ -500,11 +530,24 @@ async function run() {
     assert.ok(Number.isInteger(savedPosition.locator?.page), 'locator 缺少真实 displayed page');
     assert.ok(Number.isInteger(savedPosition.locator?.total), 'locator 缺少真实 displayed total');
     assert.match(savedPosition.locator?.restoreCfi || '', /^epubcfi\(/, '真实浏览器未生成页内 restoreCfi');
+    const savedAnchorVisibility = await getCfiVisibility(driver, savedPosition.locator.restoreCfi);
+    assert.equal(savedAnchorVisibility.visible, true, '保存的 restoreCfi 不在当前真实可视页');
     console.log(`已保存：page ${savedPosition.locator.page}/${savedPosition.locator.total}, ${savedPosition.cfi}`);
+    await emulateDocumentVisibility(driver, true);
+    await waitFor(async () => {
+      const meta = await getBookMeta(driver, book.id);
+      return meta?.speed?.sampledSeconds > 120 && meta.speed.sampledProgress > 0.001 ? meta : null;
+    }, 'visibilitychange 后真实速度样本未落盘');
+    await emulateDocumentVisibility(driver, false);
+    await driver.evaluate(`
+      if (window.__e2eRealDateNow) Date.now = window.__e2eRealDateNow;
+      return true;
+    `);
     await assertNoRuntimeErrors(driver, '首次阅读');
 
     const readerWindow = await driver.currentWindowHandle();
     const replacementTab = await driver.newWindow('tab');
+    await delay(500);
     await driver.switchToWindow(readerWindow);
     await driver.closeWindow();
     await driver.switchToWindow(replacementTab.handle);
@@ -512,7 +555,23 @@ async function run() {
     await waitForBookLoaded(driver, loaded.title);
     await delay(800);
 
-    const afterReopenPosition = await getPosition(driver, book.id);
+    const restoredMeta = await getBookMeta(driver, book.id);
+    const afterReopenPosition = restoredMeta.pos;
+    assert.ok(restoredMeta.time > 0, '标签页隐藏/关闭时未持久化阅读时长');
+    assert.ok(restoredMeta.speed?.sampledSeconds > 120, '标签页隐藏/关闭时未持久化有效阅读时长样本');
+    assert.ok(restoredMeta.speed?.sampledProgress > 0.001, '标签页隐藏/关闭时未持久化有效阅读进度样本');
+    const speedEstimate = await driver.evaluate(`
+      return Utils.estimateRemainingMinutes({
+        remainingProgress: arguments[0],
+        cachedSpeed: arguments[1]
+      });
+    `, [Math.max(0, 1 - ((afterReopenPosition.percentage || 0) / 100)), restoredMeta.speed]);
+    assert.equal(speedEstimate.source, 'history', '重开后 ETA 未复用真实历史速度样本');
+    assert.ok(Number.isFinite(speedEstimate.minutes), '历史速度 ETA 不是有限分钟数');
+    console.log(
+      `阅读速度恢复：${restoredMeta.speed.sampledSeconds.toFixed(1)} 秒 / ` +
+      `${(restoredMeta.speed.sampledProgress * 100).toFixed(1)}%，ETA ${speedEstimate.minutes} 分钟`
+    );
     const afterReopenFingerprint = await waitFor(async () => {
       const samples = await visibleFingerprint(driver);
       return samples.length ? samples : null;

@@ -376,6 +376,47 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.sessionStart.progress, 0.8, '大幅跳转后应从新进度续期');
   });
 
+  test.it('稀疏 locations 的单步量化变化不误判为跳读', () => {
+    global.TOC = { setActive() {} };
+    global.Bookmarks = { async isBookmarked() { return false; } };
+    const originalSessionStart = { progress: 0, timestamp: Date.now() - 60_000 };
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-sparse-locations',
+      currentStableCfi: null,
+      lastPercent: 0,
+      lastProgress: 0,
+      sessionStart: originalSessionStart,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 12,
+          percentageFromCfi: () => 1 / 11
+        },
+        navigation: { toc: [] }
+      },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/4)', href: 'chapter.xhtml' } };
+        }
+      }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated(state.rendition.currentLocation());
+
+    assert.equal(state.sessionStart, originalSessionStart);
+    assert.equal(state.lastProgress, 1 / 11);
+  });
+
   test.it('onRelocated 在 resize 保护期忽略临时位置', () => {
     const state = {
       isResizing: true,
@@ -1131,6 +1172,39 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.sessionStart.progress, 0.5);
   });
 
+  test.it('页面在 0% 位置重新可见时也会重启速度会话', () => {
+    const { document } = createMockDocument();
+    global.document = document;
+
+    const state = {
+      readingTimer: null,
+      posTimer: null,
+      currentBookId: 'book-speed-at-start',
+      currentStableCfi: null,
+      activeReadingSeconds: 5,
+      sessionStart: { progress: 0, timestamp: Date.now() - 5_000 },
+      lastProgress: 0,
+      cachedSpeed: { sampledSeconds: 0, sampledProgress: 0 },
+      isBookLoaded: true
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateReadingStatsText() {} }
+    });
+
+    persistence.mount();
+    document.hidden = true;
+    document.dispatchEvent('visibilitychange');
+    assert.equal(state.sessionStart, null);
+
+    document.hidden = false;
+    document.dispatchEvent('visibilitychange');
+    persistence.unmount();
+
+    assert.equal(state.sessionStart.progress, 0);
+    assert.ok(Number.isFinite(state.sessionStart.timestamp));
+  });
+
   test.it('迟到的速度保存不得清除页面重新可见后建立的新会话', async () => {
     let releaseSpeedSave;
     const originalSaveReadingSpeed = EpubStorage.saveReadingSpeed;
@@ -1506,7 +1580,7 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.currentStableCfi, 'epubcfi(/6/10)');
   });
 
-  test.it('mount 注册 beforeunload → flushPositionSave', async () => {
+  test.it('beforeunload 兜底 flush 位置、时长与速度', async () => {
     const { document } = createMockDocument([]);
     const origDoc = global.document;
     global.document = document;
@@ -1526,16 +1600,26 @@ test.describe('ReaderPersistence', () => {
       }
     };
 
-    // Mock EpubStorage.savePosition to detect flush calls
+    // Mock EpubStorage writes to detect lifecycle flush calls
     const saves = [];
+    const timeSaves = [];
+    const speedSaves = [];
     const origSavePosition = EpubStorage.savePosition;
+    const origSaveReadingTime = EpubStorage.saveReadingTime;
+    const origSaveReadingSpeed = EpubStorage.saveReadingSpeed;
     EpubStorage.savePosition = async (...args) => { saves.push(args); };
+    EpubStorage.saveReadingTime = async (...args) => { timeSaves.push(args); };
+    EpubStorage.saveReadingSpeed = async (...args) => { speedSaves.push(args); };
 
     const state = {
       isBookLoaded: true,
       currentBookId: 'book-beforeunload',
       currentStableCfi: 'epubcfi(/6/5)',
       lastPercent: 25,
+      activeReadingSeconds: 90,
+      sessionStart: { progress: 0.1, timestamp: Date.now() - 60_000 },
+      lastProgress: 0.2,
+      cachedSpeed: { sampledSeconds: 0, sampledProgress: 0 },
       lastPositionSave: null,
       posTimer: null
     };
@@ -1554,8 +1638,12 @@ test.describe('ReaderPersistence', () => {
     if (origWindowAddEventListener) global.window.addEventListener = origWindowAddEventListener;
     if (origWindowRemoveEventListener) global.window.removeEventListener = origWindowRemoveEventListener;
     EpubStorage.savePosition = origSavePosition;
+    EpubStorage.saveReadingTime = origSaveReadingTime;
+    EpubStorage.saveReadingSpeed = origSaveReadingSpeed;
 
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
+    assert.deepEqual(timeSaves, [['book-beforeunload', 90]]);
+    assert.equal(speedSaves.length, 1);
   });
 
   test.it('mount 只注册生命周期监听，不提前启动阅读计时器', () => {
