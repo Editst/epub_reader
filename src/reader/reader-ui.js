@@ -743,9 +743,18 @@
           preResizeCfi = null;
         }
         if (!preResizeCfi) {
-          const loc = rendition.currentLocation();
-          // 使用 start.cfi；end.cfi 在重排后可能造成视觉后退。
-          if (loc && loc.start) preResizeCfi = loc.start.cfi;
+          const locator = state.currentStableLocator;
+          const hasMatchingRestoreCfi = locator &&
+            locator.sourceCfi === state.currentStableCfi &&
+            typeof locator.restoreCfi === 'string' &&
+            locator.restoreCfi;
+          // resize 事件触发时 viewport 已改变，此时 currentLocation() 可能已指向
+          // 新布局的错误页。优先使用变化前持久化的可视锚点，再退回主 CFI。
+          preResizeCfi = hasMatchingRestoreCfi || state.currentStableCfi;
+          if (!preResizeCfi) {
+            const loc = rendition.currentLocation();
+            if (loc && loc.start) preResizeCfi = loc.start.cfi;
+          }
         }
         const targetCfi = preResizeCfi;
         const context = _beginReflow(rendition);
@@ -780,6 +789,9 @@
         // storeFile 参数顺序：(filename, data, bookId)
         await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
         await runtime.openBook(arrayBuffer, bookId, file.name);
+        const readerUrl = chrome.runtime.getURL('reader/reader.html') +
+          '?bookId=' + encodeURIComponent(bookId);
+        window.history?.replaceState?.(null, '', readerUrl);
       } catch (err) {
         console.error('[ReaderUi] failed to open local file:', err);
         showLoadError('无法加载此 EPUB 文件: ' + err.message);

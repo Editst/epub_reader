@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.20
+版本：v2.5.21
 更新：2026-07-13
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -670,12 +670,12 @@ closeAllPanels(): void
 - `progress-location` 用于承载非阻塞定位索引状态。
 - 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到"先等索引再阅读"的旧行为。
 - `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
-- `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。
+- `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。由于 resize 事件触发时 viewport 已经改变，恢复目标必须优先使用变化前 `currentStableLocator.restoreCfi`（且 `sourceCfi` 匹配主 CFI），再回退 `currentStableCfi`，不得把此时的 `currentLocation()` 当作首选快照。
 
 **v2.4.0 架构约束**：
 - 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。
 - persistence 层通过本层辅助函数委托 DOM 更新，不直接持有元素引用。
-- Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；若缓存失败，应显示加载错误，避免产生无法重新打开的书架记录。
+- Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；打开成功后通过 `history.replaceState()` 将 URL 的 `bookId` 同步为当前书。缓存或打开失败时不得提前改写 URL，并应显示加载错误。
 - `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
 - 主题、颜色、字号、行距和字体偏好保存失败时，只记录告警并保留当前 UI 更新，不得产生未处理 Promise 拒绝。
 - TOC、Bookmarks、Search 通过 lifecycle context 注入的 panel controller 调用本层面板 API；兄弟面板互斥和共享 overlay 状态不得在功能模块内重复维护。
@@ -683,7 +683,7 @@ closeAllPanels(): void
 **v2.5.11 reflow 生命周期约束**：
 - 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
 - 切书时 `ReaderState.resetReadingSession()` 必须同步清除 `isResizing` 与 `isRestoringPosition`；旧书迟到 RAF/timer 不得操作新 rendition，也不得改写新书保护状态。
-- 当前 reflow 完成后必须恢复捕获的 `start.cfi`，释放两类保护锁，再将当前 rendition 的位置交给 persistence。
+- 当前 reflow 完成后必须恢复变化前捕获的有效锚点（窗口 resize 优先 locator restore CFI，其余重排至少使用主 CFI），释放两类保护锁，再将当前 rendition 的位置交给 persistence。
 - EPUB iframe 内 `input/select/textarea` 的键盘事件不得触发宿主翻页；键盘分支优先检查事件实际 target，再回退宿主 `activeElement`。
 
 **v2.5.12 外观偏好边界**：

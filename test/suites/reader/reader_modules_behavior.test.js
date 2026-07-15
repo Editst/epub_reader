@@ -1726,7 +1726,10 @@ test.describe('Reader 模块基础行为', () => {
         document,
         window: {
           focus() {},
-          addEventListener() {}
+          addEventListener() {},
+          history: {
+            replaceState(_state, _title, url) { calls.push(['history', url]); }
+          }
         },
         chrome: {
           runtime: { getURL: (p) => 'chrome-extension://test/' + p },
@@ -1777,7 +1780,12 @@ test.describe('Reader 模块基础行为', () => {
     releaseStore();
     await changePromise;
 
-    assert.deepEqual(calls, ['store-start', 'store-end', 'open-book']);
+    assert.deepEqual(calls, [
+      'store-start',
+      'store-end',
+      'open-book',
+      ['history', 'chrome-extension://test/reader/reader.html?bookId=book-ui-import']
+    ]);
   });
 
   test.it('ReaderUi 连续选择文件会按用户触发顺序完成导入与打开', async () => {
@@ -1787,7 +1795,17 @@ test.describe('Reader 模块基础行为', () => {
     const calls = [];
     const context = {
       document,
-      window: { document, focus() {}, addEventListener() {} },
+      window: {
+        document,
+        focus() {},
+        addEventListener() {},
+        history: {
+          replaceState(_state, _title, url) { calls.push(['history', url]); }
+        }
+      },
+      chrome: {
+        runtime: { getURL: (p) => 'chrome-extension://test/' + p }
+      },
       EpubStorage: {
         async generateBookId(fileName) { return 'id-' + fileName; },
         async storeFile(fileName) { calls.push(['store', fileName]); },
@@ -1825,8 +1843,10 @@ test.describe('Reader 模块基础行为', () => {
     assert.deepEqual(calls, [
       ['store', 'first.epub'],
       ['open', 'first.epub'],
+      ['history', 'chrome-extension://test/reader/reader.html?bookId=id-first.epub'],
       ['store', 'second.epub'],
-      ['open', 'second.epub']
+      ['open', 'second.epub'],
+      ['history', 'chrome-extension://test/reader/reader.html?bookId=id-second.epub']
     ]);
   });
 
@@ -2111,17 +2131,27 @@ test.describe('Reader 模块基础行为', () => {
     const resizeHandlers = [];
     const calls = [];
     const relocated = [];
+    let currentCfi = 'viewport-shifted-cfi';
     const rendition = {
-      currentLocation() { return { start: { cfi: 'current-cfi' } }; },
+      currentLocation() { return { start: { cfi: currentCfi } }; },
       resize() { calls.push('resize'); },
-      display(cfi) { calls.push(['display', cfi]); return Promise.resolve(); }
+      display(cfi) {
+        calls.push(['display', cfi]);
+        currentCfi = 'restored-cfi';
+        return Promise.resolve();
+      }
     };
     const state = {
       prefs: {},
       rendition,
       isBookLoaded: true,
       isResizing: false,
-      isRestoringPosition: false
+      isRestoringPosition: false,
+      currentStableCfi: 'stable-source-cfi',
+      currentStableLocator: {
+        sourceCfi: 'stable-source-cfi',
+        restoreCfi: 'stable-restore-cfi'
+      }
     };
     const windowMock = {
       document,
@@ -2146,8 +2176,8 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(state.isRestoringPosition, true);
     await timers.shift()();
 
-    assert.deepEqual(calls, ['resize', ['display', 'current-cfi']]);
-    assert.deepEqual(relocated, ['current-cfi']);
+    assert.deepEqual(calls, ['resize', ['display', 'stable-restore-cfi']]);
+    assert.deepEqual(relocated, ['restored-cfi']);
     assert.equal(state.isResizing, false);
     assert.equal(state.isRestoringPosition, false);
   });

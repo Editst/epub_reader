@@ -8,6 +8,17 @@
 
 ---
 
+## [2.5.21] - 2026-07-15
+
+### fix
+- **真实 viewport resize 保位**：窗口 resize 事件发生时布局已经改变，ReaderUi 不再优先读取此时可能漂移的 `currentLocation()`；改用变化前与主 CFI 匹配的 `locator.restoreCfi`，再回退 `currentStableCfi`，避免缩放窗口后跳回更早段落并覆盖持久化位置。
+- **Reader 内导入 URL 一致性**：本地 EPUB 完成缓存和 `openBook()` 后同步替换地址栏 `bookId`；在阅读器内切换书籍再刷新时，不再重新打开 URL 中残留的旧书。
+
+### test
+- 强化 ReaderUi resize 与连续本地导入回归，覆盖 viewport 已先变化、locator 锚点恢复及最终 URL 顺序；全量覆盖保持 269 项。使用 Chrome 150 对横排分页、字号/窗口重排、关闭重开、快速切书、章内/跨文档脚注和级联清除完成真实环境验证。
+
+---
+
 ## [2.5.20] - 2026-07-15
 
 ### fix
