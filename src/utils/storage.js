@@ -232,6 +232,24 @@ const EpubStorage = {
     });
   },
 
+  async addReadingSpeedSample(bookId, sampledSeconds, sampledProgress) {
+    if (
+      !bookId ||
+      !Number.isFinite(sampledSeconds) || sampledSeconds <= 0 ||
+      !Number.isFinite(sampledProgress) || sampledProgress <= 0
+    ) return undefined;
+    const meta = await this._enqueueBookMetaWrite(bookId, (current) => {
+      const currentSpeed = current.speed || this._createDefaultSpeed();
+      current.speed = {
+        ...currentSpeed,
+        sampledSeconds: currentSpeed.sampledSeconds + sampledSeconds,
+        sampledProgress: currentSpeed.sampledProgress + sampledProgress
+      };
+      return current;
+    });
+    return meta ? meta.speed : undefined;
+  },
+
   async getReadingSpeed(bookId) {
     const meta = await this.getBookMeta(bookId);
     if (!meta || !meta.speed) {
@@ -625,6 +643,7 @@ const EpubStorage = {
       const updated = mutator(current) || current;
       await this._set({ [KEYS.bookMeta(bookId)]: updated });
       if (shouldRemoveLegacy) this._removeLegacyBookMetaKeys(bookId).catch(() => {});
+      return updated;
     });
   },
 

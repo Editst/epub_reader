@@ -400,12 +400,14 @@
             state.cachedSpeed = { sampledSeconds: 0, sampledProgress: 0 };
           }
           const weight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
-          state.cachedSpeed = {
-            ...state.cachedSpeed,
-            sampledSeconds:  state.cachedSpeed.sampledSeconds  + (deltaSeconds  * weight),
-            sampledProgress: state.cachedSpeed.sampledProgress + (deltaProgress * weight)
-          };
-          await EpubStorage.saveReadingSpeed(bookId, state.cachedSpeed);
+          const storedSpeed = await EpubStorage.addReadingSpeedSample(
+            bookId,
+            deltaSeconds * weight,
+            deltaProgress * weight
+          );
+          if (bookId === state.currentBookId && storedSpeed) {
+            state.cachedSpeed = { ...state.cachedSpeed, ...storedSpeed };
+          }
         } catch (e) {
           console.warn('[Persistence] Failed to save speed sample:', e);
         }

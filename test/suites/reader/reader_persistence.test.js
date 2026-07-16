@@ -1157,15 +1157,16 @@ test.describe('ReaderPersistence', () => {
     const speedCalls = [];
     const originalSavePosition = EpubStorage.savePosition;
     const originalSaveReadingTime = EpubStorage.saveReadingTime;
-    const originalSaveReadingSpeed = EpubStorage.saveReadingSpeed;
+    const originalAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
     EpubStorage.savePosition = async (...args) => {
       positionCalls.push(args);
     };
     EpubStorage.saveReadingTime = async (...args) => {
       saveTimeCalls.push(args);
     };
-    EpubStorage.saveReadingSpeed = async (...args) => {
+    EpubStorage.addReadingSpeedSample = async (...args) => {
       speedCalls.push(args);
+      return { sampledSeconds: 160, sampledProgress: 0.15 };
     };
 
     const state = {
@@ -1198,7 +1199,7 @@ test.describe('ReaderPersistence', () => {
 
     EpubStorage.savePosition = originalSavePosition;
     EpubStorage.saveReadingTime = originalSaveReadingTime;
-    EpubStorage.saveReadingSpeed = originalSaveReadingSpeed;
+    EpubStorage.addReadingSpeedSample = originalAddReadingSpeedSample;
 
     assert.deepEqual(positionCalls, [
       ['book-4', 'epubcfi(/6/8)', 88.8],
@@ -1244,9 +1245,10 @@ test.describe('ReaderPersistence', () => {
 
   test.it('迟到的速度保存不得清除页面重新可见后建立的新会话', async () => {
     let releaseSpeedSave;
-    const originalSaveReadingSpeed = EpubStorage.saveReadingSpeed;
-    EpubStorage.saveReadingSpeed = async () => {
+    const originalAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
+    EpubStorage.addReadingSpeedSample = async () => {
       await new Promise((resolve) => { releaseSpeedSave = resolve; });
+      return { sampledSeconds: 60, sampledProgress: 0.1 };
     };
 
     const state = {
@@ -1268,7 +1270,7 @@ test.describe('ReaderPersistence', () => {
       releaseSpeedSave();
       await flush;
     } finally {
-      EpubStorage.saveReadingSpeed = originalSaveReadingSpeed;
+      EpubStorage.addReadingSpeedSample = originalAddReadingSpeedSample;
     }
 
     assert.equal(state.sessionStart.progress, 0.3);
@@ -1643,10 +1645,13 @@ test.describe('ReaderPersistence', () => {
     const speedSaves = [];
     const origSavePosition = EpubStorage.savePosition;
     const origSaveReadingTime = EpubStorage.saveReadingTime;
-    const origSaveReadingSpeed = EpubStorage.saveReadingSpeed;
+    const origAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
     EpubStorage.savePosition = async (...args) => { saves.push(args); };
     EpubStorage.saveReadingTime = async (...args) => { timeSaves.push(args); };
-    EpubStorage.saveReadingSpeed = async (...args) => { speedSaves.push(args); };
+    EpubStorage.addReadingSpeedSample = async (...args) => {
+      speedSaves.push(args);
+      return { sampledSeconds: 60, sampledProgress: 0.1 };
+    };
 
     const state = {
       isBookLoaded: true,
@@ -1676,7 +1681,7 @@ test.describe('ReaderPersistence', () => {
     if (origWindowRemoveEventListener) global.window.removeEventListener = origWindowRemoveEventListener;
     EpubStorage.savePosition = origSavePosition;
     EpubStorage.saveReadingTime = origSaveReadingTime;
-    EpubStorage.saveReadingSpeed = origSaveReadingSpeed;
+    EpubStorage.addReadingSpeedSample = origAddReadingSpeedSample;
 
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
     assert.deepEqual(timeSaves, [['book-beforeunload', 90]]);

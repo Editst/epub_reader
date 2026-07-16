@@ -405,6 +405,25 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(meta.time, 600);
   });
 
+  test.it('addReadingSpeedSample 在锁内累加并保留正文计数字段', async () => {
+    const id = 'book-speed-sample-merge';
+    await EpubStorage.saveReadingSpeed(id, {
+      contentUnitCount: 5000,
+      contentUnitVersion: 1
+    });
+
+    await Promise.all([
+      EpubStorage.addReadingSpeedSample(id, 60, 0.05),
+      EpubStorage.addReadingSpeedSample(id, 120, 0.10)
+    ]);
+
+    const speed = await EpubStorage.getReadingSpeed(id);
+    assert.equal(speed.sampledSeconds, 180);
+    assert.ok(Math.abs(speed.sampledProgress - 0.15) < Number.EPSILON * 4);
+    assert.equal(speed.contentUnitCount, 5000);
+    assert.equal(speed.contentUnitVersion, 1);
+  });
+
   test.it('savePosition 持久化 displayed-page locator 并兼容旧调用', async () => {
     const locator = {
       strategy: 'epubjs-displayed-page-v1',

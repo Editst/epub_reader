@@ -202,7 +202,13 @@
           if (!_isActiveBook(bookId, activeBook)) return null;
           totalUnits += Utils.countReadingUnits(_getSectionReadingText(item, loadedContent));
         } finally {
-          if (loaded && typeof item.unload === 'function') item.unload();
+          if (loaded && typeof item.unload === 'function') {
+            try {
+              item.unload();
+            } catch (e) {
+              console.warn(`[Runtime] content unit section ${index} unload failed:`, e);
+            }
+          }
         }
         await _delay(0);
       }

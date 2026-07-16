@@ -745,6 +745,10 @@ async function run() {
 
     const searchButton = await driver.find('#btn-search');
     await driver.click(searchButton);
+    await waitFor(() => driver.evaluate(`
+      return document.getElementById('search-panel')?.classList.contains('open');
+    `), '搜索面板未打开');
+    await delay(350);
     await driver.evaluate(`
       const input = document.getElementById('search-input');
       input.value = arguments[0];
