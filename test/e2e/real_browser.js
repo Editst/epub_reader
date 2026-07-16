@@ -273,6 +273,48 @@ async function getBookmarks(driver, bookId) {
   `, [bookId]);
 }
 
+async function getHighlights(driver, bookId) {
+  return driver.evaluateAsync(`
+    const bookId = arguments[0];
+    const done = arguments[arguments.length - 1];
+    EpubStorage.getHighlights(bookId).then(done, (error) => done({ __error: String(error) }));
+  `, [bookId]);
+}
+
+async function selectVisibleText(driver) {
+  return driver.evaluate(`
+    for (const iframe of document.querySelectorAll('#epub-viewer iframe')) {
+      const doc = iframe.contentDocument;
+      const win = iframe.contentWindow;
+      const container = iframe.closest('.epub-container') || iframe.parentElement?.parentElement;
+      if (!doc || !win) continue;
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const value = node.data || '';
+        const start = value.search(/\\S/);
+        if (start < 0 || value.length - start < 8) continue;
+        const range = doc.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, Math.min(value.length, start + 12));
+        const rect = range.getBoundingClientRect();
+        const left = container?.scrollLeft || 0;
+        const right = left + (container?.clientWidth || win.innerWidth);
+        if (
+          rect.bottom < 0 || rect.top > win.innerHeight || rect.width <= 0 ||
+          rect.right < left || rect.left > right
+        ) continue;
+        const selection = win.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        doc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: win }));
+        return selection.toString();
+      }
+    }
+    return '';
+  `);
+}
+
 async function emulateDocumentVisibility(driver, hidden) {
   return driver.evaluate(`
     Object.defineProperty(document, 'hidden', {
@@ -621,6 +663,18 @@ async function run() {
       const bookmarks = await getBookmarks(driver, book.id);
       return Array.isArray(bookmarks) && bookmarks.length === 1 ? bookmarks[0] : null;
     }, '当前真实阅读位置未保存为书签');
+    const selectedText = await selectVisibleText(driver);
+    assert.ok(selectedText.length > 0, '无法在真实 EPUB iframe 中创建文本选区');
+    await waitFor(() => driver.evaluate(`
+      return document.getElementById('selection-toolbar')?.classList.contains('show');
+    `), '真实文本选区未触发高亮工具栏');
+    const highlightColor = await driver.find('#selection-toolbar .color-btn:first-child');
+    await driver.click(highlightColor);
+    const savedHighlight = await waitFor(async () => {
+      const highlights = await getHighlights(driver, book.id);
+      return Array.isArray(highlights) && highlights.length === 1 ? highlights[0] : null;
+    }, '真实文本选区未保存高亮');
+    assert.ok(savedHighlight.text, '真实高亮未保存选区文本');
     await assertNoRuntimeErrors(driver, '首次阅读');
 
     const readerWindow = await driver.currentWindowHandle();
@@ -635,6 +689,7 @@ async function run() {
 
     const restoredMeta = await getBookMeta(driver, book.id);
     const restoredBookmarks = await getBookmarks(driver, book.id);
+    const restoredHighlights = await getHighlights(driver, book.id);
     const afterReopenPosition = restoredMeta.pos;
     assert.ok(restoredMeta.time > 0, '标签页隐藏/关闭时未持久化阅读时长');
     assert.ok(restoredMeta.speed?.sampledSeconds > 30, '标签页隐藏/关闭时未持久化有效阅读时长样本');
@@ -643,6 +698,8 @@ async function run() {
     assert.ok(restoredMeta.speed?.contentUnitCount > 0, '正文计数未持久化');
     assert.equal(restoredBookmarks.some((item) => item.cfi === savedBookmark.cfi), true,
       '关闭并重开 Reader 后书签未恢复');
+    assert.equal(restoredHighlights.some((item) => item.cfi === savedHighlight.cfi), true,
+      '关闭并重开 Reader 后高亮未恢复');
     const speedEstimate = await driver.evaluate(`
       return Utils.estimateRemainingMinutes({
         remainingProgress: arguments[0],
