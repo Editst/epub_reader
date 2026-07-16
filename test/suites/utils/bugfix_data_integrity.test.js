@@ -51,6 +51,28 @@ test.describe('BUG-2: saveReadingSpeed preserves explicit zero values', () => {
     assert.strictEqual(meta.speed.sampledProgress, 0.02);
     assert.strictEqual(meta.speed.sessionCount,    1);
   });
+
+  test.it('正文计数 patch 保留已有速度，后续速度 patch 也保留正文计数', async () => {
+    const bookId = 'book_speed_patch';
+    await EpubStorage.saveReadingSpeed(bookId, {
+      sampledSeconds: 300,
+      sampledProgress: 0.15
+    });
+    await EpubStorage.saveReadingSpeed(bookId, {
+      contentUnitCount: 24000,
+      contentUnitVersion: 1
+    });
+    await EpubStorage.saveReadingSpeed(bookId, {
+      sampledSeconds: 360,
+      sampledProgress: 0.18
+    });
+
+    const speed = await EpubStorage.getReadingSpeed(bookId);
+    assert.equal(speed.sampledSeconds, 360);
+    assert.equal(speed.sampledProgress, 0.18);
+    assert.equal(speed.contentUnitCount, 24000);
+    assert.equal(speed.contentUnitVersion, 1);
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

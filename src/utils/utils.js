@@ -6,6 +6,12 @@
 (function () {
   'use strict';
 
+const READING_SPEED_MIN_SAMPLED_PROGRESS = 0.01;
+const READING_SPEED_MIN_SAMPLED_SECONDS = 120;
+const READING_CONTENT_UNIT_VERSION = 1;
+const CJK_READING_UNIT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+const NON_CJK_READING_WORD_PATTERN = /[\p{L}\p{N}\p{M}]+(?:['’][\p{L}\p{N}\p{M}]+)*/gu;
+
 const Utils = {
 
   /**
@@ -144,6 +150,23 @@ const Utils = {
   },
 
   /**
+   * 统计混合语言正文的阅读单位。
+   * 中日韩字符逐字计数，连续的其他语言字母或数字按一个词计数。
+   * 空白与标点不计入。
+   *
+   * @param {*} text
+   * @returns {number}
+   */
+  countReadingUnits(text) {
+    const value = String(text ?? '');
+    if (!value) return 0;
+    const cjkUnits = value.match(CJK_READING_UNIT_PATTERN) || [];
+    const nonCjkText = value.replace(CJK_READING_UNIT_PATTERN, ' ');
+    const wordUnits = nonCjkText.match(NON_CJK_READING_WORD_PATTERN) || [];
+    return cjkUnits.length + wordUnits.length;
+  },
+
+  /**
    * 计算会话样本权重，用于区分连续阅读与跳读样本。
    *
    * @param {number} deltaProgress  会话进度增量（0-1）
@@ -158,6 +181,43 @@ const Utils = {
   },
 
   /**
+   * 将历史进度速度换算为混合语言阅读单位/分钟。
+   * 返回 { unitsPerMinute, isEstimating, source }。
+   *
+   * @param {object|null} cachedSpeed
+   * @param {string} [contentStatus]
+   */
+  estimateReadingSpeed(cachedSpeed, contentStatus = '') {
+    if (contentStatus === 'failed') {
+      return { unitsPerMinute: null, isEstimating: false, source: 'unavailable' };
+    }
+
+    const hasCurrentCount = cachedSpeed &&
+      cachedSpeed.contentUnitVersion === READING_CONTENT_UNIT_VERSION &&
+      Number.isFinite(cachedSpeed.contentUnitCount);
+    if (!hasCurrentCount) {
+      return { unitsPerMinute: null, isEstimating: true, source: 'insufficient' };
+    }
+    if (cachedSpeed.contentUnitCount <= 0) {
+      return { unitsPerMinute: null, isEstimating: false, source: 'unavailable' };
+    }
+    if (
+      cachedSpeed.sampledProgress > READING_SPEED_MIN_SAMPLED_PROGRESS &&
+      cachedSpeed.sampledSeconds > READING_SPEED_MIN_SAMPLED_SECONDS
+    ) {
+      return {
+        unitsPerMinute: Math.max(0, Math.round(
+          (cachedSpeed.contentUnitCount * cachedSpeed.sampledProgress * 60) /
+          cachedSpeed.sampledSeconds
+        )),
+        isEstimating: false,
+        source: 'history'
+      };
+    }
+    return { unitsPerMinute: null, isEstimating: true, source: 'insufficient' };
+  },
+
+  /**
    * 统一 ETA 估算逻辑。
    * 返回 { minutes, isEstimating, source }
    */
@@ -166,7 +226,11 @@ const Utils = {
       return { minutes: 0, isEstimating: false, source: 'done' };
     }
 
-    if (cachedSpeed && cachedSpeed.sampledProgress > 0.01 && cachedSpeed.sampledSeconds > 120) {
+    if (
+      cachedSpeed &&
+      cachedSpeed.sampledProgress > READING_SPEED_MIN_SAMPLED_PROGRESS &&
+      cachedSpeed.sampledSeconds > READING_SPEED_MIN_SAMPLED_SECONDS
+    ) {
       const secsPerUnit = cachedSpeed.sampledSeconds / cachedSpeed.sampledProgress;
       return {
         minutes: Math.max(0, Math.round((secsPerUnit * remainingProgress) / 60)),

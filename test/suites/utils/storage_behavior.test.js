@@ -51,7 +51,14 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual(nestedMeta, {
       pos: null,
       time: 0,
-      speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+      speed: {
+        sampledSeconds: 0,
+        sampledProgress: 0,
+        sessions: [],
+        sessionCount: 0,
+        contentUnitCount: null,
+        contentUnitVersion: 0
+      }
     });
 
     await new Promise((resolve) => chrome.storage.local.set({
@@ -181,7 +188,9 @@ test.describe('EpubStorage 行为覆盖', () => {
         sampledSeconds: 0,
         sampledProgress: 0,
         sessions: [],
-        sessionCount: 0
+        sessionCount: 0,
+        contentUnitCount: null,
+        contentUnitVersion: 0
       }
     });
   });
@@ -336,7 +345,14 @@ test.describe('EpubStorage 行为覆盖', () => {
     const fullMeta = {
       pos: { cfi: 'epubcfi(/6/10)', percentage: 80, timestamp: 2 },
       time: 20,
-      speed: { sampledSeconds: 10, sampledProgress: 0.2, sessions: [], sessionCount: 1 }
+      speed: {
+        sampledSeconds: 10,
+        sampledProgress: 0.2,
+        sessions: [],
+        sessionCount: 1,
+        contentUnitCount: null,
+        contentUnitVersion: 0
+      }
     };
     const memory = {
       [key]: {

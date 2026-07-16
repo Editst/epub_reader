@@ -330,14 +330,24 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
 .books-grid.list-view .book-meta {
   justify-content: flex-start;
-  gap: 24px;
+  gap: 8px 24px;
   margin-top: 8px;
+}
+
+.book-date {
+  margin-left: auto;
+}
+
+.books-grid.list-view .book-date {
+  margin-left: 0;
 }
 
 .progress-bar-container {
@@ -420,13 +430,15 @@ body {
   transform: scale(1.1);
 }
 
-.book-time {
+.book-time,
+.book-speed {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.book-time svg {
+.book-time svg,
+.book-speed svg {
   width: 12px;
   height: 12px;
 }

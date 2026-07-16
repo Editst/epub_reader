@@ -215,6 +215,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const percentText = percent.toFixed(1);
       const timeInSeconds = (meta && meta.time) ? meta.time : 0;
       const timeHtml = Utils.formatDuration(timeInSeconds);
+      const speedEstimate = Utils.estimateReadingSpeed(meta && meta.speed ? meta.speed : null);
+      const speedText = speedEstimate.unitsPerMinute !== null
+        ? `${speedEstimate.unitsPerMinute} 字/分`
+        : (speedEstimate.isEstimating ? '速度估算中' : '-- 字/分');
 
       card.innerHTML = `
         <div class="book-cover"></div>
@@ -225,6 +229,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div class="book-time">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               ${timeHtml}
+            </div>
+            <div class="book-speed">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19h16"/><path d="M6 16l4-5 3 3 5-7"/></svg>
+              <span class="book-speed-value"></span>
             </div>
             <div class="book-date">${Utils.formatDate(book.lastOpened)}</div>
           </div>
@@ -266,6 +274,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       const authorEl = card.querySelector('.book-author');
       if (authorEl) authorEl.textContent = bookAuthor;
+      const speedEl = card.querySelector('.book-speed-value');
+      if (speedEl) speedEl.textContent = speedText;
 
       card.addEventListener('click', (e) => {
         if (e.target.closest('.book-delete')) return;

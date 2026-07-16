@@ -146,7 +146,7 @@
     }
 
     /**
-     * 更新阅读统计文本（时长 + ETA）。
+     * 更新阅读统计文本（时长 + 历史平均字速 + ETA）。
      * @param {string} text
      */
     function updateReadingStatsText(text) {

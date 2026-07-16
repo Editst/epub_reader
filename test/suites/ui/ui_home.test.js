@@ -150,6 +150,20 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(js.includes('const { coverBlob, meta } = await loadBookCardData(book);'), '卡片渲染应使用降级后的数据');
   });
 
+  test.it('书架复用 bookMeta 展示历史平均字速并安全写入文本', () => {
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    const css = fs.readFileSync('src/home/home.css', 'utf8');
+
+    assert.ok(js.includes('Utils.estimateReadingSpeed(meta && meta.speed ? meta.speed : null)'),
+      '书架应复用单次 bookMeta 读取中的 speed');
+    assert.ok(js.includes("? `${speedEstimate.unitsPerMinute} 字/分`"), '有效样本应显示字/分');
+    assert.ok(js.includes("speedEstimate.isEstimating ? '速度估算中' : '-- 字/分'"),
+      '样本不足与无正文应使用约定降级文案');
+    assert.ok(js.includes('speedEl.textContent = speedText'), '速度文本必须通过 textContent 写入');
+    assert.ok(css.includes('.book-speed'), '网格与列表卡片应提供速度项样式');
+    assert.match(css, /\.book-meta\s*\{[^}]*flex-wrap:\s*wrap/s, '卡片元数据应允许窄宽度换行');
+  });
+
   test.it('删除书籍成功或失败后都按权威 recentBooks 刷新书架', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');
     const refreshFinallyCount = (js.match(/finally \{\s*await loadBookshelfSafely\(\);/g) || []).length;

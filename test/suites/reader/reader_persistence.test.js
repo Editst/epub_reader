@@ -1069,7 +1069,7 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(statsText, /阅读时长: 45秒 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 45秒 \| 阅读速度: 估算中 \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['pending', '阅读定位索引生成中']]);
   });
 
@@ -1081,6 +1081,7 @@ test.describe('ReaderPersistence', () => {
     const state = {
       activeReadingSeconds: 90,
       locationsStatus: 'failed',
+      contentUnitStatus: 'failed',
       book: {
         locations: {
           length: () => 0
@@ -1107,8 +1108,44 @@ test.describe('ReaderPersistence', () => {
 
     persistence.updateReadingStats();
 
-    assert.match(statsText, /阅读时长: 1分钟 \| 预计剩余: --/);
+    assert.match(statsText, /阅读时长: 1分钟 \| 阅读速度: -- \| 预计剩余: --/);
     assert.deepEqual(locationStatusCalls, [['failed', '阅读定位索引不可用']]);
+  });
+
+  test.it('updateReadingStats 展示本书历史平均字速', () => {
+    let statsText = '';
+    const state = {
+      activeReadingSeconds: 600,
+      locationsStatus: 'ready',
+      contentUnitStatus: 'ready',
+      cachedSpeed: {
+        sampledSeconds: 600,
+        sampledProgress: 0.2,
+        contentUnitCount: 10000,
+        contentUnitVersion: 1
+      },
+      sessionStart: null,
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi: () => 0.25
+        }
+      },
+      rendition: {
+        currentLocation() { return { start: { cfi: 'epubcfi(/6/5)' } }; }
+      }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateReadingStatsText(text) { statsText = text; }
+      }
+    });
+
+    persistence.updateReadingStats();
+
+    assert.match(statsText, /阅读速度: 200字\/分钟/);
+    assert.match(statsText, /预计剩余: 38分钟/);
   });
 
   test.it('visibilitychange 在隐藏时 flush 位置、时长和速度会话，在重新可见时重置起点', async () => {

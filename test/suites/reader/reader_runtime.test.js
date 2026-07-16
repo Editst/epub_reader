@@ -1474,9 +1474,18 @@ test.describe('ReaderRuntime', () => {
       }
     };
 
+    let sectionUnloadCount = 0;
+    const sections = ['中文 hello', 'world 123'].map((text) => ({
+      async load() { return { nodeType: 1, textContent: text }; },
+      unload() { sectionUnloadCount++; }
+    }));
     global.ePub = () => ({
       ready: Promise.resolve(),
       locations,
+      spine: {
+        length: sections.length,
+        get(index) { return sections[index]; }
+      },
       renderTo() {
         return rendition;
       },
@@ -1501,6 +1510,8 @@ test.describe('ReaderRuntime', () => {
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
     const originalSaveLocations = EpubStorage.saveLocations;
+    const originalSaveReadingSpeed = EpubStorage.saveReadingSpeed;
+    let savedSpeedPatch = null;
     EpubStorage.getPreferences = async () => ({});
     EpubStorage.getBookMeta = async () => null;
     EpubStorage.getPosition = async () => null;
@@ -1508,6 +1519,9 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.getLocations = async () => null;
     EpubStorage.saveLocations = async (_bookId, json) => {
       savedLocations = json;
+    };
+    EpubStorage.saveReadingSpeed = async (_bookId, patch) => {
+      savedSpeedPatch = patch;
     };
 
     const state = {
@@ -1562,6 +1576,8 @@ test.describe('ReaderRuntime', () => {
     await idleTask();
     await Promise.resolve();
     await Promise.resolve();
+    await idleTask();
+    await Promise.resolve();
 
     EpubStorage.getPreferences = originalGetPreferences;
     EpubStorage.getBookMeta = originalGetBookMeta;
@@ -1569,10 +1585,14 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.addRecentBook = originalAddRecentBook;
     EpubStorage.getLocations = originalGetLocations;
     EpubStorage.saveLocations = originalSaveLocations;
+    EpubStorage.saveReadingSpeed = originalSaveReadingSpeed;
 
     assert.equal(generateBreak, 4800);
     assert.equal(savedLocations, 'locations-json');
     assert.equal(state.locationsStatus, 'ready');
+    assert.deepEqual(savedSpeedPatch, { contentUnitCount: 5, contentUnitVersion: 1 });
+    assert.equal(sectionUnloadCount, 2);
+    assert.equal(state.contentUnitStatus, 'ready');
     assert.deepEqual(relocatedCalls, ['epubcfi(/6/2)']);
     assert.deepEqual(locationStatusCalls, [
       ['pending', '准备生成阅读定位索引...'],
@@ -1588,6 +1608,7 @@ test.describe('ReaderRuntime', () => {
     correctedLocations,
     displayedLocations,
     prefs = {},
+    speed = null,
     locationsJson = 'locations-json',
     locationsOverrides = {}
   }) {
@@ -1688,7 +1709,7 @@ test.describe('ReaderRuntime', () => {
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
     EpubStorage.getPreferences = async () => prefs;
-    EpubStorage.getBookMeta = async () => ({ pos: savedPos, time: 0, speed: null });
+    EpubStorage.getBookMeta = async () => ({ pos: savedPos, time: 0, speed });
     let positionReads = 0;
     EpubStorage.getPosition = async () => {
       positionReads++;
@@ -1776,6 +1797,27 @@ test.describe('ReaderRuntime', () => {
     assert.equal(result.positionReads, 0, '已读取 bookMeta 后不得重复读取同一位置数据');
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
     assert.equal(result.state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/3)');
+  });
+
+  test.it('正文计数缓存命中时不重复调度章节扫描', async () => {
+    const result = await runRestoreCorrectionCase({
+      savedPos: { cfi: 'epubcfi(/6/2)', percentage: 10 },
+      initialLocation: {
+        start: { index: 0, href: 'chapter.xhtml', cfi: 'epubcfi(/6/2)', displayed: { page: 1, total: 10 } },
+        end: { displayed: { page: 1, total: 10 } }
+      },
+      speed: {
+        sampledSeconds: 600,
+        sampledProgress: 0.2,
+        sessions: [],
+        sessionCount: 0,
+        contentUnitCount: 10000,
+        contentUnitVersion: 1
+      }
+    });
+
+    assert.equal(result.idleTask, null);
+    assert.equal(result.state.contentUnitStatus, 'ready');
   });
 
   test.it('openBook 忽略未绑定当前 pos.cfi 的旧 locator.restoreCfi', async () => {

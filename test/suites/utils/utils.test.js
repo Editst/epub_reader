@@ -90,6 +90,14 @@ test.describe('Utils 基础工具函数', () => {
 
 test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
 
+  test.it('countReadingUnits: 按混合语言口径统计正文单位', () => {
+    assert.equal(Utils.countReadingUnits('中文 ABC 123'), 4);
+    assert.equal(Utils.countReadingUnits('日本語かなカナ한글'), 9);
+    assert.equal(Utils.countReadingUnits("cafe\u0301 don't"), 2, '组合音标和英文撇号应保留在词内');
+    assert.equal(Utils.countReadingUnits('，。！？ --'), 0);
+    assert.equal(Utils.countReadingUnits(null), 0);
+  });
+
   test.it('computeSessionWeight: 连续阅读权重高于跳读', () => {
     const continuous = Utils.computeSessionWeight(0.04, 180);
     const skipping = Utils.computeSessionWeight(0.25, 50);
@@ -123,6 +131,45 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
       fallbackMinutes: 100
     });
     assert.equal(obsoleteFallback.minutes, null, '不得用与 locations break 脱节的静态字数生成伪精确 ETA');
+  });
+
+  test.it('estimateReadingSpeed: 使用历史进度与正文量换算字速', () => {
+    const history = Utils.estimateReadingSpeed({
+      sampledSeconds: 600,
+      sampledProgress: 0.2,
+      contentUnitCount: 10000,
+      contentUnitVersion: 1
+    });
+    assert.deepEqual(history, {
+      unitsPerMinute: 200,
+      isEstimating: false,
+      source: 'history'
+    });
+
+    const lowSample = Utils.estimateReadingSpeed({
+      sampledSeconds: 120,
+      sampledProgress: 0.01,
+      contentUnitCount: 10000,
+      contentUnitVersion: 1
+    });
+    assert.equal(lowSample.isEstimating, true);
+    assert.equal(lowSample.unitsPerMinute, null);
+
+    const oldSpeed = Utils.estimateReadingSpeed({ sampledSeconds: 600, sampledProgress: 0.2 });
+    assert.equal(oldSpeed.source, 'insufficient');
+    assert.equal(oldSpeed.isEstimating, true);
+
+    const imageOnly = Utils.estimateReadingSpeed({
+      sampledSeconds: 600,
+      sampledProgress: 0.2,
+      contentUnitCount: 0,
+      contentUnitVersion: 1
+    });
+    assert.equal(imageOnly.source, 'unavailable');
+    assert.equal(imageOnly.isEstimating, false);
+
+    const failed = Utils.estimateReadingSpeed(null, 'failed');
+    assert.equal(failed.source, 'unavailable');
   });
 
   test.it('sanitizeColor: 安全性与格式拦截', () => {

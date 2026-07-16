@@ -12,7 +12,7 @@
  *     'bookMeta_<bookId>'    → { pos, time, speed }
  *       pos:   { cfi, percentage, timestamp }
  *       time:  number                          累计阅读秒数
- *       speed: { sampledSeconds, sampledProgress }   实际采样速度
+ *       speed: { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
  *     'highlights_<bookId>'  → [{cfi, text, color, note, timestamp}]
  *     'bookmarks_<bookId>'   → [{cfi, chapter, progress, timestamp}]
  *     'deletedBook_<bookId>' → timestamp（跨页面删除标记，重新导入时解除）
@@ -204,8 +204,8 @@ const EpubStorage = {
 
   // ── Reading Speed ────────────────────────────────────────────────────────
   //
-  // sampledSeconds / sampledProgress 是当前 ETA 主路径；sessions / sessionCount
-  // 作为已持久化的兼容字段保留，当前 Reader 不新增历史 session 列表。
+  // sampledSeconds / sampledProgress 是当前 ETA 主路径；contentUnitCount
+  // 将进度速度换算为字/分钟。sessions / sessionCount 作为兼容字段保留。
   //
   // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
   //            remaining = secsPerUnit * (1 - currentProgress) / 60 (分钟)
@@ -215,15 +215,18 @@ const EpubStorage = {
   //   deltaSeconds  > 30              持续 30s 以上
   //   权重：长时间连续阅读为 1；较短或 8%+ 样本为 0.6；20%+ 跳读为 0.2
 
-  async saveReadingSpeed(bookId, speed) {
-    if (!bookId || !this._isRecord(speed)) return;
+  async saveReadingSpeed(bookId, speedPatch) {
+    if (!bookId || !this._isRecord(speedPatch)) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
-      // 兼容旧的 { sampledSeconds, sampledProgress } 结构。
+      const currentSpeed = current.speed || this._createDefaultSpeed();
+      // 字段级 patch，避免正文计数与速度采样并发时互相覆盖。
       current.speed = {
-        sampledSeconds:  speed.sampledSeconds  ?? 0,
-        sampledProgress: speed.sampledProgress ?? 0,
-        sessions:        speed.sessions        ?? current.speed?.sessions        ?? [],
-        sessionCount:    speed.sessionCount    ?? current.speed?.sessionCount    ?? 0
+        sampledSeconds:   speedPatch.sampledSeconds   ?? currentSpeed.sampledSeconds,
+        sampledProgress:  speedPatch.sampledProgress  ?? currentSpeed.sampledProgress,
+        sessions:         speedPatch.sessions         ?? currentSpeed.sessions,
+        sessionCount:     speedPatch.sessionCount     ?? currentSpeed.sessionCount,
+        contentUnitCount: speedPatch.contentUnitCount ?? currentSpeed.contentUnitCount,
+        contentUnitVersion: speedPatch.contentUnitVersion ?? currentSpeed.contentUnitVersion
       };
       return current;
     });
@@ -232,14 +235,16 @@ const EpubStorage = {
   async getReadingSpeed(bookId) {
     const meta = await this.getBookMeta(bookId);
     if (!meta || !meta.speed) {
-      return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
+      return this._createDefaultSpeed();
     }
-    // 旧 speed 无 sessions/sessionCount 时补默认值。
+    // 旧 speed 缺少兼容字段或正文计数时补默认值。
     return {
-      sampledSeconds:  meta.speed.sampledSeconds  || 0,
-      sampledProgress: meta.speed.sampledProgress || 0,
-      sessions:        meta.speed.sessions        || [],
-      sessionCount:    meta.speed.sessionCount    || 0
+      sampledSeconds:   meta.speed.sampledSeconds,
+      sampledProgress:  meta.speed.sampledProgress,
+      sessions:         meta.speed.sessions,
+      sessionCount:     meta.speed.sessionCount,
+      contentUnitCount: meta.speed.contentUnitCount,
+      contentUnitVersion: meta.speed.contentUnitVersion
     };
   },
 
@@ -750,7 +755,14 @@ const EpubStorage = {
   },
 
   _createDefaultSpeed() {
-    return { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 };
+    return {
+      sampledSeconds: 0,
+      sampledProgress: 0,
+      sessions: [],
+      sessionCount: 0,
+      contentUnitCount: null,
+      contentUnitVersion: 0
+    };
   },
 
   _isRecord(value) {
@@ -787,7 +799,13 @@ const EpubStorage = {
         sampledSeconds: Number.isFinite(speed.sampledSeconds) ? Math.max(0, speed.sampledSeconds) : 0,
         sampledProgress: Number.isFinite(speed.sampledProgress) ? Math.max(0, speed.sampledProgress) : 0,
         sessions: Array.isArray(speed.sessions) ? speed.sessions : [],
-        sessionCount: Number.isFinite(speed.sessionCount) ? Math.max(0, Math.floor(speed.sessionCount)) : 0
+        sessionCount: Number.isFinite(speed.sessionCount) ? Math.max(0, Math.floor(speed.sessionCount)) : 0,
+        contentUnitCount: Number.isFinite(speed.contentUnitCount)
+          ? Math.max(0, Math.floor(speed.contentUnitCount))
+          : null,
+        contentUnitVersion: Number.isFinite(speed.contentUnitVersion)
+          ? Math.max(0, Math.floor(speed.contentUnitVersion))
+          : 0
       }
     };
   },

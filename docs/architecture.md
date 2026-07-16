@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.27
+版本：v2.5.28
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -147,7 +147,8 @@ chrome.storage.local
 ├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
 │     ├── pos: { cfi, percentage, timestamp, locator? }
 │     ├── time: number               累计阅读秒数
-│     └── speed: { sampledSeconds, sampledProgress, sessions[], sessionCount }
+│     └── speed: { sampledSeconds, sampledProgress, sessions[], sessionCount,
+│                  contentUnitCount, contentUnitVersion }
 ├── highlights_<bookId>      高亮与笔记数组（中频写）
 └── bookmarks_<bookId>       书签数组（低频写）
 
@@ -234,7 +235,9 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 //     sampledSeconds: number, 
 //     sampledProgress: number,
 //     sessions: Array<{seconds, progress, timestamp, isJump}>, // v2.2.0
-//     sessionCount: number                                   // v2.2.0
+//     sessionCount: number,                                  // v2.2.0
+//     contentUnitCount: number | null,                        // v2.5.28
+//     contentUnitVersion: number                              // v2.5.28
 //   }
 // }
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
@@ -260,8 +263,10 @@ getReadingTime(bookId: string): Promise<number>
 removeReadingTime(bookId: string): Promise<void>
 // 清除 time 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
 
-saveReadingSpeed(bookId: string, speed: Speed): Promise<void>
-// Speed: { sampledSeconds: number, sampledProgress: number }
+saveReadingSpeed(bookId: string, speedPatch: Partial<Speed>): Promise<void>
+// Speed: { sampledSeconds, sampledProgress, sessions, sessionCount,
+//          contentUnitCount, contentUnitVersion }
+// 字段级 patch；未提供字段保留当前值，显式 0 必须正常写入
 getReadingSpeed(bookId: string): Promise<Speed>
 
 removeBookMeta(bookId: string): Promise<void>
@@ -573,6 +578,8 @@ _mountFeatureModules(): void
 - `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
 - `_correctRestoredPage` 只做章节/签名/页总数校验和同 CFI 直接重放；它不得执行翻页导航。若重放后仍无法与 locator 页码一致，保留 CFI 锚点与保护，不把短暂旧 `currentLocation()` 写回 storage。
 - locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
+- v2.5.28 起，缺少当前版本正文计数时，在 locations 就绪后以 idle 后台任务逐章统计混合语言阅读单位；扫描不得阻塞首屏，切书必须取消，任一章节失败不得保存不完整总数。
+- 正文计数复用 `speed.contentUnitCount/contentUnitVersion`，并通过 `saveReadingSpeed()` 字段级 patch 落盘；不得覆盖并发更新的历史速度样本。
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
 - `discardDeletedBook()` 只处理与当前 `bookId` 匹配的外部删除事件：作废打开/布局/导航代次，销毁 rendition/book、卸载功能模块并重置 session，但保持 runtime 可供用户重新导入。
@@ -644,7 +651,7 @@ startReadingTimer(): void
 - 分页恢复锚点生成依赖 `rendition.getContents()`、`caretRangeFromPoint/caretPositionFromPoint` 与 `contents.cfiFromRange()`，优先从当前 displayed page 所在列的可视区域取样；取样失败时再用 `contents.range(sourceCfi)` 从 `start.cfi` 向页内轻微前移。locator 必须同时写入 `sourceCfi`。生成失败时必须降级为无 `restoreCfi` 的 `location.start.cfi`，不得影响阅读。
 - `onRelocated()` 在 `isRestoringPosition=true` 或 `isRestoreAnchorProtected=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
 - 书签按钮状态查询必须只让最新一次结果更新 UI；快速翻页或卸载时，旧页/旧书的 `Bookmarks.isBookmarked()` 慢返回不得覆盖当前页状态。
-- `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`。
+- `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`；历史字速按 `contentUnitCount × sampledProgress ÷ sampledSeconds × 60` 换算，正文计数或样本不足显示“估算中”。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
 - `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时同时发起位置、阅读时长和速度 flush；页面重新可见时即使进度为 0% 也必须重启速度会话。
 - 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。

@@ -16,6 +16,7 @@ test.describe('ReaderState', () => {
     assert.equal(state.currentBookId, '');
     assert.equal(state.isBookLoaded, false);
     assert.equal(state.locationsStatus, 'idle');
+    assert.equal(state.contentUnitStatus, 'idle');
     assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
     assert.equal(state.currentStableLocator, null);
@@ -35,6 +36,7 @@ test.describe('ReaderState', () => {
 
     state.activeReadingSeconds = 300;
     state.cachedSpeed = { sampledSeconds: 60, sampledProgress: 0.1 };
+    state.contentUnitStatus = 'ready';
     state.sessionStart = { progress: 0.3, timestamp: 1 };
     state.lastProgress = 0.4;
     state.lastPercent = 40;
@@ -55,6 +57,7 @@ test.describe('ReaderState', () => {
 
     assert.equal(state.activeReadingSeconds, 0);
     assert.equal(state.cachedSpeed, null);
+    assert.equal(state.contentUnitStatus, 'idle');
     assert.equal(state.sessionStart, null);
     assert.equal(state.lastProgress, 0);
     assert.equal(state.lastPercent, null);

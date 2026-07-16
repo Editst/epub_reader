@@ -38,7 +38,8 @@
       activeReadingSeconds: 0,
 
       // ── 速度追踪 ──────────────────────────────────────────────────────────
-      cachedSpeed:  null,  // { sampledSeconds, sampledProgress }
+      cachedSpeed:  null,  // { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
+      contentUnitStatus: 'idle', // idle | pending | ready | failed
       sessionStart: null,  // { progress: number, timestamp: number }
       lastProgress: 0,     // 上次 relocated 进度（0-1）
       posTimer:     null,  // schedulePositionSave 防抖 timer
@@ -69,6 +70,7 @@
   function resetReadingSession(state) {
     state.activeReadingSeconds = 0;
     state.cachedSpeed          = null;
+    state.contentUnitStatus    = 'idle';
     state.sessionStart         = null;
     state.lastProgress         = 0;
     state.lastPercent          = null;

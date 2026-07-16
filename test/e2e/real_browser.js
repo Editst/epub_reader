@@ -555,7 +555,12 @@ async function run() {
     await emulateDocumentVisibility(driver, true);
     await waitFor(async () => {
       const meta = await getBookMeta(driver, book.id);
-      return meta?.speed?.sampledSeconds > 30 && meta.speed.sampledProgress > 0.001 ? meta : null;
+      return meta?.speed?.sampledSeconds > 30 &&
+        meta.speed.sampledProgress > 0.001 &&
+        meta.speed.contentUnitVersion === 1 &&
+        meta.speed.contentUnitCount > 0
+        ? meta
+        : null;
     }, 'visibilitychange 后真实速度样本未落盘');
     await emulateDocumentVisibility(driver, false);
     await driver.evaluate(`
@@ -586,6 +591,8 @@ async function run() {
     assert.ok(restoredMeta.time > 0, '标签页隐藏/关闭时未持久化阅读时长');
     assert.ok(restoredMeta.speed?.sampledSeconds > 30, '标签页隐藏/关闭时未持久化有效阅读时长样本');
     assert.ok(restoredMeta.speed?.sampledProgress > 0.001, '标签页隐藏/关闭时未持久化有效阅读进度样本');
+    assert.equal(restoredMeta.speed?.contentUnitVersion, 1, '正文计数版本未持久化');
+    assert.ok(restoredMeta.speed?.contentUnitCount > 0, '正文计数未持久化');
     assert.equal(restoredBookmarks.some((item) => item.cfi === savedBookmark.cfi), true,
       '关闭并重开 Reader 后书签未恢复');
     const speedEstimate = await driver.evaluate(`
@@ -596,9 +603,19 @@ async function run() {
     `, [Math.max(0, 1 - ((afterReopenPosition.percentage || 0) / 100)), restoredMeta.speed]);
     assert.equal(speedEstimate.source, 'history', '重开后 ETA 未复用真实历史速度样本');
     assert.ok(Number.isFinite(speedEstimate.minutes), '历史速度 ETA 不是有限分钟数');
+    const readingSpeedEstimate = await driver.evaluate(`
+      return Utils.estimateReadingSpeed(arguments[0]);
+    `, [restoredMeta.speed]);
+    assert.equal(readingSpeedEstimate.source, 'history', '重开后未恢复历史平均字速');
+    assert.ok(readingSpeedEstimate.unitsPerMinute > 0, '历史平均字速不是正数');
+    const readerStatsText = await driver.evaluate(`
+      return document.getElementById('progress-time')?.textContent || '';
+    `);
+    assert.match(readerStatsText, new RegExp(`阅读速度: ${readingSpeedEstimate.unitsPerMinute}字/分钟`));
     console.log(
       `阅读速度恢复：${restoredMeta.speed.sampledSeconds.toFixed(1)} 秒 / ` +
-      `${(restoredMeta.speed.sampledProgress * 100).toFixed(1)}%，ETA ${speedEstimate.minutes} 分钟`
+      `${(restoredMeta.speed.sampledProgress * 100).toFixed(1)}%，` +
+      `${readingSpeedEstimate.unitsPerMinute} 字/分钟，ETA ${speedEstimate.minutes} 分钟`
     );
     const afterReopenFingerprint = await waitFor(async () => {
       const samples = await visibleFingerprint(driver);
@@ -653,6 +670,10 @@ async function run() {
     await driver.switchToWindow(homeTab.handle);
     await driver.navigate(`chrome-extension://${extensionId}/home/home.html`);
     await waitFor(() => driver.evaluate('return typeof EpubStorage !== "undefined";'), 'Home 存储层未加载');
+    const homeSpeedText = await waitFor(() => driver.evaluate(`
+      return document.querySelector('.book-speed-value')?.textContent || null;
+    `), 'Home 未展示历史平均字速');
+    assert.equal(homeSpeedText, `${readingSpeedEstimate.unitsPerMinute} 字/分`);
     const deleteResult = await driver.evaluateAsync(`
       const bookId = arguments[0];
       const done = arguments[arguments.length - 1];

@@ -7,7 +7,7 @@
  *   - next / prev：翻页（含 _navLock 防连击、prev 章头特效）
  *   - displayPercentage：进度条跳转
  *   - setLayout：布局切换（重建 rendition，保留位置）
- *   - scheduleLocationsGeneration：requestIdleCallback 包装
+ *   - scheduleLocationsGeneration：requestIdleCallback 后台任务包装
  *
  * 本层不持有 DOM 引用，视图操作通过 ui.* 调用。
  * 阅读计时 / 速度 / 位置写入由 persistence.* 负责。
@@ -22,6 +22,8 @@
   const MEDIUM_EPUB_THRESHOLD_BYTES     = 1024 * 1024;
   const LOCATIONS_BREAK_MEDIUM          = 3200;
   const LOCATIONS_BREAK_SMALL           = 1600;
+  const CONTENT_UNIT_VERSION            = 1;
+  const CONTENT_UNIT_EXCLUDED_SELECTOR  = 'script,style,noscript,template,[hidden],[aria-hidden="true"],rt,rp';
   const FONT_READY_TIMEOUT_MS           = 300;
   const GAP_SCROLLED_PX                 = 48;
   const GAP_PAGINATED_PX                = 80;
@@ -135,13 +137,124 @@
 
     function scheduleLocationsGeneration(task) {
       const run = () => Promise.resolve().then(task).catch((e) => {
-        console.warn('[Runtime] locations generate failed:', e);
+        console.warn('[Runtime] background task failed:', e);
       });
       if (typeof requestIdleCallback === 'function') {
         requestIdleCallback(() => run(), { timeout: LOCATIONS_GENERATION_TIMEOUT_MS });
         return;
       }
       setTimeout(() => run(), 0);
+    }
+
+    function _hasCurrentContentUnitCount(speed) {
+      return !!speed &&
+        speed.contentUnitVersion === CONTENT_UNIT_VERSION &&
+        Number.isFinite(speed.contentUnitCount) &&
+        speed.contentUnitCount >= 0;
+    }
+
+    function _isActiveBook(bookId, activeBook) {
+      return state.currentBookId === bookId && state.book === activeBook;
+    }
+
+    function _getSectionReadingText(item, loadedContent) {
+      const doc = item && item.document
+        ? item.document
+        : (loadedContent && loadedContent.nodeType === 9 ? loadedContent : null);
+      const root = doc && (doc.body || doc.documentElement)
+        ? (doc.body || doc.documentElement)
+        : (loadedContent && loadedContent.nodeType ? loadedContent : null);
+      if (!root) throw new Error('Section document is unavailable');
+
+      if (typeof root.cloneNode !== 'function') return root.textContent || '';
+      const clone = root.cloneNode(true);
+      if (typeof clone.querySelectorAll === 'function') {
+        clone.querySelectorAll(CONTENT_UNIT_EXCLUDED_SELECTOR).forEach((node) => {
+          if (typeof node.remove === 'function') node.remove();
+          else if (node.parentNode) node.parentNode.removeChild(node);
+        });
+      }
+      return clone.textContent || '';
+    }
+
+    async function _countBookContentUnits(bookId, activeBook) {
+      const spine = activeBook && activeBook.spine;
+      if (!spine || !Number.isFinite(spine.length) || typeof spine.get !== 'function') {
+        throw new Error('Book spine is unavailable');
+      }
+
+      const activeLoad = typeof activeBook.load === 'function'
+        ? activeBook.load.bind(activeBook)
+        : undefined;
+      let totalUnits = 0;
+
+      for (let index = 0; index < spine.length; index++) {
+        if (!_isActiveBook(bookId, activeBook)) return null;
+        const item = spine.get(index);
+        if (!item || typeof item.load !== 'function') {
+          throw new Error(`Section ${index} cannot be loaded`);
+        }
+
+        let loaded = false;
+        try {
+          const loadedContent = await item.load(activeLoad);
+          loaded = true;
+          if (!_isActiveBook(bookId, activeBook)) return null;
+          totalUnits += Utils.countReadingUnits(_getSectionReadingText(item, loadedContent));
+        } finally {
+          if (loaded && typeof item.unload === 'function') item.unload();
+        }
+        await _delay(0);
+      }
+
+      return totalUnits;
+    }
+
+    function _scheduleContentUnitCount(bookId, activeBook) {
+      if (_hasCurrentContentUnitCount(state.cachedSpeed)) {
+        state.contentUnitStatus = 'ready';
+        return;
+      }
+
+      const spine = activeBook && activeBook.spine;
+      if (!spine || !Number.isFinite(spine.length) || typeof spine.get !== 'function') {
+        state.contentUnitStatus = 'failed';
+        if (persistence && typeof persistence.updateReadingStats === 'function') {
+          persistence.updateReadingStats();
+        }
+        return;
+      }
+
+      state.contentUnitStatus = 'pending';
+      if (persistence && typeof persistence.updateReadingStats === 'function') {
+        persistence.updateReadingStats();
+      }
+
+      scheduleLocationsGeneration(async () => {
+        if (!_isActiveBook(bookId, activeBook)) return;
+        try {
+          const contentUnitCount = await _countBookContentUnits(bookId, activeBook);
+          if (contentUnitCount === null || !_isActiveBook(bookId, activeBook)) return;
+
+          const speedPatch = {
+            contentUnitCount,
+            contentUnitVersion: CONTENT_UNIT_VERSION
+          };
+          await EpubStorage.saveReadingSpeed(bookId, speedPatch);
+          if (!_isActiveBook(bookId, activeBook)) return;
+
+          state.cachedSpeed = { ...state.cachedSpeed, ...speedPatch };
+          state.contentUnitStatus = 'ready';
+        } catch (e) {
+          if (!_isActiveBook(bookId, activeBook)) return;
+          state.contentUnitStatus = 'failed';
+          console.warn('[Runtime] content unit count failed:', e);
+        }
+
+        if (persistence && typeof persistence.updateReadingStats === 'function') {
+          persistence.updateReadingStats();
+        }
+      });
     }
 
     function _loadCachedLocations(cachedLocsJSON) {
@@ -544,6 +657,10 @@
             persistence.updateReadingStats();
           }
         }
+
+        if (_isActiveBook(bookId, activeBook)) {
+          _scheduleContentUnitCount(bookId, activeBook);
+        }
       });
     }
 
@@ -579,7 +696,17 @@
       // 直接初始化内存缓存，避免再次读取同一份 bookMeta。
       state.cachedSpeed = (meta && meta.speed)
         ? meta.speed
-        : { sampledSeconds: 0, sampledProgress: 0 };
+        : {
+          sampledSeconds: 0,
+          sampledProgress: 0,
+          sessions: [],
+          sessionCount: 0,
+          contentUnitCount: null,
+          contentUnitVersion: 0
+        };
+      state.contentUnitStatus = _hasCurrentContentUnitCount(state.cachedSpeed)
+        ? 'ready'
+        : 'idle';
 
       // ── 启动计时 ────────────────────────────────────────────────────────────
       persistence.startReadingTimer();
@@ -701,6 +828,7 @@
 
       if (cachedLocsJSON) {
         _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking);
+        _scheduleContentUnitCount(bookId, state.book);
       } else {
         _scheduleLocationsGeneration(bookId, fileData, state.book, initSpeedTracking);
       }

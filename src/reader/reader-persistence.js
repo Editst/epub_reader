@@ -7,7 +7,7 @@
  *   - flushSpeedSession：结束 session，累加 cachedSpeed 写入 storage
  *   - onRelocated：relocated 事件主处理器（更新进度 / 章节 / 速度追踪）
  *   - startReadingTimer：1s 计时器，每 10s 写入时长，每 60s 刷新 ETA
- *   - updateReadingStats：更新底部时长 + ETA 展示
+ *   - updateReadingStats：更新底部时长 + 历史平均字速 + ETA 展示
  *   - visibilitychange 监听：隐藏时 flush 全部，可见时重置 session 起点
  *
  * 本层不持有 DOM 引用，所有视图操作通过 ui.* 调用。
@@ -401,6 +401,7 @@
           }
           const weight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
           state.cachedSpeed = {
+            ...state.cachedSpeed,
             sampledSeconds:  state.cachedSpeed.sampledSeconds  + (deltaSeconds  * weight),
             sampledProgress: state.cachedSpeed.sampledProgress + (deltaProgress * weight)
           };
@@ -518,7 +519,7 @@
     // ── Reading Stats ─────────────────────────────────────────────────────────
 
     /**
-     * 更新底部阅读统计栏（时长 + ETA）。
+     * 更新底部阅读统计栏（时长 + 历史平均字速 + ETA）。
      *
      * ETA 策略（加权版）：
      *   1. 历史累积速度 cachedSpeed（sampledProgress>1%, sampledSeconds>120s）
@@ -529,6 +530,13 @@
       if (!state.rendition || !state.book) return;
 
       const readStr = Utils.formatDuration(state.activeReadingSeconds);
+      const speedEstimate = Utils.estimateReadingSpeed(
+        state.cachedSpeed,
+        state.contentUnitStatus
+      );
+      const speedStr = speedEstimate.unitsPerMinute !== null
+        ? `${speedEstimate.unitsPerMinute}字/分钟`
+        : (speedEstimate.isEstimating ? '估算中' : '--');
 
       let remainingStr = '--';
       const hasLocations = !!(state.book.locations && state.book.locations.length());
@@ -559,7 +567,9 @@
         }
       }
 
-      ui.updateReadingStatsText(`阅读时长: ${readStr} | 预计剩余: ${remainingStr}`);
+      ui.updateReadingStatsText(
+        `阅读时长: ${readStr} | 阅读速度: ${speedStr} | 预计剩余: ${remainingStr}`
+      );
 
       if (typeof ui.setLocationIndexStatus === 'function' && !hasLocations) {
         if (state.locationsStatus === 'pending' || state.locationsStatus === 'generating') {
