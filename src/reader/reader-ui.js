@@ -104,7 +104,10 @@
      * 清除 reader-main 的 error 样式（对应 showLoadError 设置的 reader-main-error）。
      */
     function clearReaderError() {
-      dom.readerMain?.classList.remove('reader-main-error');
+      const readerMain = dom.readerMain;
+      if (!readerMain) return;
+      readerMain.classList.remove('reader-main-error');
+      readerMain.querySelector('.reader-error-wrapper')?.remove();
     }
 
     /**
@@ -164,9 +167,10 @@
       const rm = dom.readerMain;
       if (!rm) return;
 
-      // 清理epub-viewer（如果存在）和旧的error wrapper
+      // 保留 epub.js 的固定挂载节点，清空残留内容并替换旧错误提示。
+      // 用户在错误页重新导入时，runtime 仍需复用同一个 #epub-viewer。
       const epubViewer = document.getElementById('epub-viewer');
-      if (epubViewer) epubViewer.remove();
+      if (epubViewer) epubViewer.replaceChildren();
       const oldWrapper = rm.querySelector('.reader-error-wrapper');
       if (oldWrapper) oldWrapper.remove();
 

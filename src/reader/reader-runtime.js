@@ -341,12 +341,12 @@
       rendition.__readerDisplayGuarded = true;
     }
 
-    async function _waitForRenditionStable() {
+    async function _waitForRenditionStable(rendition = state.rendition) {
       await _nextFrame();
       await _nextFrame();
 
-      const contents = state.rendition && typeof state.rendition.getContents === 'function'
-        ? state.rendition.getContents()
+      const contents = rendition && typeof rendition.getContents === 'function'
+        ? rendition.getContents()
         : [];
       const fontPromises = contents
         .map((contentsItem) => contentsItem && contentsItem.document && contentsItem.document.fonts && contentsItem.document.fonts.ready)
@@ -948,13 +948,18 @@
       });
     }
 
-    async function _displayLayoutRendition(rendition, cfi) {
+    async function _displayLayoutRendition(rendition, cfi, isActive) {
       if (cfi) await rendition.display(cfi);
       else await rendition.display();
-      // 等待 relocated 事件处理完毕后再解除恢复保护。
-      await new Promise((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(resolve));
-      });
+      await _waitForRenditionStable(rendition);
+      if (isActive && !isActive()) return false;
+      // 新 rendition 首次 display 时，字体与自定义行距可能尚未完成重排。
+      // 稳定后只重放同一个 CFI 一次，避免落在重排前分页对应的错误列。
+      if (cfi) {
+        await rendition.display(cfi);
+        await _waitForRenditionStable(rendition);
+      }
+      return !isActive || isActive();
     }
 
     function _isCurrentLayoutContext(layoutId, activeBook, activeRendition) {
@@ -986,6 +991,25 @@
       }
     }
 
+    function _getLayoutRestoreCfi(rendition) {
+      const locator = state.currentStableLocator;
+      if (
+        locator &&
+        locator.sourceCfi === state.currentStableCfi &&
+        typeof locator.restoreCfi === 'string' &&
+        locator.restoreCfi
+      ) {
+        return locator.restoreCfi;
+      }
+      try {
+        const location = rendition && rendition.currentLocation();
+        return location?.start?.cfi || state.currentStableCfi || null;
+      } catch (e) {
+        console.warn('[Runtime] layout switch could not read current location:', e);
+        return state.currentStableCfi || null;
+      }
+    }
+
     async function _rollbackLayout(
       previousLayout, currentCfi, failedRendition, layoutId, activeBook
     ) {
@@ -1000,7 +1024,12 @@
         state.rendition = rendition;
         _hookRenditionEvents(rendition, state.prefs.theme);
         _mountFeatureModules();
-        await _displayLayoutRendition(rendition, currentCfi);
+        const displayed = await _displayLayoutRendition(
+          rendition,
+          currentCfi,
+          () => _isCurrentLayoutContext(layoutId, activeBook, rendition)
+        );
+        if (!displayed) return null;
         return rendition;
       } catch (e) {
         if (_isCurrentLayoutContext(layoutId, activeBook, rollbackRendition)) {
@@ -1032,14 +1061,7 @@
       const activeBook = state.book;
       const previousLayout = state.prefs.layout;
       const previousRendition = state.rendition;
-      let currentCfi = null;
-      try {
-        const loc = previousRendition ? previousRendition.currentLocation() : null;
-        currentCfi = loc && loc.start ? loc.start.cfi : null;
-      } catch (e) {
-        console.warn('[Runtime] layout switch could not read current location:', e);
-        return false;
-      }
+      const currentCfi = _getLayoutRestoreCfi(previousRendition);
 
       let activeRendition = previousRendition;
       let layoutCompleted = false;
@@ -1060,7 +1082,12 @@
 
         _mountFeatureModules();
 
-        await _displayLayoutRendition(activeRendition, currentCfi);
+        const displayed = await _displayLayoutRendition(
+          activeRendition,
+          currentCfi,
+          () => _isCurrentLayoutContext(layoutId, activeBook, activeRendition)
+        );
+        if (!displayed) return false;
         if (!_isCurrentLayoutContext(layoutId, activeBook, activeRendition)) return false;
         layoutCompleted = true;
         _saveLayoutPreferenceSafely(layout);

@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.28
+版本：v2.5.29
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -560,7 +560,7 @@ _mountFeatureModules(): void
 - `openBook()` 打开新书前必须先收口旧书：`flushPositionSave()`、保存阅读时长、`flushSpeedSession(null)`，随后 `moduleLifecycle.unmount()`、销毁旧 `rendition` 与旧 `book`，再重置阅读 session。
 - 新书加载期间必须设置 `isBookLoaded=false`、`isLayoutStable=false`、`navLock=false`，直到首屏 `display()` 和恢复逻辑完成后再允许导航和计时写入。
 - `loadFileByBookId()` 应直接把缓存 `record.data` 交给 `openBook()`，由 `normalizeBookData()` 统一处理 `ArrayBuffer` / `Blob` / `TypedArray`，避免非零 offset 视图被扩展成完整 backing buffer。
-- `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`，await `display(currentCfi)` + 双帧等待后解除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`；恢复目标优先使用与主 CFI 绑定的 `locator.restoreCfi`，再回退当前页起点/主 CFI。新 rendition 首次 display 后必须等待字体和样式稳定，再重放同一个 CFI 一次，避免重排前分页把用户带到错误列。
 - `setLayout()` 中销毁旧 rendition、创建/挂钩新 rendition、功能模块重绑或 `display()` 任一步失败，必须重建原布局并释放 `isRestoringPosition`；若回滚也失败，则销毁 book/rendition 并清空损坏上下文。
 - 并发布局切换只有最新代次可以恢复稳定锁、保存偏好或清理失败上下文；旧任务迟到完成或迟到回滚失败不得覆盖、销毁新布局状态。
 - `setLayout()` 保存 layout 偏好失败时只记录告警，不得阻断当前布局切换，也不得产生未处理 Promise 拒绝。
@@ -583,6 +583,7 @@ _mountFeatureModules(): void
 - 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
 - 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
 - `discardDeletedBook()` 只处理与当前 `bookId` 匹配的外部删除事件：作废打开/布局/导航代次，销毁 rendition/book、卸载功能模块并重置 session，但保持 runtime 可供用户重新导入。
+- 加载失败或外部删除的错误 UI 只能清空并隐藏 `#epub-viewer`，不得删除这个固定挂载节点；`clearReaderError()` 同时移除旧错误 wrapper，使用户可在原 Reader 页面重新导入。
 
 **导航边界约束**：
 - `next()`、`prev()`、`displayPercentage()` 和 lifecycle context 的 `navigate(target)` 必须在 `ReaderRuntime` 内消费 rendition 的同步异常与 Promise 拒绝，并以布尔值表示是否成功；DOM 事件调用方不得留下未处理拒绝。

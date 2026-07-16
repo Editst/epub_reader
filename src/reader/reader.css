@@ -671,6 +671,10 @@ html, body {
   align-items: stretch;
 }
 
+.reader-main-error #epub-viewer {
+  display: none;
+}
+
 .reader-error-wrapper {
   display: flex;
   flex-direction: column;

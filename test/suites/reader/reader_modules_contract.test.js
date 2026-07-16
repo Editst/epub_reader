@@ -123,6 +123,16 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.ok(!src.includes("classList.remove('hidden')"));
   });
 
+  test.it('Reader 错误页保留 epub.js 挂载节点并允许原页重新导入', () => {
+    const source = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    const styles = fs.readFileSync('src/reader/reader.css', 'utf8');
+
+    assert.ok(source.includes('epubViewer.replaceChildren()'));
+    assert.ok(!source.includes('epubViewer.remove()'));
+    assert.ok(source.includes("readerMain.querySelector('.reader-error-wrapper')?.remove()"));
+    assert.match(styles, /\.reader-main-error\s+#epub-viewer\s*\{[^}]*display:\s*none/s);
+  });
+
   test.it('ReaderRuntime 将 locations 初始化与后台生成从打开主流程拆出', () => {
     const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
 

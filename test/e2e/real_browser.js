@@ -179,6 +179,10 @@ class WebDriver {
     return this.request('DELETE', this.endpoint('/window'));
   }
 
+  acceptAlert() {
+    return this.request('POST', this.endpoint('/alert/accept'), {});
+  }
+
   browserLogs() {
     return this.request('POST', this.endpoint('/se/log'), { type: 'browser' });
   }
@@ -442,10 +446,53 @@ async function configureDeterministicPreferences(driver) {
     EpubStorage.savePreferences({
       layout: 'paginated',
       spread: 'none',
-      fontSize: 20,
-      lineHeight: 1.8,
+      fontSize: 32,
+      lineHeight: 3,
       fontFamily: ''
     }).then(() => done(true), (error) => done({ __error: String(error) }));
+  `);
+}
+
+async function switchLayout(driver, layout) {
+  await driver.evaluate(`
+    const panel = document.getElementById('settings-panel');
+    if (panel && !panel.classList.contains('open')) {
+      document.getElementById('btn-settings')?.click();
+    }
+  `);
+  await waitFor(() => driver.evaluate(`
+    return document.getElementById('settings-panel')?.classList.contains('open');
+  `), '设置面板未打开');
+  await delay(350);
+  const button = await driver.find(`.layout-btn[data-layout="${layout}"]`);
+  await driver.click(button);
+  const switched = await waitFor(() => driver.evaluateAsync(`
+    const layout = arguments[0];
+    const done = arguments[arguments.length - 1];
+    EpubStorage.getPreferences().then((prefs) => {
+      const active = document.querySelector('.layout-btn.active')?.dataset.layout;
+      const iframeReady = !!document.querySelector('#epub-viewer iframe')?.contentDocument?.body;
+      done(prefs.layout === layout && active === layout && iframeReady);
+    }, () => done(false));
+  `, [layout]), `布局未切换到 ${layout}`);
+  await driver.evaluate(`document.getElementById('btn-settings-close')?.click();`);
+  await waitFor(() => driver.evaluate(`
+    return !document.getElementById('settings-panel')?.classList.contains('open');
+  `), '设置面板未关闭');
+  return switched;
+}
+
+async function getVisibleSearchQuery(driver) {
+  return driver.evaluate(`
+    const text = [...document.querySelectorAll('#epub-viewer iframe')]
+      .map((iframe) => iframe.contentDocument?.body?.innerText || '')
+      .join(' ')
+      .replace(/\\s+/g, ' ')
+      .trim();
+    const cjk = text.match(/[\\u3400-\\u9fff]{4,8}/);
+    if (cjk) return cjk[0];
+    const word = text.match(/[A-Za-z]{5,12}/);
+    return word ? word[0] : '';
   `);
 }
 
@@ -516,15 +563,16 @@ async function run() {
 
     const initialPosition = await waitFor(() => getPosition(driver, book.id), '初始位置未写入');
     const nextButton = await driver.find('#btn-next');
-    for (let turn = 0; turn < 8; turn++) {
-      await driver.click(nextButton);
-      await delay(350);
-    }
-
+    await driver.evaluate(`
+      const slider = document.getElementById('progress-slider');
+      slider.value = '10';
+      slider.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
     const navigatedPosition = await waitFor(async () => {
       const position = await getPosition(driver, book.id);
       return position && position.cfi !== initialPosition.cfi ? position : null;
-    }, '连续翻页后位置没有更新');
+    }, '百分比导航后位置没有更新');
+    await delay(350);
     await driver.evaluate(`
       window.__e2eRealDateNow = Date.now.bind(Date);
       const advancedNow = window.__e2eRealDateNow() + 300000;
@@ -633,6 +681,22 @@ async function run() {
     assert.ok(similarity >= 0.55, `关闭并重开 Reader 后可见正文不一致（相似度 ${similarity.toFixed(2)}）`);
     console.log(`关闭/重开恢复：正文指纹相似度 ${(similarity * 100).toFixed(1)}%`);
 
+    const layoutAnchor = savedPosition.locator.restoreCfi || savedPosition.cfi;
+    await switchLayout(driver, 'scrolled');
+    await delay(500);
+    assert.ok((await getPosition(driver, book.id))?.cfi, '切换滚动布局后持久位置丢失');
+    await switchLayout(driver, 'paginated');
+    await delay(500);
+    const layoutAnchorVisibility = await getCfiVisibility(driver, layoutAnchor);
+    if (!layoutAnchorVisibility.visible) {
+      console.error('布局往返前位置：', afterReopenPosition);
+      console.error('布局往返后位置：', await getPosition(driver, book.id));
+      console.error('布局往返锚点可见性：', layoutAnchorVisibility);
+      console.error('布局往返后渲染几何：', await getRenderGeometry(driver));
+    }
+    assert.equal(layoutAnchorVisibility.visible, true, '滚动/分页往返后原页锚点不在可视区域');
+    console.log('布局往返保位：paginated → scrolled → paginated，锚点可见');
+
     await driver.setWindowRect(980, 760);
     await delay(900);
     const resizedPosition = await getPosition(driver, book.id);
@@ -664,6 +728,43 @@ async function run() {
     assert.equal(postRestorePosition.locator?.sourceCfi, postRestorePosition.cfi);
     await assertNoRuntimeErrors(driver, '恢复与 reflow');
     console.log(`恢复后继续翻页：${postRestorePosition.cfi}`);
+
+    const searchQuery = await getVisibleSearchQuery(driver);
+    assert.ok(searchQuery.length >= 4, '无法从真实正文提取搜索词');
+    const tocButton = await driver.find('#btn-toc');
+    await driver.click(tocButton);
+    const tocTarget = await waitFor(async () => {
+      const count = await driver.evaluate(`return document.querySelectorAll('#toc-container .toc-item').length;`);
+      return count > 1 ? driver.find('#toc-container .toc-item:last-child') : null;
+    }, '真实 EPUB 未渲染可导航目录');
+    await driver.click(tocTarget);
+    const tocPosition = await waitFor(async () => {
+      const position = await getPosition(driver, book.id);
+      return position?.cfi && position.cfi !== postRestorePosition.cfi ? position : null;
+    }, '真实目录点击没有导航并保存新位置');
+
+    const searchButton = await driver.find('#btn-search');
+    await driver.click(searchButton);
+    await driver.evaluate(`
+      const input = document.getElementById('search-input');
+      input.value = arguments[0];
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    `, [searchQuery]);
+    const doSearchButton = await driver.find('#btn-do-search');
+    await driver.click(doSearchButton);
+    const searchResult = await waitFor(async () => {
+      const status = await driver.evaluate(`return document.getElementById('search-status')?.textContent || '';`);
+      if (/搜索出错|暂无结果/.test(status)) throw new Error(status);
+      const count = await driver.evaluate(`return document.querySelectorAll('#search-results-list .search-result-item').length;`);
+      return count > 0 ? driver.find('#search-results-list .search-result-item:first-child') : null;
+    }, `真实 EPUB 搜索未找到“${searchQuery}”`, 45000);
+    await driver.click(searchResult);
+    await waitFor(async () => {
+      const position = await getPosition(driver, book.id);
+      return position?.cfi && position.cfi !== tocPosition.cfi ? position : null;
+    }, '搜索结果点击没有通过 runtime 导航并保存位置');
+    await assertNoRuntimeErrors(driver, '目录与搜索');
+    console.log(`功能导航：目录与正文搜索“${searchQuery}”均通过 runtime 生效`);
 
     const activeReaderWindow = await driver.currentWindowHandle();
     const homeTab = await driver.newWindow('tab');
@@ -733,6 +834,78 @@ async function run() {
     assert.equal(deletionResidue.hasDeletionMarker, true, '跨页面删除标记未持久化');
     await assertNoRuntimeErrors(driver, '跨标签页删除');
     console.log('跨标签页删除：活动 Reader 已收口，迟到写入未复活书籍数据');
+
+    const reimportInput = await driver.find('#file-input');
+    await driver.sendFile(reimportInput, epubPath);
+    await waitForBookLoaded(driver, loaded.title);
+    await waitFor(async () => {
+      const books = await getRecentBooks(driver);
+      return books.some((entry) => entry.id === book.id);
+    }, '删除错误页原地重新导入后 recentBooks 未恢复');
+    assert.equal(await driver.evaluate(`return !!document.querySelector('#epub-viewer iframe');`), true,
+      '删除错误页原地重新导入后 epub.js 未重新挂载');
+    console.log('错误页恢复：保留 #epub-viewer 后可在原 Reader 重新导入');
+
+    const orphanId = 'e2e-orphan-' + book.id;
+    const orphanSetup = await driver.evaluateAsync(`
+      const orphanId = arguments[0];
+      const done = arguments[arguments.length - 1];
+      Promise.all([
+        EpubStorage.savePosition(orphanId, 'epubcfi(/6/2)', 10),
+        EpubStorage.saveHighlights(orphanId, [{ cfi: 'orphan-highlight' }]),
+        EpubStorage.saveBookmarks(orphanId, [{ cfi: 'orphan-bookmark' }]),
+        EpubStorage.saveLocations(orphanId, '["orphan-location"]'),
+        EpubStorage.saveCover(orphanId, new Blob(['cover'], { type: 'image/plain' }))
+      ]).then(() => done({ ok: true }), (error) => done({ ok: false, error: String(error) }));
+    `, [orphanId]);
+    assert.equal(orphanSetup.ok, true, `构造清空测试孤立数据失败：${orphanSetup.error || ''}`);
+
+    await driver.switchToWindow(homeTab.handle);
+    await driver.navigate(`chrome-extension://${extensionId}/home/home.html`);
+    await waitFor(() => driver.evaluate(`
+      const button = document.getElementById('btn-clear-all');
+      return button && !button.classList.contains('is-hidden');
+    `), 'Home 清空书架按钮未显示');
+    const clearAllButton = await driver.find('#btn-clear-all');
+    await driver.click(clearAllButton);
+    await driver.acceptAlert();
+    await waitFor(async () => {
+      const ids = await driver.evaluateAsync(`
+        const done = arguments[arguments.length - 1];
+        EpubStorage.getAllBookIds().then(done, (error) => done({ __error: String(error) }));
+      `);
+      return Array.isArray(ids) && ids.length === 0;
+    }, '通过 Home 清空书架后仍有书籍资源残留');
+
+    await driver.switchToWindow(activeReaderWindow);
+    await waitFor(() => driver.evaluate(`
+      const error = document.querySelector('.reader-error-wrapper');
+      return error && /已从书架删除/.test(error.textContent) && !document.querySelector('#epub-viewer iframe');
+    `), 'Home 清空书架后活动 Reader 未收口');
+    const clearResidue = await driver.evaluateAsync(`
+      const ids = arguments[0];
+      const done = arguments[arguments.length - 1];
+      Promise.all(ids.map(async (id) => ({
+        id,
+        meta: await EpubStorage.getBookMeta(id),
+        highlights: await EpubStorage.getHighlights(id),
+        bookmarks: await EpubStorage.getBookmarks(id),
+        cover: await EpubStorage.getCover(id),
+        locations: await EpubStorage.getLocations(id),
+        file: await EpubStorage.getFile(id)
+      }))).then(done, (error) => done({ __error: String(error) }));
+    `, [[book.id, orphanId]]);
+    assert.equal(clearResidue.__error, undefined, clearResidue.__error);
+    for (const residue of clearResidue) {
+      assert.equal(residue.meta, null, `${residue.id} 清空后残留 bookMeta`);
+      assert.deepEqual(residue.highlights, [], `${residue.id} 清空后残留 highlights`);
+      assert.deepEqual(residue.bookmarks, [], `${residue.id} 清空后残留 bookmarks`);
+      assert.equal(residue.cover, null, `${residue.id} 清空后残留 cover`);
+      assert.equal(residue.locations, null, `${residue.id} 清空后残留 locations`);
+      assert.equal(residue.file, null, `${residue.id} 清空后残留 EPUB 文件`);
+    }
+    await assertNoRuntimeErrors(driver, '重新导入与清空书架');
+    console.log('Home 清空书架：真实确认框路径清理当前书与孤立资源，并收口活动 Reader');
 
     success = true;
     console.log('真实浏览器 E2E：通过');

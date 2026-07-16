@@ -882,7 +882,7 @@ test.describe('ReaderRuntime', () => {
     });
   });
 
-  test.it('setLayout 偏好保存失败不阻断布局切换且记录告警', async () => {
+  test.it('setLayout 优先恢复页内锚点，且偏好保存失败不阻断切换', async () => {
     global.requestAnimationFrame = (fn) => fn();
     global.ImageViewer = undefined;
     global.Annotations = undefined;
@@ -926,6 +926,11 @@ test.describe('ReaderRuntime', () => {
       },
       currentBookId: 'book-layout-pref',
       currentFileName: 'layout.epub',
+      currentStableCfi: 'epubcfi(/6/2)',
+      currentStableLocator: {
+        sourceCfi: 'epubcfi(/6/2)',
+        restoreCfi: 'epubcfi(/6/2!/4/8/1:12)'
+      },
       isBookLoaded: true,
       isLayoutStable: true
     };
@@ -954,7 +959,10 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.prefs.layout, 'scrolled');
     assert.equal(state.isLayoutStable, true);
     assert.equal(oldDestroyed, true);
-    assert.deepEqual(displayed, ['epubcfi(/6/2)']);
+    assert.deepEqual(displayed, [
+      'epubcfi(/6/2!/4/8/1:12)',
+      'epubcfi(/6/2!/4/8/1:12)'
+    ]);
     assert.match(String(warnings[0]?.[0] || ''), /save layout preference failed/);
   });
 
@@ -1084,7 +1092,7 @@ test.describe('ReaderRuntime', () => {
     }
 
     assert.equal(renderCount, 2);
-    assert.deepEqual(rollbackDisplays, ['epubcfi(/6/8)']);
+    assert.deepEqual(rollbackDisplays, ['epubcfi(/6/8)', 'epubcfi(/6/8)']);
     assert.equal(state.prefs.layout, 'paginated');
     assert.equal(state.isBookLoaded, true);
     assert.equal(state.isRestoringPosition, false);
