@@ -405,6 +405,18 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(meta.time, 600);
   });
 
+  test.it('addReadingTime 在锁内合并多个标签页提交的时长增量', async () => {
+    const id = 'book-concurrent-reading-time';
+    await EpubStorage.saveReadingTime(id, 100);
+
+    await Promise.all([
+      EpubStorage.addReadingTime(id, 10),
+      EpubStorage.addReadingTime(id, 20)
+    ]);
+
+    assert.equal((await EpubStorage.getBookMeta(id)).time, 130);
+  });
+
   test.it('addReadingSpeedSample 在锁内累加并保留正文计数字段', async () => {
     const id = 'book-speed-sample-merge';
     await EpubStorage.saveReadingSpeed(id, {
@@ -678,6 +690,7 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     await EpubStorage.savePosition(id, 'epubcfi(/6/8)', 80);
     await EpubStorage.saveReadingTime(id, 600);
+    await EpubStorage.addReadingTime(id, 30);
     await EpubStorage.saveHighlights(id, [{ cfi: 'late-highlight' }]);
     await EpubStorage.saveBookmarks(id, [{ cfi: 'late-bookmark' }]);
     await EpubStorage.addRecentBook({ id, title: 'Late write' });

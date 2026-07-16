@@ -2531,7 +2531,6 @@ test.describe('ReaderRuntime', () => {
     const originalGetPosition = EpubStorage.getPosition;
     const originalAddRecentBook = EpubStorage.addRecentBook;
     const originalGetLocations = EpubStorage.getLocations;
-    const originalSaveReadingTime = EpubStorage.saveReadingTime;
     const originalWarn = console.warn;
 
     EpubStorage.getPreferences = async () => ({ layout: 'paginated', theme: 'light' });
@@ -2539,10 +2538,6 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.getPosition = async () => null;
     EpubStorage.addRecentBook = async () => {};
     EpubStorage.getLocations = async () => 'cached-locations';
-    EpubStorage.saveReadingTime = async (bookId, seconds) => {
-      events.push(['save-time', bookId, seconds]);
-      throw new Error('time write failed');
-    };
     console.warn = () => {};
 
     try {
@@ -2572,6 +2567,10 @@ test.describe('ReaderRuntime', () => {
         },
         persistence: {
           flushPositionSave() { events.push('flush-position'); return Promise.resolve(); },
+          flushReadingTime(bookId) {
+            events.push(['flush-time', bookId]);
+            return Promise.reject(new Error('time write failed'));
+          },
           flushSpeedSession(value) { events.push(['flush-speed', value]); return Promise.resolve(); },
           startReadingTimer() { events.push('start-timer'); },
           onRelocated() {}
@@ -2586,7 +2585,7 @@ test.describe('ReaderRuntime', () => {
 
       assert.deepEqual(events.slice(0, 6), [
         'flush-position',
-        ['save-time', 'old-book', 123],
+        ['flush-time', 'old-book'],
         ['flush-speed', null],
         'modules-unmount',
         'old-rendition-destroy',
@@ -2602,7 +2601,6 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.getPosition = originalGetPosition;
       EpubStorage.addRecentBook = originalAddRecentBook;
       EpubStorage.getLocations = originalGetLocations;
-      EpubStorage.saveReadingTime = originalSaveReadingTime;
       console.warn = originalWarn;
     }
   });

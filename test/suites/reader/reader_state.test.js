@@ -19,6 +19,8 @@ test.describe('ReaderState', () => {
     assert.equal(state.contentUnitStatus, 'idle');
     assert.equal(state.isRestoreAnchorProtected, false);
     assert.equal(state.lastPositionSave, null);
+    assert.equal(state.pendingReadingSeconds, 0);
+    assert.equal(state.lastReadingTimeSave, null);
     assert.equal(state.currentStableLocator, null);
     assert.equal(state.prefs.theme, 'light');
     assert.equal(state.prefs.layout, 'paginated');
@@ -35,6 +37,8 @@ test.describe('ReaderState', () => {
     global.clearTimeout = (timer) => cleared.push(['timeout', timer]);
 
     state.activeReadingSeconds = 300;
+    state.pendingReadingSeconds = 8;
+    state.lastReadingTimeSave = Promise.resolve();
     state.cachedSpeed = { sampledSeconds: 60, sampledProgress: 0.1 };
     state.contentUnitStatus = 'ready';
     state.sessionStart = { progress: 0.3, timestamp: 1 };
@@ -56,6 +60,8 @@ test.describe('ReaderState', () => {
     global.clearTimeout = originalClearTimeout;
 
     assert.equal(state.activeReadingSeconds, 0);
+    assert.equal(state.pendingReadingSeconds, 0);
+    assert.equal(state.lastReadingTimeSave, null);
     assert.equal(state.cachedSpeed, null);
     assert.equal(state.contentUnitStatus, 'idle');
     assert.equal(state.sessionStart, null);

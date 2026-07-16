@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.30
+版本：v2.5.31
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -135,7 +135,7 @@ epub_reader/
 1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`；Reader 页本地导入必须等待 `storeFile()` 落盘后再 `openBook()`。
 2. **阅读**：`onRelocated` → `schedulePositionSave`（每次有意义的位置变化立即写入，并开启 300ms 最新事件保护窗）→ `bookMeta_<id>`。
 3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
-4. **统计**：`visibilitychange` → `flushSpeedSession` 记录采样。
+4. **统计**：计时器累计本页尚未提交的阅读秒数，定期或在 `visibilitychange` / 切书 / 关闭时由 `flushReadingTime` 原子累加；`flushSpeedSession` 记录速度采样。
 5. **清理**：用户主动删除时，`removeBook` 等待同书 `bookMeta` 与其他资源写入收尾，并行删除 7 项关联数据；自动 LRU 只删除 IndexedDB `files` 中超限的 EPUB 文件缓存，保留 recentBooks、bookMeta、highlights、bookmarks、covers 和 locations，避免误删阅读进度、书签与标注。
 
 ### 4.3 存储结构
@@ -259,6 +259,8 @@ removePosition(bookId: string): Promise<void>
 // 清除 pos 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
 
 saveReadingTime(bookId: string, seconds: number): Promise<void>
+addReadingTime(bookId: string, seconds: number): Promise<number | undefined>
+// Reader 只提交本页新增秒数；在同书 bookMeta 锁内累加并返回权威总时长，避免多标签页覆盖
 getReadingTime(bookId: string): Promise<number>
 removeReadingTime(bookId: string): Promise<void>
 // 清除 time 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
@@ -560,7 +562,7 @@ _mountFeatureModules(): void
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
 - `_hookRenditionEvents` 由 `openBook` 和 `setLayout` 共享，确保 rendition 事件绑定一致；功能模块重绑统一通过 `_mountFeatureModules()` 和 lifecycle context 完成。
 - `rendition.on('relocated')`、`displayed` 延迟聚焦、iframe 用户意图事件和 `display()` wrapper 必须校验触发者仍是当前 `state.rendition`；切书或布局重建后，旧 `rendition` 迟到事件不得写入当前书位置、抢焦点或解除恢复锚点保护。
-- `openBook()` 打开新书前必须先收口旧书：`flushPositionSave()`、保存阅读时长、`flushSpeedSession(null)`，随后 `moduleLifecycle.unmount()`、销毁旧 `rendition` 与旧 `book`，再重置阅读 session。
+- `openBook()` 打开新书前必须先收口旧书：`flushPositionSave()`、`flushReadingTime()`、`flushSpeedSession(null)`，随后 `moduleLifecycle.unmount()`、销毁旧 `rendition` 与旧 `book`，再重置阅读 session。
 - 新书加载期间必须设置 `isBookLoaded=false`、`isLayoutStable=false`、`navLock=false`，直到首屏 `display()` 和恢复逻辑完成后再允许导航和计时写入。
 - `loadFileByBookId()` 应直接把缓存 `record.data` 交给 `openBook()`，由 `normalizeBookData()` 统一处理 `ArrayBuffer` / `Blob` / `TypedArray`，避免非零 offset 视图被扩展成完整 backing buffer。
 - `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`；恢复目标优先使用与主 CFI 绑定的 `locator.restoreCfi`，再回退当前页起点/主 CFI。新 rendition 首次 display 后必须等待字体和样式稳定，再重放同一个 CFI 一次，避免重排前分页把用户带到错误列。
@@ -617,6 +619,7 @@ unmount(): void
 onRelocated(location: object): void
 schedulePositionSave(bookId: string, cfi: string, percent?: number | null): void
 flushPositionSave(): Promise<void>
+flushReadingTime(bookId?: string): Promise<void>
 flushSpeedSession(newStartProgress?: number | null): Promise<void>
 updateReadingStats(): void
 startReadingTimer(): void
@@ -658,6 +661,7 @@ startReadingTimer(): void
 - `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`；历史字速按 `contentUnitCount × sampledProgress ÷ sampledSeconds × 60` 换算，正文计数或样本不足显示“估算中”。
 - `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
 - `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时同时发起位置、阅读时长和速度 flush；页面重新可见时即使进度为 0% 也必须重启速度会话。
+- `flushReadingTime()` 只提交 `pendingReadingSeconds` 增量，并在第一个 `await` 前转移批次所有权；成功后用存储层返回的权威总时长校准当前展示，失败时把该批次退回待提交秒数。多个 Reader 标签页不得用各自缓存的绝对总时长互相覆盖。
 - 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。
 - `flushSpeedSession()` 必须在第一个 `await` 前转移 `sessionStart` 所有权；旧速度写入迟到完成不得清除页面重新可见后建立的新会话。切书时位置、时长和速度三项 flush 必须全部 settled，单项失败不得跳过其余清理。
 ---

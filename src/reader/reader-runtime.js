@@ -535,7 +535,9 @@
           () => typeof persistence.flushPositionSave === 'function'
             ? persistence.flushPositionSave()
             : undefined,
-          () => EpubStorage.saveReadingTime(oldBookId, state.activeReadingSeconds),
+          () => typeof persistence.flushReadingTime === 'function'
+            ? persistence.flushReadingTime(oldBookId)
+            : undefined,
           () => typeof persistence.flushSpeedSession === 'function'
             ? persistence.flushSpeedSession(null)
             : undefined
@@ -699,6 +701,8 @@
       );
       _assertOpenActive(openLifecycleSeq);
       state.activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
+      state.pendingReadingSeconds = 0;
+      state.lastReadingTimeSave = null;
       // 直接初始化内存缓存，避免再次读取同一份 bookMeta。
       state.cachedSpeed = (meta && meta.speed)
         ? meta.speed

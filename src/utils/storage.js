@@ -193,6 +193,18 @@ const EpubStorage = {
     });
   },
 
+  /** 原子累加本次阅读秒数，避免多个 Reader 标签页用旧总数互相覆盖。 */
+  async addReadingTime(bookId, seconds) {
+    if (!bookId || !Number.isFinite(seconds) || seconds <= 0) return undefined;
+    const delta = Math.floor(seconds);
+    if (delta <= 0) return undefined;
+    const meta = await this._enqueueBookMetaWrite(bookId, (current) => {
+      current.time = (Number.isFinite(current.time) ? current.time : 0) + delta;
+      return current;
+    });
+    return meta ? meta.time : undefined;
+  },
+
   async removeReadingTime(bookId) {
     if (!bookId) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {

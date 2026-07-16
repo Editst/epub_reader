@@ -1156,13 +1156,14 @@ test.describe('ReaderPersistence', () => {
     const saveTimeCalls = [];
     const speedCalls = [];
     const originalSavePosition = EpubStorage.savePosition;
-    const originalSaveReadingTime = EpubStorage.saveReadingTime;
+    const originalAddReadingTime = EpubStorage.addReadingTime;
     const originalAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
     EpubStorage.savePosition = async (...args) => {
       positionCalls.push(args);
     };
-    EpubStorage.saveReadingTime = async (...args) => {
+    EpubStorage.addReadingTime = async (...args) => {
       saveTimeCalls.push(args);
+      return 120;
     };
     EpubStorage.addReadingSpeedSample = async (...args) => {
       speedCalls.push(args);
@@ -1176,6 +1177,7 @@ test.describe('ReaderPersistence', () => {
       currentStableCfi: 'epubcfi(/6/8)',
       lastPercent: 88.8,
       activeReadingSeconds: 120,
+      pendingReadingSeconds: 20,
       sessionStart: { progress: 0.4, timestamp: Date.now() - 60_000 },
       lastProgress: 0.5,
       cachedSpeed: { sampledSeconds: 100, sampledProgress: 0.05 },
@@ -1192,20 +1194,21 @@ test.describe('ReaderPersistence', () => {
     persistence.mount();
     document.hidden = true;
     document.dispatchEvent('visibilitychange');
-    await Promise.resolve();
+    await state.lastReadingTimeSave;
     document.hidden = false;
     document.dispatchEvent('visibilitychange');
     persistence.unmount();
 
     EpubStorage.savePosition = originalSavePosition;
-    EpubStorage.saveReadingTime = originalSaveReadingTime;
+    EpubStorage.addReadingTime = originalAddReadingTime;
     EpubStorage.addReadingSpeedSample = originalAddReadingSpeedSample;
 
     assert.deepEqual(positionCalls, [
       ['book-4', 'epubcfi(/6/8)', 88.8],
       ['book-4', 'epubcfi(/6/8)', 88.8]
     ]);
-    assert.deepEqual(saveTimeCalls, [['book-4', 120]]);
+    assert.deepEqual(saveTimeCalls, [['book-4', 20]]);
+    assert.equal(state.pendingReadingSeconds, 0);
     assert.equal(speedCalls.length, 1);
     assert.equal(state.sessionStart.progress, 0.5);
   });
@@ -1281,12 +1284,12 @@ test.describe('ReaderPersistence', () => {
     global.document = document;
 
     const originalSavePosition = EpubStorage.savePosition;
-    const originalSaveReadingTime = EpubStorage.saveReadingTime;
+    const originalAddReadingTime = EpubStorage.addReadingTime;
     const originalWarn = console.warn;
     const warnings = [];
 
     EpubStorage.savePosition = async () => {};
-    EpubStorage.saveReadingTime = async () => {
+    EpubStorage.addReadingTime = async () => {
       throw new Error('time failed');
     };
     console.warn = (...args) => warnings.push(args);
@@ -1298,6 +1301,7 @@ test.describe('ReaderPersistence', () => {
       currentStableCfi: 'epubcfi(/6/8)',
       lastPercent: 88.8,
       activeReadingSeconds: 120,
+      pendingReadingSeconds: 10,
       sessionStart: null,
       lastProgress: 0,
       isBookLoaded: true
@@ -1312,15 +1316,16 @@ test.describe('ReaderPersistence', () => {
       persistence.mount();
       document.hidden = true;
       document.dispatchEvent('visibilitychange');
-      await Promise.resolve();
+      await state.lastReadingTimeSave;
       persistence.unmount();
     } finally {
       EpubStorage.savePosition = originalSavePosition;
-      EpubStorage.saveReadingTime = originalSaveReadingTime;
+      EpubStorage.addReadingTime = originalAddReadingTime;
       console.warn = originalWarn;
     }
 
     assert.match(String(warnings[0]?.[0] || ''), /save reading time failed/);
+    assert.equal(state.pendingReadingSeconds, 10, '失败批次应退回待提交秒数');
   });
 
   test.it('onRelocated 正常阅读时优先使用 relocated 事件位置，避免 currentLocation 旧值回滚', async () => {
@@ -1644,10 +1649,13 @@ test.describe('ReaderPersistence', () => {
     const timeSaves = [];
     const speedSaves = [];
     const origSavePosition = EpubStorage.savePosition;
-    const origSaveReadingTime = EpubStorage.saveReadingTime;
+    const origAddReadingTime = EpubStorage.addReadingTime;
     const origAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
     EpubStorage.savePosition = async (...args) => { saves.push(args); };
-    EpubStorage.saveReadingTime = async (...args) => { timeSaves.push(args); };
+    EpubStorage.addReadingTime = async (...args) => {
+      timeSaves.push(args);
+      return 90;
+    };
     EpubStorage.addReadingSpeedSample = async (...args) => {
       speedSaves.push(args);
       return { sampledSeconds: 60, sampledProgress: 0.1 };
@@ -1659,6 +1667,7 @@ test.describe('ReaderPersistence', () => {
       currentStableCfi: 'epubcfi(/6/5)',
       lastPercent: 25,
       activeReadingSeconds: 90,
+      pendingReadingSeconds: 15,
       sessionStart: { progress: 0.1, timestamp: Date.now() - 60_000 },
       lastProgress: 0.2,
       cachedSpeed: { sampledSeconds: 0, sampledProgress: 0 },
@@ -1674,17 +1683,18 @@ test.describe('ReaderPersistence', () => {
 
     // 模拟 beforeunload 事件
     beforeunloadHandlers.forEach((h) => h());
+    await state.lastReadingTimeSave;
 
     persistence.unmount();
     global.document = origDoc;
     if (origWindowAddEventListener) global.window.addEventListener = origWindowAddEventListener;
     if (origWindowRemoveEventListener) global.window.removeEventListener = origWindowRemoveEventListener;
     EpubStorage.savePosition = origSavePosition;
-    EpubStorage.saveReadingTime = origSaveReadingTime;
+    EpubStorage.addReadingTime = origAddReadingTime;
     EpubStorage.addReadingSpeedSample = origAddReadingSpeedSample;
 
     assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
-    assert.deepEqual(timeSaves, [['book-beforeunload', 90]]);
+    assert.deepEqual(timeSaves, [['book-beforeunload', 15]]);
     assert.equal(speedSaves.length, 1);
   });
 

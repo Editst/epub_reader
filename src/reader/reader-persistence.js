@@ -4,9 +4,10 @@
  * 职责：
  *   - schedulePositionSave：立即写入位置，并保留 300ms 最新事件保护窗
  *   - flushPositionSave：立即写入（页面隐藏时）
+ *   - flushReadingTime：原子提交尚未落盘的阅读秒数
  *   - flushSpeedSession：结束 session，累加 cachedSpeed 写入 storage
  *   - onRelocated：relocated 事件主处理器（更新进度 / 章节 / 速度追踪）
- *   - startReadingTimer：1s 计时器，每 10s 写入时长，每 60s 刷新 ETA
+ *   - startReadingTimer：1s 计时器，每 10s 增量写入时长，每 60s 刷新 ETA
  *   - updateReadingStats：更新底部时长 + 历史平均字速 + ETA 展示
  *   - visibilitychange 监听：隐藏时 flush 全部，可见时重置 session 起点
  *
@@ -46,11 +47,39 @@
       return state.lastPositionSave;
     }
 
-    function _saveReadingTimeSafely(bookId, seconds) {
-      return Utils.safeWrite(
-        () => EpubStorage.saveReadingTime(bookId, seconds),
-        '[Persistence] save reading time failed:'
-      );
+    function _getPendingReadingSeconds() {
+      return Number.isFinite(state.pendingReadingSeconds)
+        ? Math.max(0, Math.floor(state.pendingReadingSeconds))
+        : 0;
+    }
+
+    function flushReadingTime(bookId = state.currentBookId) {
+      const pendingSeconds = _getPendingReadingSeconds();
+      if (!bookId || pendingSeconds <= 0) {
+        return state.lastReadingTimeSave || Promise.resolve();
+      }
+
+      // 在 await 前转移本批次所有权；写入期间新产生的秒数留给下一批。
+      state.pendingReadingSeconds = 0;
+      const write = Promise.resolve()
+        .then(() => EpubStorage.addReadingTime(bookId, pendingSeconds))
+        .then((storedSeconds) => {
+          if (bookId === state.currentBookId && Number.isFinite(storedSeconds)) {
+            state.activeReadingSeconds = Math.max(
+              Number.isFinite(state.activeReadingSeconds) ? state.activeReadingSeconds : 0,
+              storedSeconds + _getPendingReadingSeconds()
+            );
+          }
+          return storedSeconds;
+        })
+        .catch((e) => {
+          if (bookId === state.currentBookId) {
+            state.pendingReadingSeconds = _getPendingReadingSeconds() + pendingSeconds;
+          }
+          console.warn('[Persistence] save reading time failed:', e);
+        });
+      state.lastReadingTimeSave = write;
+      return write;
     }
 
     /**
@@ -589,9 +618,10 @@
       state.readingTimer = setInterval(() => {
         if (!document.hidden && state.currentBookId && state.isBookLoaded) {
           state.activeReadingSeconds++;
+          state.pendingReadingSeconds = _getPendingReadingSeconds() + 1;
           // 每 10s 写入 storage
-          if (state.activeReadingSeconds % READING_TIME_FLUSH_INTERVAL_S === 0) {
-            _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
+          if (_getPendingReadingSeconds() >= READING_TIME_FLUSH_INTERVAL_S) {
+            flushReadingTime();
           }
           // 每 60s 刷新 ETA 展示
           if (state.activeReadingSeconds % READING_STATS_UPDATE_INTERVAL_S === 0) updateReadingStats();
@@ -606,7 +636,7 @@
       if (document.hidden) {
         if (state.currentBookId && state.isBookLoaded) {
           flushPositionSave();
-          _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
+          flushReadingTime();
           flushSpeedSession(null);  // session 结束，不续期
         }
       } else {
@@ -627,7 +657,7 @@
     function _onBeforeUnload() {
       if (state.currentBookId && state.isBookLoaded) {
         flushPositionSave();
-        _saveReadingTimeSafely(state.currentBookId, state.activeReadingSeconds);
+        flushReadingTime();
         flushSpeedSession(null);
       }
     }
@@ -658,6 +688,7 @@
       onRelocated,
       schedulePositionSave,
       flushPositionSave,
+      flushReadingTime,
       flushSpeedSession,
       updateReadingStats,
       startReadingTimer

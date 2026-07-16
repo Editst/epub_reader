@@ -36,6 +36,8 @@
       // ── 阅读计时 ──────────────────────────────────────────────────────────
       readingTimer:         null,
       activeReadingSeconds: 0,
+      pendingReadingSeconds: 0,
+      lastReadingTimeSave:  null,
 
       // ── 速度追踪 ──────────────────────────────────────────────────────────
       cachedSpeed:  null,  // { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
@@ -69,6 +71,8 @@
    */
   function resetReadingSession(state) {
     state.activeReadingSeconds = 0;
+    state.pendingReadingSeconds = 0;
+    state.lastReadingTimeSave  = null;
     state.cachedSpeed          = null;
     state.contentUnitStatus    = 'idle';
     state.sessionStart         = null;

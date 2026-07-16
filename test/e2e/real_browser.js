@@ -836,6 +836,66 @@ async function run() {
       return document.querySelector('.book-speed-value')?.textContent || null;
     `), 'Home 未展示历史平均字速');
     assert.equal(homeSpeedText, `${readingSpeedEstimate.unitsPerMinute} 字/分`);
+
+    // 让 Reader 持有 bookMeta Web Lock，再从 Home 提交同书增量，验证跨页面不会丢时长。
+    const timeBeforeConcurrentWrites = (await getBookMeta(driver, book.id)).time;
+    await driver.switchToWindow(activeReaderWindow);
+    await driver.evaluate(`
+      const bookId = arguments[0];
+      const originalGet = EpubStorage._get;
+      let releaseGate;
+      window.__e2eReadingTimeGate = new Promise((resolve) => { releaseGate = resolve; });
+      window.__e2eReleaseReadingTimeGate = releaseGate;
+      window.__e2eReadingTimeLockHeld = false;
+      EpubStorage._get = async function (key) {
+        if (!window.__e2eReadingTimeLockHeld && key === 'bookMeta_' + bookId) {
+          window.__e2eReadingTimeLockHeld = true;
+          await window.__e2eReadingTimeGate;
+        }
+        return originalGet.call(this, key);
+      };
+      window.__e2eReaderTimeWrite = EpubStorage.addReadingTime(bookId, 11)
+        .finally(() => { EpubStorage._get = originalGet; });
+      return true;
+    `, [book.id]);
+    await waitFor(() => driver.evaluate('return window.__e2eReadingTimeLockHeld;'),
+      'Reader 未进入时长增量临界区');
+
+    await driver.switchToWindow(homeTab.handle);
+    await driver.evaluate(`
+      window.__e2eHomeTimeWrite = EpubStorage.addReadingTime(arguments[0], 17);
+      return true;
+    `, [book.id]);
+    await delay(100);
+    await driver.switchToWindow(activeReaderWindow);
+    const readerTimeWrite = await driver.evaluateAsync(`
+      const done = arguments[arguments.length - 1];
+      window.__e2eReleaseReadingTimeGate();
+      window.__e2eReaderTimeWrite.then(
+        (value) => done({ ok: true, value }),
+        (error) => done({ ok: false, error: String(error) })
+      );
+    `);
+    assert.equal(readerTimeWrite.ok, true, `Reader 时长增量失败：${readerTimeWrite.error || ''}`);
+
+    await driver.switchToWindow(homeTab.handle);
+    const concurrentTimeResult = await driver.evaluateAsync(`
+      const bookId = arguments[0];
+      const done = arguments[arguments.length - 1];
+      window.__e2eHomeTimeWrite.then(
+        () => EpubStorage.getBookMeta(bookId),
+        (error) => Promise.reject(error)
+      ).then(
+        (meta) => done({ ok: true, time: meta.time }),
+        (error) => done({ ok: false, error: String(error) })
+      );
+    `, [book.id]);
+    assert.equal(concurrentTimeResult.ok, true,
+      `Home 时长增量失败：${concurrentTimeResult.error || ''}`);
+    assert.ok(concurrentTimeResult.time >= timeBeforeConcurrentWrites + 28,
+      '两个扩展页面并发提交后丢失阅读时长增量');
+    console.log('跨页面阅读时长：Reader 与 Home 的并发增量均已保留');
+
     const deleteResult = await driver.evaluateAsync(`
       const bookId = arguments[0];
       const done = arguments[arguments.length - 1];
