@@ -2197,6 +2197,65 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(state.isRestoringPosition, false);
   });
 
+  test.it('ReaderUi 被其他重排作废的 resize timer 不复用旧锚点', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const timers = new Map();
+    const resizeHandlers = [];
+    const displays = [];
+    let nextTimerId = 1;
+    const rendition = {
+      currentLocation() { return { start: { cfi: state.currentStableCfi } }; },
+      resize() {},
+      display(cfi) { displays.push(cfi); return Promise.resolve(); },
+      getContents() { return []; }
+    };
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'old-resize-cfi',
+      currentStableLocator: null
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener(type, handler) {
+        if (type === 'resize') resizeHandlers.push(handler);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      setTimeout(fn) {
+        const id = nextTimerId++;
+        timers.set(id, fn);
+        return id;
+      },
+      clearTimeout(id) { timers.delete(id); },
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, { onRelocated() {} });
+
+    resizeHandlers[0]();
+    const staleTimer = timers.get(1);
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '20';
+    fontSizeSlider.dispatch('input');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    state.currentStableCfi = 'new-resize-cfi';
+    await staleTimer();
+    resizeHandlers[0]();
+    await timers.get(2)();
+
+    assert.equal(displays.at(-1), 'new-resize-cfi');
+  });
+
   test.it('ReaderUi unmount 移除 resize 监听、取消迟到任务且 mount 可重新绑定', async () => {
     const { document } = createMockDocument([]);
     const listeners = new Map();

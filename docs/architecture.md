@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.34
+版本：v2.5.35
 更新：2026-07-17
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -708,6 +708,7 @@ closeAllPanels(): void
 - `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
 - `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。由于 resize 事件触发时 viewport 已经改变，恢复目标必须优先使用变化前 `currentStableLocator.restoreCfi`（且 `sourceCfi` 匹配主 CFI），再回退 `currentStableCfi`，不得把此时的 `currentLocation()` 当作首选快照。
 - resize handler、timer、锚点和 persistence 引用由 ReaderUi 实例持有；`unmount()` 必须移除监听、取消 timer、作废 reflow 代次并释放保护锁，后续 `mount()` 可恢复单一监听。
+- resize timer 即使被字号、行高等更新 reflow 作废，也必须按 timer 身份清理自己的旧锚点；迟到 timer 不得清除更新任务状态，下一次 resize 不得复用旧视口 CFI。
 
 **v2.4.0 架构约束**：
 - 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。

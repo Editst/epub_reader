@@ -769,11 +769,15 @@
         const resizePersistence = _resizePersistence;
         const context = _beginReflow(rendition);
         if (_resizeTimer !== null) clearTimeout(_resizeTimer);
-        _resizeTimer = setTimeout(async () => {
+        const resizeTimer = setTimeout(async () => {
+          // timer 状态也有所有权：被其他重排作废时清理自己的旧锚点，
+          // 但迟到回调不得清除更新 resize 任务刚写入的状态。
+          if (_resizeTimer === resizeTimer) {
+            _resizeTimer = null;
+            _preResizeCfi = null;
+            if (_resizeRendition === rendition) _resizeRendition = null;
+          }
           if (!_isCurrentReflow(context)) return;
-          _preResizeCfi = null;
-          _resizeRendition = null;
-          _resizeTimer = null;
           let newLoc = null;
           try {
             rendition.resize();
@@ -788,6 +792,7 @@
           }
           if (newLoc && newLoc.start && resizePersistence) resizePersistence.onRelocated(newLoc);
         }, RESIZE_DEBOUNCE_MS);
+        _resizeTimer = resizeTimer;
       };
       window.addEventListener('resize', _resizeHandler);
     }
