@@ -176,6 +176,54 @@ test.describe('DbGateway 行为与 Schema 契约', () => {
     }
   });
 
+  test.it('indexedDB.open 同步抛错后不缓存拒绝并允许后续重连', async () => {
+    const originalIndexedDb = global.indexedDB;
+    const originalSetTimeout = global.setTimeout;
+    const gateway = global.DbGateway;
+    const originalDbPromise = gateway._dbPromise;
+    const originalRetryCount = gateway._retryCount;
+    const originalRetryEpoch = gateway._retryEpoch;
+    const cooldowns = [];
+    let openCount = 0;
+
+    try {
+      global.indexedDB = {
+        open() {
+          openCount++;
+          if (openCount === 1) throw new Error('synchronous open failure');
+          const request = { onsuccess: null, onerror: null, onupgradeneeded: null };
+          setImmediate(() => request.onsuccess({
+            target: { result: { close() {}, onclose: null, onversionchange: null } }
+          }));
+          return request;
+        }
+      };
+      global.setTimeout = (fn) => {
+        cooldowns.push(fn);
+        return cooldowns.length;
+      };
+      gateway._dbPromise = null;
+      gateway._retryCount = 0;
+      gateway._retryEpoch = 0;
+
+      await assert.rejects(() => gateway.connect(), /synchronous open failure/);
+      assert.equal(gateway._dbPromise, null, '同步异常不得缓存 rejected Promise');
+      assert.equal(gateway._retryCount, 1, '同步异常也应计入重试冷却');
+
+      await gateway.connect();
+      assert.equal(openCount, 2, '后续 connect 应重新调用 indexedDB.open');
+      assert.equal(gateway._retryCount, 0);
+      cooldowns[0]();
+      assert.equal(gateway._retryCount, 0, '成功前的 cooldown 应被 retry epoch 作废');
+    } finally {
+      gateway._dbPromise = originalDbPromise;
+      gateway._retryCount = originalRetryCount;
+      gateway._retryEpoch = originalRetryEpoch;
+      global.indexedDB = originalIndexedDb;
+      global.setTimeout = originalSetTimeout;
+    }
+  });
+
   test.it('写事务 abort 会拒绝调用方 Promise', async () => {
     const gateway = global.DbGateway;
     const originalDbPromise = gateway._dbPromise;

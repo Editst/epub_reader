@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.32
-更新：2026-07-16
+版本：v2.5.33
+更新：2026-07-17
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -393,6 +393,7 @@ DbGateway.connect(): Promise<IDBDatabase>
 // 返回单例 DB 连接；连续失败 3 次后抛出错误拒绝重试
 // 当前连接收到 versionchange 时主动 close 并使缓存失效；浏览器 close 后同样失效，下一次访问自动重连
 // 成功连接推进重试 epoch；失败 cooldown 只能递减所属 epoch，旧 timer 不得影响成功后的新失败周期
+// indexedDB.open 同步抛错也计入冷却，但不得缓存 rejected Promise；后续调用仍可重连
 // 连接失效必须按当前 Promise 身份校验，旧连接迟到事件不得清除已建立的新连接缓存
 
 DbGateway.get(storeName: string, key: any): Promise<any | null>

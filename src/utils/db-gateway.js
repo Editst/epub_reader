@@ -17,15 +17,31 @@ const DbGateway = {
   _retryLimit:  3,
   _retryEpoch:  0,
 
+  _recordConnectionFailure() {
+    this._retryCount++;
+    const cooldown = Math.min(500 * Math.pow(2, this._retryCount), 8000);
+    const retryEpoch = this._retryEpoch;
+    setTimeout(() => {
+      if (this._retryEpoch !== retryEpoch) return;
+      if (this._retryCount > 0) this._retryCount--;
+    }, cooldown);
+  },
+
   async connect() {
     // 磁盘满或隐身模式限制下避免持续高频重试。
     if (this._retryCount >= this._retryLimit) {
       throw new Error(`[DbGateway] IDB connection failed ${this._retryLimit} times consecutively. Refusing further retries.`);
     }
     if (this._dbPromise) return this._dbPromise;
+    let request;
+    try {
+      request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+    } catch (error) {
+      // SecurityError 等同步异常不会触发 request.onerror，也不得缓存永久失败 Promise。
+      this._recordConnectionFailure();
+      throw error;
+    }
     const connectionPromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
-
       request.onupgradeneeded = (e) => {
         const db         = e.target.result;
         const oldVersion = e.oldVersion; // 0 = brand-new install
@@ -66,15 +82,7 @@ const DbGateway = {
       };
       request.onerror   = (e) => {
         if (this._dbPromise === connectionPromise) this._dbPromise = null;
-        this._retryCount++;
-        // Exponential backoff: auto-reset counter after a cooling period
-        // so transient failures don't permanently block future attempts.
-        const cooldown = Math.min(500 * Math.pow(2, this._retryCount), 8000);
-        const retryEpoch = this._retryEpoch;
-        setTimeout(() => {
-          if (this._retryEpoch !== retryEpoch) return;
-          if (this._retryCount > 0) this._retryCount--;
-        }, cooldown);
+        this._recordConnectionFailure();
         reject(e.target.error);
       };
     });
