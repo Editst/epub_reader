@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.33
+版本：v2.5.34
 更新：2026-07-17
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -147,7 +147,7 @@ chrome.storage.local
 ├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
 │     ├── pos: { cfi, percentage, timestamp, locator? }
 │     ├── time: number               累计阅读秒数
-│     └── speed: { sampledSeconds, sampledProgress, sessions[], sessionCount,
+│     └── speed: { sampledSeconds, sampledProgress,
 │                  contentUnitCount, contentUnitVersion }
 ├── highlights_<bookId>      高亮与笔记数组（中频写）
 └── bookmarks_<bookId>       书签数组（低频写）
@@ -234,12 +234,11 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 //   speed: { 
 //     sampledSeconds: number, 
 //     sampledProgress: number,
-//     sessions: Array<{seconds, progress, timestamp, isJump}>, // v2.2.0
-//     sessionCount: number,                                  // v2.2.0
 //     contentUnitCount: number | null,                        // v2.5.28
 //     contentUnitVersion: number                              // v2.5.28
 //   }
 // }
+// v2.2 的 sessions/sessionCount 已停用；读取旧数据时归一化丢弃，不再继续持久化
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
 // lazy migration 必须进入同书 bookMeta 队列，不能绕过队列直接 _set
 
@@ -266,8 +265,7 @@ removeReadingTime(bookId: string): Promise<void>
 // 清除 time 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
 
 saveReadingSpeed(bookId: string, speedPatch: Partial<Speed>): Promise<void>
-// Speed: { sampledSeconds, sampledProgress, sessions, sessionCount,
-//          contentUnitCount, contentUnitVersion }
+// Speed: { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
 // 字段级 patch；未提供字段保留当前值，显式 0 必须正常写入
 
 addReadingSpeedSample(bookId: string, sampledSeconds: number, sampledProgress: number): Promise<Speed | undefined>

@@ -29,7 +29,7 @@ test.describe('EpubStorage 行为覆盖', () => {
       bookMeta_nested_corrupt: {
         pos: { cfi: 42, percentage: 999 },
         time: -5,
-        speed: { sampledSeconds: -1, sampledProgress: -2, sessions: 'bad', sessionCount: -3 }
+        speed: { sampledSeconds: -1, sampledProgress: -2, sessions: 'obsolete', sessionCount: 3 }
       }
     }, resolve));
 
@@ -54,8 +54,6 @@ test.describe('EpubStorage 行为覆盖', () => {
       speed: {
         sampledSeconds: 0,
         sampledProgress: 0,
-        sessions: [],
-        sessionCount: 0,
         contentUnitCount: null,
         contentUnitVersion: 0
       }
@@ -72,6 +70,34 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     await EpubStorage.savePosition('corrupt', 'epubcfi(/6/4)', 25);
     assert.equal((await EpubStorage.getPosition('corrupt')).cfi, 'epubcfi(/6/4)');
+  });
+
+  test.it('旧 speed 会话明细字段在归一化时丢弃', async () => {
+    await new Promise((resolve) => chrome.storage.local.set({
+      bookMeta_obsolete_speed: {
+        pos: null,
+        time: 12,
+        speed: {
+          sampledSeconds: 120,
+          sampledProgress: 0.1,
+          sessions: [{ seconds: 120, progress: 0.1 }],
+          sessionCount: 1,
+          contentUnitCount: 5000,
+          contentUnitVersion: 1
+        }
+      }
+    }, resolve));
+
+    assert.deepEqual(await EpubStorage.getBookMeta('obsolete_speed'), {
+      pos: null,
+      time: 12,
+      speed: {
+        sampledSeconds: 120,
+        sampledProgress: 0.1,
+        contentUnitCount: 5000,
+        contentUnitVersion: 1
+      }
+    });
   });
 
   test.it('IndexedDB 公开方法通过可注入 gateway 执行生产实现', async () => {
@@ -187,8 +213,6 @@ test.describe('EpubStorage 行为覆盖', () => {
       speed: {
         sampledSeconds: 0,
         sampledProgress: 0,
-        sessions: [],
-        sessionCount: 0,
         contentUnitCount: null,
         contentUnitVersion: 0
       }
@@ -248,7 +272,7 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.saveBookMeta('book-remove-time', {
       pos: null,
       time: 240,
-      speed: { sampledSeconds: 10, sampledProgress: 0.02, sessions: [], sessionCount: 1 }
+      speed: { sampledSeconds: 10, sampledProgress: 0.02 }
     });
     await new Promise((resolve) => chrome.storage.local.set({ 'time_book-remove-time': 240 }, resolve));
 
@@ -270,7 +294,7 @@ test.describe('EpubStorage 行为覆盖', () => {
       [key]: {
         pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
         time: 30,
-        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+        speed: { sampledSeconds: 0, sampledProgress: 0 }
       }
     };
 
@@ -307,7 +331,7 @@ test.describe('EpubStorage 行为覆盖', () => {
       [key]: {
         pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
         time: 300,
-        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+        speed: { sampledSeconds: 0, sampledProgress: 0 }
       }
     };
 
@@ -348,8 +372,6 @@ test.describe('EpubStorage 行为覆盖', () => {
       speed: {
         sampledSeconds: 10,
         sampledProgress: 0.2,
-        sessions: [],
-        sessionCount: 1,
         contentUnitCount: null,
         contentUnitVersion: 0
       }
@@ -358,7 +380,7 @@ test.describe('EpubStorage 行为覆盖', () => {
       [key]: {
         pos: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
         time: 10,
-        speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 }
+        speed: { sampledSeconds: 0, sampledProgress: 0 }
       }
     };
 
@@ -816,8 +838,8 @@ test.describe('EpubStorage 行为覆盖', () => {
     const now = Date.now();
     await EpubStorage.addRecentBook({ id: 'newer', title: 'newer' });
     await EpubStorage.addRecentBook({ id: 'older', title: 'older' });
-    await EpubStorage.saveBookMeta('newer', { pos: null, time: 20, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
-    await EpubStorage.saveBookMeta('older', { pos: null, time: 10, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
+    await EpubStorage.saveBookMeta('newer', { pos: null, time: 20, speed: { sampledSeconds: 0, sampledProgress: 0 } });
+    await EpubStorage.saveBookMeta('older', { pos: null, time: 10, speed: { sampledSeconds: 0, sampledProgress: 0 } });
     await EpubStorage.saveHighlights('older', [{ cfi: 'hl-old' }]);
     await EpubStorage.saveBookmarks('older', [{ cfi: 'bm-old' }]);
     await EpubStorage.saveCover('older', { type: 'image/jpeg' });
@@ -938,9 +960,9 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage.addRecentBook({ id: 'ok-book', title: 'ok' });
     await EpubStorage.addRecentBook({ id: 'keep-book', title: 'keep' });
 
-    await EpubStorage.saveBookMeta('fail-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
-    await EpubStorage.saveBookMeta('ok-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
-    await EpubStorage.saveBookMeta('keep-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
+    await EpubStorage.saveBookMeta('fail-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 } });
+    await EpubStorage.saveBookMeta('ok-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 } });
+    await EpubStorage.saveBookMeta('keep-book', { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 } });
 
     await EpubStorage._dbGateway.put('files', { bookId: 'fail-book', filename: 'f.epub', data: new Uint8Array([1]), timestamp: now - 1000 });
     await EpubStorage._dbGateway.put('files', { bookId: 'ok-book', filename: 'o.epub', data: new Uint8Array([2]), timestamp: now - 2000 });
@@ -1002,7 +1024,7 @@ test.describe('EpubStorage 行为覆盖', () => {
     for (let i = 0; i < 3; i++) {
       const id = `serial-${i}`;
       await EpubStorage.addRecentBook({ id, title: id });
-      await EpubStorage.saveBookMeta(id, { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0, sessions: [], sessionCount: 0 } });
+      await EpubStorage.saveBookMeta(id, { pos: null, time: 0, speed: { sampledSeconds: 0, sampledProgress: 0 } });
       await EpubStorage._dbGateway.put('files', { bookId: id, filename: `${i}.epub`, data: new Uint8Array([i]), timestamp: now - (3 - i) * 1000 });
     }
 

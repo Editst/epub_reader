@@ -217,7 +217,7 @@ const EpubStorage = {
   // ── Reading Speed ────────────────────────────────────────────────────────
   //
   // sampledSeconds / sampledProgress 是当前 ETA 主路径；contentUnitCount
-  // 将进度速度换算为字/分钟。sessions / sessionCount 作为兼容字段保留。
+  // 将进度速度换算为字/分钟。
   //
   // ETA 计算：secsPerUnit = sampledSeconds / sampledProgress
   //            remaining = secsPerUnit * (1 - currentProgress) / 60 (分钟)
@@ -235,8 +235,6 @@ const EpubStorage = {
       current.speed = {
         sampledSeconds:   speedPatch.sampledSeconds   ?? currentSpeed.sampledSeconds,
         sampledProgress:  speedPatch.sampledProgress  ?? currentSpeed.sampledProgress,
-        sessions:         speedPatch.sessions         ?? currentSpeed.sessions,
-        sessionCount:     speedPatch.sessionCount     ?? currentSpeed.sessionCount,
         contentUnitCount: speedPatch.contentUnitCount ?? currentSpeed.contentUnitCount,
         contentUnitVersion: speedPatch.contentUnitVersion ?? currentSpeed.contentUnitVersion
       };
@@ -267,12 +265,10 @@ const EpubStorage = {
     if (!meta || !meta.speed) {
       return this._createDefaultSpeed();
     }
-    // 旧 speed 缺少兼容字段或正文计数时补默认值。
+    // 旧 speed 缺少正文计数时补默认值；归一化阶段已丢弃废弃字段。
     return {
       sampledSeconds:   meta.speed.sampledSeconds,
       sampledProgress:  meta.speed.sampledProgress,
-      sessions:         meta.speed.sessions,
-      sessionCount:     meta.speed.sessionCount,
       contentUnitCount: meta.speed.contentUnitCount,
       contentUnitVersion: meta.speed.contentUnitVersion
     };
@@ -789,8 +785,6 @@ const EpubStorage = {
     return {
       sampledSeconds: 0,
       sampledProgress: 0,
-      sessions: [],
-      sessionCount: 0,
       contentUnitCount: null,
       contentUnitVersion: 0
     };
@@ -829,8 +823,6 @@ const EpubStorage = {
       speed: {
         sampledSeconds: Number.isFinite(speed.sampledSeconds) ? Math.max(0, speed.sampledSeconds) : 0,
         sampledProgress: Number.isFinite(speed.sampledProgress) ? Math.max(0, speed.sampledProgress) : 0,
-        sessions: Array.isArray(speed.sessions) ? speed.sessions : [],
-        sessionCount: Number.isFinite(speed.sessionCount) ? Math.max(0, Math.floor(speed.sessionCount)) : 0,
         contentUnitCount: Number.isFinite(speed.contentUnitCount)
           ? Math.max(0, Math.floor(speed.contentUnitCount))
           : null,

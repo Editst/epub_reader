@@ -4,11 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 // ────────────────────────────────────────────────────────────────────────────
-// BUG-2: saveReadingSpeed — `||` treats legitimate 0 as falsy
-//
-// storage.js L179-183 uses `||` for sampledSeconds, sampledProgress, and
-// sessionCount. When these fields are explicitly 0 (valid for reset), `||`
-// falls through to the old value instead of writing 0.  Fix: use `??`.
+// BUG-2: saveReadingSpeed — `||` treats legitimate 0 as falsy.
+// 显式重置速度采样时必须用 `??` 区分 0 与缺失字段。
 // ────────────────────────────────────────────────────────────────────────────
 
 test.describe('BUG-2: saveReadingSpeed preserves explicit zero values', () => {
@@ -20,21 +17,18 @@ test.describe('BUG-2: saveReadingSpeed preserves explicit zero values', () => {
     // Seed with non-zero speed data
     await EpubStorage.saveReadingSpeed(bookId, {
       sampledSeconds:  120,
-      sampledProgress: 0.05,
-      sessionCount:    3
+      sampledProgress: 0.05
     });
 
     // Now reset speed to all zeros — this is a legitimate operation
     await EpubStorage.saveReadingSpeed(bookId, {
       sampledSeconds:  0,
-      sampledProgress: 0,
-      sessionCount:    0
+      sampledProgress: 0
     });
 
     const meta = await EpubStorage.getBookMeta(bookId);
     assert.strictEqual(meta.speed.sampledSeconds,  0, 'sampledSeconds should be 0, not 120');
     assert.strictEqual(meta.speed.sampledProgress, 0, 'sampledProgress should be 0, not 0.05');
-    assert.strictEqual(meta.speed.sessionCount,    0, 'sessionCount should be 0, not 3');
   });
 
   test.it('non-zero values still write correctly', async () => {
@@ -42,14 +36,12 @@ test.describe('BUG-2: saveReadingSpeed preserves explicit zero values', () => {
 
     await EpubStorage.saveReadingSpeed(bookId, {
       sampledSeconds:  60,
-      sampledProgress: 0.02,
-      sessionCount:    1
+      sampledProgress: 0.02
     });
 
     const meta = await EpubStorage.getBookMeta(bookId);
     assert.strictEqual(meta.speed.sampledSeconds,  60);
     assert.strictEqual(meta.speed.sampledProgress, 0.02);
-    assert.strictEqual(meta.speed.sessionCount,    1);
   });
 
   test.it('正文计数 patch 保留已有速度，后续速度 patch 也保留正文计数', async () => {

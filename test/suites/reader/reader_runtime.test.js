@@ -1817,8 +1817,6 @@ test.describe('ReaderRuntime', () => {
       speed: {
         sampledSeconds: 600,
         sampledProgress: 0.2,
-        sessions: [],
-        sessionCount: 0,
         contentUnitCount: 10000,
         contentUnitVersion: 1
       }

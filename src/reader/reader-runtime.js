@@ -709,8 +709,6 @@
         : {
           sampledSeconds: 0,
           sampledProgress: 0,
-          sessions: [],
-          sessionCount: 0,
           contentUnitCount: null,
           contentUnitVersion: 0
         };
