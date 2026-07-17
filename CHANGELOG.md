@@ -16,6 +16,7 @@
 
 ### test
 - 增加并发时长增量、失败重试状态、隐藏/关闭/切书 flush 回归，并在真实 Chrome 中覆盖 Reader 与 Home 争用同书 Web Lock 的增量合并；单元覆盖增至 288 项。
+- 真实 Chrome E2E 分别通过 `fish.epub` 与 `nine.epub` 全生命周期；速度阶段按实际 locations 百分比自适应翻页，高亮选区按当前可视 caret 构造，兼容粗粒度 locations 与跨多列长文本节点。
 
 ---
 

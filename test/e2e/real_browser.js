@@ -288,27 +288,47 @@ async function selectVisibleText(driver) {
       const win = iframe.contentWindow;
       const container = iframe.closest('.epub-container') || iframe.parentElement?.parentElement;
       if (!doc || !win) continue;
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      let node;
-      while ((node = walker.nextNode())) {
-        const value = node.data || '';
-        const start = value.search(/\\S/);
-        if (start < 0 || value.length - start < 8) continue;
-        const range = doc.createRange();
-        range.setStart(node, start);
-        range.setEnd(node, Math.min(value.length, start + 12));
-        const rect = range.getBoundingClientRect();
-        const left = container?.scrollLeft || 0;
-        const right = left + (container?.clientWidth || win.innerWidth);
-        if (
-          rect.bottom < 0 || rect.top > win.innerHeight || rect.width <= 0 ||
-          rect.right < left || rect.left > right
-        ) continue;
-        const selection = win.getSelection();
-        selection.removeAllRanges();
-        selection.addRange(range);
-        doc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: win }));
-        return selection.toString();
+      const viewportLeft = container?.scrollLeft || Math.max(0, -iframe.getBoundingClientRect().left);
+      const viewportWidth = container?.clientWidth || iframe.getBoundingClientRect().width || win.innerWidth;
+      const xs = [0.2, 0.4, 0.6, 0.8]
+        .map((ratio) => Math.round(viewportLeft + viewportWidth * ratio));
+      const ys = [0.25, 0.45, 0.65].map((ratio) => Math.round(win.innerHeight * ratio));
+
+      for (const y of ys) {
+        for (const x of xs) {
+          let pointRange = null;
+          if (typeof doc.caretRangeFromPoint === 'function') {
+            pointRange = doc.caretRangeFromPoint(x, y);
+          } else if (typeof doc.caretPositionFromPoint === 'function') {
+            const position = doc.caretPositionFromPoint(x, y);
+            if (position) {
+              pointRange = doc.createRange();
+              pointRange.setStart(position.offsetNode, position.offset);
+              pointRange.collapse(true);
+            }
+          }
+          const node = pointRange?.startContainer;
+          if (!node || node.nodeType !== Node.TEXT_NODE) continue;
+          const value = node.data || '';
+          if (!value.trim()) continue;
+
+          const anchorOffset = Math.max(0, Math.min(pointRange.startOffset, value.length));
+          let start = Math.max(0, anchorOffset - 6);
+          let end = Math.min(value.length, Math.max(anchorOffset + 6, start + 12));
+          while (start < end && /\\s/.test(value[start])) start++;
+          while (end > start && /\\s/.test(value[end - 1])) end--;
+          if (end - start < 2) continue;
+
+          const range = doc.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, end);
+          if (!range.toString().trim()) continue;
+          const selection = win.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          doc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: win }));
+          return selection.toString();
+        }
       }
     }
     return '';
@@ -621,11 +641,28 @@ async function run() {
       Date.now = () => advancedNow;
       return true;
     `);
-    await driver.click(nextButton);
-    const savedPosition = await waitFor(async () => {
-      const position = await getPosition(driver, book.id);
-      return position && position.cfi !== navigatedPosition.cfi ? position : null;
-    }, '速度采样前的最终翻页位置没有更新');
+    // epub.js locations 通常比真实分页粗：翻一页可能仍处于同一 percentage。
+    // 自适应前进到出现可测进度，避免把特定书籍的页面数写死在 E2E 中。
+    let previousPosition = navigatedPosition;
+    let savedPosition = null;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      await driver.click(nextButton);
+      savedPosition = await waitFor(async () => {
+        const position = await getPosition(driver, book.id);
+        return position && position.cfi !== previousPosition.cfi ? position : null;
+      }, '速度采样前的翻页位置没有更新');
+      const progressDelta = Math.abs(
+        (savedPosition.percentage || 0) - (navigatedPosition.percentage || 0)
+      );
+      if (progressDelta > 0.1) break;
+      previousPosition = savedPosition;
+      await delay(200);
+    }
+    assert.ok(savedPosition, '速度采样前未获得最终阅读位置');
+    assert.ok(
+      Math.abs((savedPosition.percentage || 0) - (navigatedPosition.percentage || 0)) > 0.1,
+      '连续翻页后仍未产生可用于速度估算的 locations 进度'
+    );
     const beforeReopenFingerprint = await waitFor(async () => {
       const samples = await visibleFingerprint(driver);
       return samples.length ? samples : null;
