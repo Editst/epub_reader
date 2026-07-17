@@ -419,20 +419,16 @@
 
     function _getProgressFallbackCfi(savedPos) {
       if (!savedPos || typeof savedPos.percentage !== 'number') return null;
-      if (!state.book || !state.book.locations || !state.book.locations.length()) return null;
-      if (typeof state.book.locations.percentageFromCfi !== 'function') return null;
-      if (typeof state.book.locations.cfiFromPercentage !== 'function') return null;
-      if (!savedPos.cfi) return state.book.locations.cfiFromPercentage(savedPos.percentage / 100) || null;
+      const locations = state.book && state.book.locations;
+      if (!ReaderState.hasLocations(locations)) return null;
+      const fallbackCfi = ReaderState.getCfiFromPercentage(locations, savedPos.percentage / 100);
+      if (!savedPos.cfi) return fallbackCfi;
 
-      let currentPercent = null;
-      try {
-        currentPercent = Math.round(state.book.locations.percentageFromCfi(savedPos.cfi) * 1000) / 10;
-      } catch (_) {
-        return null;
-      }
-      if (typeof currentPercent !== 'number') return null;
+      const progress = ReaderState.getLocationProgress(locations, savedPos.cfi);
+      if (progress === null) return fallbackCfi;
+      const currentPercent = Math.round(progress * 1000) / 10;
       if (Math.abs(currentPercent - savedPos.percentage) <= RESTORE_PERCENT_MISMATCH_THRESHOLD) return null;
-      return state.book.locations.cfiFromPercentage(savedPos.percentage / 100) || null;
+      return fallbackCfi;
     }
 
     /**
@@ -603,7 +599,8 @@
       const progressCfi = state.isRestoreAnchorProtected && state.currentStableCfi
         ? state.currentStableCfi
         : loc.start.cfi;
-      const progress = state.book.locations.percentageFromCfi(progressCfi);
+      const progress = ReaderState.getLocationProgress(state.book.locations, progressCfi);
+      if (progress === null) return;
       initSpeedTracking(progress);
       const percent = Math.round(progress * 1000) / 10;
       state.lastPercent = percent;
@@ -613,9 +610,8 @@
       }
     }
 
-    function _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking) {
+    function _initLocationsFromCache(initSpeedTracking) {
       console.info('[Runtime] locations_cache_hit:', true);
-      if (!cachedLocationsLoaded) state.book.locations.load(cachedLocsJSON);
       state.locationsStatus = 'ready';
       if (typeof ui.setLocationIndexStatus === 'function') {
         ui.setLocationIndexStatus('ready', '阅读定位索引已就绪');
@@ -835,7 +831,7 @@
       };
 
       if (cachedLocsJSON) {
-        _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking);
+        _initLocationsFromCache(initSpeedTracking);
         _scheduleContentUnitCount(bookId, state.book);
       } else {
         _scheduleLocationsGeneration(bookId, fileData, state.book, initSpeedTracking);
@@ -941,8 +937,7 @@
 
     async function displayPercentage(percent) {
       if (!state.rendition || !state.book || !state.isLayoutStable) return false;
-      if (!state.book.locations || !state.book.locations.length()) return false;
-      const cfi = state.book.locations.cfiFromPercentage(percent / 100);
+      const cfi = ReaderState.getCfiFromPercentage(state.book.locations, percent / 100);
       if (!cfi) return false;
       _markUserPositionIntent();
       return _performNavigation('display percentage', () => state.rendition.display(cfi));

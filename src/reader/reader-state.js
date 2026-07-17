@@ -1,7 +1,7 @@
 /**
- * reader-state.js — 单一状态源（可序列化字段）
+ * reader-state.js — 单一状态源与跨 Reader 共享纯函数
  *
- * 规则：此文件仅声明状态结构与重置工具函数，禁止引入任何 DOM 操作或业务逻辑。
+ * 规则：此文件仅声明状态结构、重置和无副作用的边界 helper，禁止引入 DOM 操作。
  */
 (function () {
   'use strict';
@@ -109,6 +109,38 @@
     return String(item.label).trim();
   }
 
+  function hasLocations(locations) {
+    if (!locations || typeof locations.length !== 'function') return false;
+    try {
+      const count = locations.length();
+      return Number.isFinite(count) && count > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function getLocationProgress(locations, cfi) {
+    if (!hasLocations(locations) || typeof locations.percentageFromCfi !== 'function') return null;
+    if (typeof cfi !== 'string' || !cfi) return null;
+    try {
+      const progress = locations.percentageFromCfi(cfi);
+      return Number.isFinite(progress) && progress >= 0 && progress <= 1 ? progress : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getCfiFromPercentage(locations, percentage) {
+    if (!hasLocations(locations) || typeof locations.cfiFromPercentage !== 'function') return null;
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 1) return null;
+    try {
+      const cfi = locations.cfiFromPercentage(percentage);
+      return typeof cfi === 'string' && cfi ? cfi : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /**
    * 在 TOC 树中递归查找匹配当前 href 的条目。
    * @param {Array} items TOC 节点数组
@@ -148,6 +180,9 @@
     resetReadingSession,
     isTocHrefMatch,
     getTocItemLabel,
+    hasLocations,
+    getLocationProgress,
+    getCfiFromPercentage,
     findTocItem,
     buildPrefsSignature
   };

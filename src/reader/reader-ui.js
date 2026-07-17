@@ -554,8 +554,10 @@
           currentSection
         );
         const chapterName = ReaderState.getTocItemLabel(tocItem);
-        const progress = (state.book && state.book.locations && state.book.locations.length())
-          ? state.book.locations.percentageFromCfi(cfi) : 0;
+        const progress = ReaderState.getLocationProgress(
+          state.book && state.book.locations,
+          cfi
+        ) ?? 0;
         await Bookmarks.toggle(cfi, chapterName, progress);
         const isBookmarked = await Bookmarks.isBookmarked(cfi);
         updateBookmarkButtonState(isBookmarked);
@@ -617,7 +619,7 @@
         }
       });
       dom.progressSlider.addEventListener('change', (e) => {
-        if (!state.book || !state.book.locations || !state.book.locations.length()) return;
+        if (!state.book || !ReaderState.hasLocations(state.book.locations)) return;
         if (_runtime) _runtime.displayPercentage(parseFloat(e.target.value));
       });
       dom.progressSlider.addEventListener('keydown', (e) => {

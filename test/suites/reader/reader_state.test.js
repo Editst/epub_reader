@@ -108,4 +108,24 @@ test.describe('ReaderState', () => {
     assert.equal(ReaderState.getTocItemLabel({ label: '  第一章  ' }), '第一章');
     assert.equal(ReaderState.getTocItemLabel({ label: 12 }), '12');
   });
+
+  test.it('locations 换算异常或越界时安全降级', () => {
+    const throwingLocations = {
+      length() { return 10; },
+      percentageFromCfi() { throw new Error('bad cfi'); },
+      cfiFromPercentage() { throw new Error('bad index'); }
+    };
+    const invalidLocations = {
+      length() { return 10; },
+      percentageFromCfi() { return 2; },
+      cfiFromPercentage() { return ''; }
+    };
+
+    assert.equal(ReaderState.hasLocations(throwingLocations), true);
+    assert.equal(ReaderState.getLocationProgress(throwingLocations, 'bad-cfi'), null);
+    assert.equal(ReaderState.getCfiFromPercentage(throwingLocations, 0.5), null);
+    assert.equal(ReaderState.getLocationProgress(invalidLocations, 'cfi'), null);
+    assert.equal(ReaderState.getCfiFromPercentage(invalidLocations, 0.5), null);
+    assert.equal(ReaderState.getCfiFromPercentage(invalidLocations, 2), null);
+  });
 });

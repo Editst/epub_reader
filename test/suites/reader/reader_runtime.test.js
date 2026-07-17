@@ -1894,6 +1894,26 @@ test.describe('ReaderRuntime', () => {
     assert.equal(result.state.lastPercent, 70);
   });
 
+  test.it('openBook 保存 CFI 无法换算时降级用百分比恢复', async () => {
+    const result = await runRestoreCorrectionCase({
+      savedPos: { cfi: 'epubcfi(/6/8!/4/2)', percentage: 70 },
+      initialLocation: {
+        start: { index: 8, href: 'new.xhtml', cfi: 'epubcfi(/6/20!/4/2)', displayed: { page: 9, total: 12 } },
+        end: { displayed: { page: 9, total: 12 } }
+      },
+      locationsOverrides: {
+        percentageFromCfi() { throw new Error('bad saved cfi'); },
+        cfiFromPercentage(percent) {
+          return percent === 0.70 ? 'epubcfi(/6/20!/4/2)' : null;
+        }
+      }
+    });
+
+    assert.deepEqual(result.displayCalls, ['epubcfi(/6/20!/4/2)']);
+    assert.equal(result.state.currentStableCfi, 'epubcfi(/6/20!/4/2)');
+    assert.equal(result.state.lastPercent, 70);
+  });
+
   test.it('openBook 恢复后 iframe 用户手势会解除恢复锚点保护', async () => {
     const { document } = createMockDocument([
       'reader-main',

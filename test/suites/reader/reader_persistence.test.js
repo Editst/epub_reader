@@ -333,6 +333,57 @@ test.describe('ReaderPersistence', () => {
     assert.equal(bookmarkState, true);
   });
 
+  test.it('locations CFI 换算异常时仍保存主 CFI', async () => {
+    global.TOC = { setActive() {} };
+    global.Bookmarks = { async isBookmarked() { return false; } };
+    const originalSavePosition = EpubStorage.savePosition;
+    let saved = null;
+    EpubStorage.savePosition = async (...args) => { saved = args; };
+    const location = { start: { cfi: 'epubcfi(/6/4)', href: 'chapter.xhtml' } };
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      isRestoreAnchorProtected: false,
+      currentBookId: 'book-bad-location-index',
+      currentStableCfi: null,
+      currentStableLocator: null,
+      lastPercent: null,
+      lastProgress: 0,
+      sessionStart: null,
+      isBookLoaded: true,
+      activeReadingSeconds: 0,
+      prefs: { layout: 'paginated' },
+      book: {
+        locations: {
+          length: () => 10,
+          percentageFromCfi() { throw new Error('malformed locations lookup'); }
+        },
+        navigation: { toc: [] }
+      },
+      rendition: { currentLocation() { return location; } }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
+    });
+
+    try {
+      persistence.onRelocated(location);
+      await state.lastPositionSave;
+    } finally {
+      clearTimeout(state.posTimer);
+      EpubStorage.savePosition = originalSavePosition;
+    }
+
+    assert.equal(state.currentStableCfi, location.start.cfi);
+    assert.equal(state.lastPercent, null);
+    assert.equal(saved[0], state.currentBookId);
+    assert.equal(saved[1], location.start.cfi);
+  });
+
   test.it('onRelocated 仅在进度跳跃超过阈值时续期速度会话', () => {
     global.TOC = { setActive() {} };
     global.Bookmarks = { async isBookmarked() { return false; } };

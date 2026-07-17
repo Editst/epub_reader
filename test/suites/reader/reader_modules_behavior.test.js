@@ -2471,7 +2471,8 @@ test.describe('Reader 模块基础行为', () => {
       },
       ReaderState: {
         findTocItem() { return { label: '章节一' }; },
-        getTocItemLabel(item) { return item && item.label ? item.label.trim() : ''; }
+        getTocItemLabel(item) { return item && item.label ? item.label.trim() : ''; },
+        getLocationProgress() { return 0; }
       },
       TOC: { close() {} },
       Bookmarks: {

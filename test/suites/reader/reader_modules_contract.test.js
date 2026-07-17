@@ -137,7 +137,7 @@ test.describe('Reader 功能模块公开契约', () => {
     const src = fs.readFileSync('src/reader/reader-runtime.js', 'utf8');
 
     assert.ok(src.includes('function _applyLocationsProgress(initSpeedTracking)'));
-    assert.ok(src.includes('function _initLocationsFromCache(cachedLocsJSON, cachedLocationsLoaded, initSpeedTracking)'));
+    assert.ok(src.includes('function _initLocationsFromCache(initSpeedTracking)'));
     assert.ok(src.includes('function _scheduleLocationsGeneration(bookId, fileData, activeBook, initSpeedTracking)'));
     assert.ok(src.includes('let layoutSeq = 0'));
     assert.ok(src.includes('state.isLayoutStable = false'));

@@ -359,8 +359,11 @@
       const sourceCfi = location.start.cfi;
       const restoreCfi = _buildRestoreAnchorCfi(sourceCfi, location);
       let percent = null;
-      if (sourceCfi && state.book && state.book.locations && state.book.locations.length()) {
-        const progress = state.book.locations.percentageFromCfi(sourceCfi);
+      const progress = ReaderState.getLocationProgress(
+        state.book && state.book.locations,
+        sourceCfi
+      );
+      if (progress !== null) {
         percent = Math.round(progress * 1000) / 10;
       } else if (typeof location.start.percentage === 'number') {
         const progress = location.start.percentage <= 1 ? location.start.percentage * 100 : location.start.percentage;
@@ -470,8 +473,11 @@
       if (!location || !location.start) return;
 
       let percent = null;
-      if (state.book && state.book.locations && state.book.locations.length()) {
-        const progress = state.book.locations.percentageFromCfi(location.start.cfi);
+      const progress = ReaderState.getLocationProgress(
+        state.book && state.book.locations,
+        location.start.cfi
+      );
+      if (progress !== null) {
         percent = Math.round(progress * 1000) / 10;
         ui.updateProgress(percent);
 
@@ -570,15 +576,15 @@
         : (speedEstimate.isEstimating ? '估算中' : '--');
 
       let remainingStr = '--';
-      const hasLocations = !!(state.book.locations && state.book.locations.length());
+      const hasLocations = ReaderState.hasLocations(state.book.locations);
       if (hasLocations) {
         const currentLoc = state.rendition.currentLocation();
-        let progress = 0;
-        if (currentLoc && currentLoc.start) {
-          progress = state.book.locations.percentageFromCfi(currentLoc.start.cfi);
-        }
+        const progress = ReaderState.getLocationProgress(
+          state.book.locations,
+          currentLoc && currentLoc.start ? currentLoc.start.cfi : null
+        );
 
-        if (progress >= 0 && progress <= 1) {
+        if (progress !== null) {
           const remainingProgress = 1 - progress;
           const eta = Utils.estimateRemainingMinutes({
             remainingProgress,

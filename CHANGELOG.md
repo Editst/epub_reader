@@ -8,6 +8,20 @@
 
 ---
 
+## [2.5.36] - 2026-07-17
+
+### fix
+- **Locations 换算失败降级**：CFI/百分比换算统一进入 ReaderState 安全 helper，收口 epub.js 对异常 CFI、损坏索引或越界结果的同步异常；relocated 仍会保存 `location.start.cfi`，百分比、ETA 和书签进度按不可用降级。
+- **恢复备用锚点补强**：已保存 CFI 无法在当前 locations 中换算时，改用已保存百分比生成恢复 CFI；避免旧 CFI 与当前索引不兼容时直接中断重开。
+
+### refactor
+- 删除 locations 缓存已由 `_loadCachedLocations()` 成功载入后，在 `_initLocationsFromCache()` 中重复 load 的不可达兼容分支；将历史缺陷反复暴露的异步所有权、位置组合状态、原子存储与边界归一化原则沉淀为架构审计清单。
+
+### test
+- 增加 locations helper 异常/越界、relocated 换算失败仍保存主 CFI、重开按百分比降级恢复回归；单元覆盖增至 296 项。
+
+---
+
 ## [2.5.35] - 2026-07-17
 
 ### fix
