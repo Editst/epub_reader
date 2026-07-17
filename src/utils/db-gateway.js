@@ -15,6 +15,7 @@ const DbGateway = {
   _dbPromise:   null,
   _retryCount:  0,
   _retryLimit:  3,
+  _retryEpoch:  0,
 
   async connect() {
     // 磁盘满或隐身模式限制下避免持续高频重试。
@@ -60,6 +61,7 @@ const DbGateway = {
         };
         db.onclose = invalidateConnection;
         this._retryCount = 0; // reset on success
+        this._retryEpoch++;   // invalidate cooldown timers from the previous failure streak
         resolve(db);
       };
       request.onerror   = (e) => {
@@ -68,7 +70,9 @@ const DbGateway = {
         // Exponential backoff: auto-reset counter after a cooling period
         // so transient failures don't permanently block future attempts.
         const cooldown = Math.min(500 * Math.pow(2, this._retryCount), 8000);
+        const retryEpoch = this._retryEpoch;
         setTimeout(() => {
+          if (this._retryEpoch !== retryEpoch) return;
           if (this._retryCount > 0) this._retryCount--;
         }, cooldown);
         reject(e.target.error);

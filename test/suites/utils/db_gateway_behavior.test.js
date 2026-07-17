@@ -119,6 +119,63 @@ test.describe('DbGateway 行为与 Schema 契约', () => {
     }
   });
 
+  test.it('旧失败的 cooldown 不得递减成功后新一轮失败计数', async () => {
+    const originalIndexedDb = global.indexedDB;
+    const originalSetTimeout = global.setTimeout;
+    const gateway = global.DbGateway;
+    const originalDbPromise = gateway._dbPromise;
+    const originalRetryCount = gateway._retryCount;
+    const originalRetryEpoch = gateway._retryEpoch;
+    const requests = [];
+    const cooldowns = [];
+
+    try {
+      global.indexedDB = {
+        open() {
+          const request = { onsuccess: null, onerror: null, onupgradeneeded: null };
+          requests.push(request);
+          return request;
+        }
+      };
+      global.setTimeout = (fn) => {
+        cooldowns.push(fn);
+        return cooldowns.length;
+      };
+      gateway._dbPromise = null;
+      gateway._retryCount = 0;
+      gateway._retryEpoch = 0;
+
+      const firstFailure = gateway.connect();
+      requests[0].onerror({ target: { error: new Error('first failure') } });
+      await assert.rejects(firstFailure, /first failure/);
+      assert.equal(gateway._retryCount, 1);
+
+      const db = { close() {}, onclose: null, onversionchange: null };
+      const success = gateway.connect();
+      requests[1].onsuccess({ target: { result: db } });
+      await success;
+      assert.equal(gateway._retryCount, 0);
+      db.onclose();
+
+      const newFailure = gateway.connect();
+      requests[2].onerror({ target: { error: new Error('new failure') } });
+      await assert.rejects(newFailure, /new failure/);
+      assert.equal(gateway._retryCount, 1);
+
+      cooldowns[0]();
+      assert.equal(gateway._retryCount, 1,
+        '成功前旧 cooldown 不得消耗成功后新失败的计数');
+      cooldowns[1]();
+      assert.equal(gateway._retryCount, 0);
+    } finally {
+      gateway._dbPromise = originalDbPromise;
+      gateway._retryCount = originalRetryCount;
+      gateway._retryEpoch = originalRetryEpoch;
+      global.indexedDB = originalIndexedDb;
+      global.setTimeout = originalSetTimeout;
+    }
+  });
+
   test.it('写事务 abort 会拒绝调用方 Promise', async () => {
     const gateway = global.DbGateway;
     const originalDbPromise = gateway._dbPromise;

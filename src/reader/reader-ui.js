@@ -39,6 +39,11 @@
     let _isRuntimeBound = false;
     let _reflowSeq = 0;
     let _openLocalFileQueue = Promise.resolve();
+    let _resizeHandler = null;
+    let _resizeTimer = null;
+    let _preResizeCfi = null;
+    let _resizeRendition = null;
+    let _resizePersistence = null;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -736,17 +741,17 @@
     }
 
     function bindResize(persistence) {
-      let resizeTimer;
-      let preResizeCfi = null;
-      let resizeRendition = null;
-      window.addEventListener('resize', () => {
+      _resizePersistence = persistence;
+      if (_resizeHandler) return;
+
+      _resizeHandler = () => {
         if (!state.rendition || !state.isBookLoaded) return;
         const rendition = state.rendition;
-        if (resizeRendition !== rendition) {
-          resizeRendition = rendition;
-          preResizeCfi = null;
+        if (_resizeRendition !== rendition) {
+          _resizeRendition = rendition;
+          _preResizeCfi = null;
         }
-        if (!preResizeCfi) {
+        if (!_preResizeCfi) {
           const locator = state.currentStableLocator;
           const hasMatchingRestoreCfi = locator &&
             locator.sourceCfi === state.currentStableCfi &&
@@ -754,20 +759,21 @@
             locator.restoreCfi;
           // resize 事件触发时 viewport 已改变，此时 currentLocation() 可能已指向
           // 新布局的错误页。优先使用变化前持久化的可视锚点，再退回主 CFI。
-          preResizeCfi = hasMatchingRestoreCfi || state.currentStableCfi;
-          if (!preResizeCfi) {
+          _preResizeCfi = hasMatchingRestoreCfi || state.currentStableCfi;
+          if (!_preResizeCfi) {
             const loc = rendition.currentLocation();
-            if (loc && loc.start) preResizeCfi = loc.start.cfi;
+            if (loc && loc.start) _preResizeCfi = loc.start.cfi;
           }
         }
-        const targetCfi = preResizeCfi;
+        const targetCfi = _preResizeCfi;
+        const resizePersistence = _resizePersistence;
         const context = _beginReflow(rendition);
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(async () => {
+        if (_resizeTimer !== null) clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(async () => {
           if (!_isCurrentReflow(context)) return;
-          preResizeCfi = null;
-          resizeRendition = null;
-          resizeTimer = null;
+          _preResizeCfi = null;
+          _resizeRendition = null;
+          _resizeTimer = null;
           let newLoc = null;
           try {
             rendition.resize();
@@ -780,9 +786,10 @@
           } finally {
             if (!_releaseReflow(context)) return;
           }
-          if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
+          if (newLoc && newLoc.start && resizePersistence) resizePersistence.onRelocated(newLoc);
         }, RESIZE_DEBOUNCE_MS);
-      });
+      };
+      window.addEventListener('resize', _resizeHandler);
     }
 
     async function _openLocalFile(file, runtime) {
@@ -813,6 +820,7 @@
      */
     async function bindRuntime(runtime, persistence) {
       _runtime = runtime;
+      _resizePersistence = persistence;
       if (_isRuntimeBound) return;
       _isRuntimeBound = true;
 
@@ -840,17 +848,30 @@
       bindTypography(persistence);
       bindPanelState();
       bindDragAndDrop();
-      bindResize(persistence);
+      bindResize(_resizePersistence);
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     function mount() {
       syncPrefsToControls();
+      if (_resizePersistence) bindResize(_resizePersistence);
     }
 
     function unmount() {
-      // 事件监听均为 document/window 级，通过页面卸载自动清理
+      if (_resizeHandler && typeof window.removeEventListener === 'function') {
+        window.removeEventListener('resize', _resizeHandler);
+        _resizeHandler = null;
+      }
+      if (_resizeTimer !== null) {
+        clearTimeout(_resizeTimer);
+        _resizeTimer = null;
+      }
+      _preResizeCfi = null;
+      _resizeRendition = null;
+      _reflowSeq++;
+      state.isResizing = false;
+      state.isRestoringPosition = false;
     }
 
     return {

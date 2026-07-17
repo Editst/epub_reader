@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.31
+版本：v2.5.32
 更新：2026-07-16
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -392,6 +392,7 @@ IndexedDB 单例封装。通常不直接调用，通过 EpubStorage 间接使用
 DbGateway.connect(): Promise<IDBDatabase>
 // 返回单例 DB 连接；连续失败 3 次后抛出错误拒绝重试
 // 当前连接收到 versionchange 时主动 close 并使缓存失效；浏览器 close 后同样失效，下一次访问自动重连
+// 成功连接推进重试 epoch；失败 cooldown 只能递减所属 epoch，旧 timer 不得影响成功后的新失败周期
 // 连接失效必须按当前 Promise 身份校验，旧连接迟到事件不得清除已建立的新连接缓存
 
 DbGateway.get(storeName: string, key: any): Promise<any | null>
@@ -707,6 +708,7 @@ closeAllPanels(): void
 - 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到"先等索引再阅读"的旧行为。
 - `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
 - `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。由于 resize 事件触发时 viewport 已经改变，恢复目标必须优先使用变化前 `currentStableLocator.restoreCfi`（且 `sourceCfi` 匹配主 CFI），再回退 `currentStableCfi`，不得把此时的 `currentLocation()` 当作首选快照。
+- resize handler、timer、锚点和 persistence 引用由 ReaderUi 实例持有；`unmount()` 必须移除监听、取消 timer、作废 reflow 代次并释放保护锁，后续 `mount()` 可恢复单一监听。
 
 **v2.4.0 架构约束**：
 - 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。

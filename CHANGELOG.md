@@ -8,6 +8,17 @@
 
 ---
 
+## [2.5.32] - 2026-07-17
+
+### fix
+- **ReaderUi resize 生命周期闭合**：resize handler、timer 与锚点状态改由 UI 实例持有；`unmount()` 会移除监听、取消防抖任务、作废迟到 reflow 并释放保护锁，`mount()` 可幂等恢复监听。
+- **IndexedDB 重试代次隔离**：成功连接推进 retry epoch；旧失败遗留的 cooldown timer 只能递减原失败周期，不再提前消耗成功后新一轮失败计数或绕过重试上限。
+
+### test
+- 增加 ReaderUi resize 卸载/重挂载和 DbGateway 跨成功边界 cooldown 竞态回归；单元覆盖增至 290 项。
+
+---
+
 ## [2.5.31] - 2026-07-16
 
 ### fix

@@ -2197,6 +2197,96 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(state.isRestoringPosition, false);
   });
 
+  test.it('ReaderUi unmount 移除 resize 监听、取消迟到任务且 mount 可重新绑定', async () => {
+    const { document } = createMockDocument([]);
+    const listeners = new Map();
+    const timers = new Map();
+    const clearedTimers = [];
+    const calls = [];
+    let nextTimerId = 1;
+    let resizeAddCount = 0;
+    let resizeRemoveCount = 0;
+    const rendition = {
+      currentLocation() { return { start: { cfi: 'resize-cfi' } }; },
+      resize() { calls.push('resize'); },
+      display(cfi) { calls.push(['display', cfi]); return Promise.resolve(); },
+      themes: { override() {} },
+      getContents() { return []; }
+    };
+    const state = {
+      prefs: {},
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'resize-cfi',
+      currentStableLocator: null
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener(type, handler) {
+        if (type !== 'resize') return;
+        resizeAddCount++;
+        listeners.set(type, handler);
+      },
+      removeEventListener(type, handler) {
+        if (type !== 'resize' || listeners.get(type) !== handler) return;
+        resizeRemoveCount++;
+        listeners.delete(type);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      setTimeout(fn) {
+        const id = nextTimerId++;
+        timers.set(id, fn);
+        return id;
+      },
+      clearTimeout(id) {
+        clearedTimers.push(id);
+        timers.delete(id);
+      },
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    const persistence = { onRelocated(location) { calls.push(['old-relocated', location.start.cfi]); } };
+    await ui.bindRuntime({}, persistence);
+
+    const staleResizeHandler = listeners.get('resize');
+    staleResizeHandler();
+    const staleTimerId = nextTimerId - 1;
+    const staleTimer = timers.get(staleTimerId);
+    assert.equal(state.isResizing, true);
+
+    ui.unmount();
+    assert.equal(listeners.has('resize'), false);
+    assert.deepEqual(clearedTimers, [staleTimerId]);
+    assert.equal(state.isResizing, false);
+    assert.equal(state.isRestoringPosition, false);
+    await staleTimer();
+    assert.deepEqual(calls, [], 'unmount 后迟到 timer 不得操作 rendition');
+
+    await ui.bindRuntime({}, {
+      onRelocated(location) { calls.push(['relocated', location.start.cfi]); }
+    });
+    ui.mount();
+    assert.equal(resizeAddCount, 2, 'mount 应恢复 resize 监听');
+    listeners.get('resize')();
+    const activeTimer = timers.get(nextTimerId - 1);
+    await activeTimer();
+    assert.deepEqual(calls, [
+      'resize',
+      ['display', 'resize-cfi'],
+      ['relocated', 'resize-cfi']
+    ]);
+
+    ui.unmount();
+    assert.equal(resizeRemoveCount, 2);
+  });
+
   test.it('ReaderUi 旧 iframe 键盘与滚轮事件不会导航新 rendition', () => {
     const { document } = createMockDocument([]);
     const { document: iframeDocument } = createMockDocument([]);
