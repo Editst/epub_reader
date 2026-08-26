@@ -1139,4 +1139,65 @@ test.describe('EpubStorage 行为覆盖', () => {
     const emptyResult = await EpubStorage.getBookMetaBatch([]);
     assert.deepEqual(emptyResult, {});
   });
+
+  test.it('fileTimestamps 支持多 bookId 并发写入与防竞争', async () => {
+    const bookIds = ['book-c-1', 'book-c-2', 'book-c-3', 'book-c-4'];
+    await Promise.all(bookIds.map((id) => EpubStorage._touchFileTimestamp(id)));
+
+    const timestamps = await EpubStorage._get('fileTimestamps');
+    assert.ok(typeof timestamps === 'object' && timestamps !== null);
+    for (const id of bookIds) {
+      assert.ok(typeof timestamps[id] === 'number' && timestamps[id] > 0, `${id} 的时间戳应存在且为有效数字`);
+    }
+  });
+
+  test.it('fileTimestamps 损坏时 _touchFileTimestamp 与 enforceFileLRU 安全降级', async () => {
+    // 注入损坏的非对象数据
+    await new Promise((resolve) => chrome.storage.local.set({ fileTimestamps: 'corrupted-string' }, resolve));
+
+    await EpubStorage._touchFileTimestamp('recovered-book');
+    const timestamps = await EpubStorage._get('fileTimestamps');
+
+    assert.ok(typeof timestamps === 'object' && timestamps !== null);
+    assert.ok(typeof timestamps['recovered-book'] === 'number');
+
+    // enforceFileLRU 遇到非对象也能正常工作
+    await new Promise((resolve) => chrome.storage.local.set({ fileTimestamps: null }, resolve));
+    await assert.doesNotReject(async () => {
+      await EpubStorage.enforceFileLRU(10);
+    });
+  });
+
+  test.it('getFile 在 _touchFileTimestamp 抛错时仍降级返回 fallbackRecord', async () => {
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'touch-fail-book',
+      filename: 'touch-fail.epub',
+      data: new Uint8Array([7, 8, 9]),
+      timestamp: Date.now()
+    });
+
+    const origTouch = EpubStorage._touchFileTimestamp.bind(EpubStorage);
+    EpubStorage._touchFileTimestamp = async () => {
+      throw new Error('simulated timestamp touch failure');
+    };
+
+    try {
+      const record = await EpubStorage.getFile('touch-fail-book');
+      assert.notEqual(record, null, '时间戳更新失败不应影响文件读取返回');
+      assert.equal(record.bookId, 'touch-fail-book');
+      assert.deepEqual(Array.from(record.data), [7, 8, 9]);
+    } finally {
+      EpubStorage._touchFileTimestamp = origTouch;
+    }
+  });
+
+  test.it('removeFile 级联清理 fileTimestamps 中的对应记录', async () => {
+    await EpubStorage._touchFileTimestamp('to-remove-book');
+    let map = await EpubStorage._get('fileTimestamps');
+    assert.ok(typeof map['to-remove-book'] === 'number');
+
+    await EpubStorage.removeFile('to-remove-book');
+    map = await EpubStorage._get('fileTimestamps');
+    assert.equal(map['to-remove-book'], undefined, 'removeFile 后时间戳 Map 中应已删除该 bookId');
+  });
 });

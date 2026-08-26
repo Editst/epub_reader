@@ -20,7 +20,10 @@
 ### test
 - 增加字号滑块连续 `input` 防抖合并与 `change` 立即 flush 专项回归测试；
 - 增加 `EpubStorage.getBookMetaBatch` 批量拉取与 legacy 迁移单元测试；
-- 全量自动化测试用例增至 302 项（全部通过）。
+- 增加 `fileTimestamps` 并发写入防竞争、异常损坏降级与级联删除单元测试；
+- 增加 `loadFileByBookId` 重试上限耗尽、重试期间 unmount 中断与存储降级测试；
+- 增加 `Annotations._isTocList` 基于 children 的快速短路边界测试；
+- 全量自动化测试用例增至 311 项（全部通过）。
 
 ---
 

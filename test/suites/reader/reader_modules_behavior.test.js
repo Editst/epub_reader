@@ -2887,4 +2887,86 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(savedPrefs.length, 1);
     assert.equal(savedPrefs[0].fontSize, 22);
   });
+
+  test.it('ReaderUi unmount 时清理 _typographyDebounceTimer 避免迟到重排', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const timers = [];
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener() {},
+      setTimeout(fn, ms) {
+        const id = { fn, ms };
+        timers.push(id);
+        return id;
+      },
+      clearTimeout(id) {
+        const index = timers.indexOf(id);
+        if (index !== -1) timers.splice(index, 1);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition: null,
+      isBookLoaded: false,
+      isResizing: false,
+      isRestoringPosition: false
+    };
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, {});
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '24';
+    fontSizeSlider.dispatch('input');
+    assert.equal(timers.length, 1);
+
+    ui.unmount();
+    assert.equal(timers.length, 0, 'unmount 必须清理未执行的字号防抖定时器');
+  });
+
+  test.it('Annotations _isTocList 在子项数过少或普通非导航列表中准确短路', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+
+    // 1. 空或 null
+    assert.equal(Annotations._isTocList(null), false);
+
+    // 2. 子项过少 (< 5)
+    const shortList = {
+      children: [
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Very Long Chapter Title 1' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Very Long Chapter Title 2' }) }
+      ]
+    };
+    assert.equal(Annotations._isTocList(shortList), false);
+
+    // 3. 超过 5 项且 >= 60% 拥有长标题链接 -> 判定为 TOC
+    const tocList = {
+      children: [
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Chapter 1: The Beginning of History' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Chapter 2: The Journey to Unknown' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Chapter 3: Encountering the Dragon' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Chapter 4: The Final Showdown Here' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Chapter 5: Returning Home Victorious' }) }
+      ]
+    };
+    assert.equal(Annotations._isTocList(tocList), true);
+
+    // 4. 超过 5 项但多为短文本（非章节目录） -> 判定为非 TOC
+    const plainList = {
+      children: [
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Item 1' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Item 2' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Item 3' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Item 4' }) },
+        { tagName: 'LI', querySelector: () => ({ textContent: 'Item 5' }) }
+      ]
+    };
+    assert.equal(Annotations._isTocList(plainList), false);
+  });
 });

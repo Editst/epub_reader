@@ -3276,4 +3276,144 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.getFile = origGetFile;
     }
   });
+
+  test.it('loadFileByBookId 达到重试上限后停止并调用 showLoadError', async () => {
+    const origGetFile = EpubStorage.getFile;
+    let attempts = 0;
+    let errorShown = null;
+
+    EpubStorage.getFile = async () => {
+      attempts++;
+      return null;
+    };
+
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {},
+        showLoadError(err, detail) {
+          errorShown = { err, detail };
+        }
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      await runtime.loadFileByBookId('book-nonexistent');
+      assert.equal(attempts, 6, '应执行 1 次初始读取 + 5 次重试后停止');
+      assert.ok(errorShown !== null, '重试耗尽后应调用 showLoadError 提示用户');
+      assert.equal(state.isBookLoaded, false);
+    } finally {
+      EpubStorage.getFile = origGetFile;
+    }
+  });
+
+  test.it('loadFileByBookId 重试期间 unmount 时由 _assertOpenActive 静默中断', async () => {
+    const origGetFile = EpubStorage.getFile;
+    let attempts = 0;
+    let errorShown = null;
+
+    EpubStorage.getFile = async () => {
+      attempts++;
+      return null;
+    };
+
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {},
+        showLoadError(err, detail) {
+          errorShown = { err, detail };
+        }
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      const loadPromise = runtime.loadFileByBookId('book-interrupted');
+      // 在第 1 次尝试返回 null 后立即触发 unmount
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      runtime.unmount();
+      await loadPromise;
+
+      assert.equal(errorShown, null, 'unmount 导致的中断不应弹出错误提示');
+      assert.ok(attempts < 5, 'unmount 后不应继续完成后续重试');
+    } finally {
+      EpubStorage.getFile = origGetFile;
+    }
+  });
+
+  test.it('_initializeBook 在 getBookMeta 或 getLocations 失败时安全降级继续渲染', async () => {
+    const origGetMeta = EpubStorage.getBookMeta;
+    const origGetLocs = EpubStorage.getLocations;
+
+    EpubStorage.getBookMeta = async () => {
+      throw new Error('simulated getBookMeta rejection');
+    };
+    EpubStorage.getLocations = async () => {
+      throw new Error('simulated getLocations rejection');
+    };
+
+    const rendition = {
+      display: async () => {},
+      currentLocation: () => ({ start: { cfi: 'cfi-fallback' } }),
+      themes: { default() {} },
+      hooks: { content: { register() {} } },
+      on() {}
+    };
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: 'Fallback Book', creator: 'Author' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }, activeReadingSeconds: 0,
+      cachedSpeed: null, sessionStart: null, lastProgress: 0
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      await assert.doesNotReject(async () => {
+        await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-storage-fail', 'test.epub');
+      });
+      assert.equal(state.isBookLoaded, true, '非关键存储失败不应阻止书籍成功渲染');
+      assert.equal(state.currentBookId, 'book-storage-fail');
+    } finally {
+      EpubStorage.getBookMeta = origGetMeta;
+      EpubStorage.getLocations = origGetLocs;
+    }
+  });
 });
