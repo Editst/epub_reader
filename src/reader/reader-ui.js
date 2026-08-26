@@ -16,6 +16,7 @@
   'use strict';
 
   const RESIZE_DEBOUNCE_MS = 250;
+  const TYPOGRAPHY_REFLOW_DEBOUNCE_MS = 200;
   const DEFAULT_THEME = 'light';
   const DEFAULT_CUSTOM_BG = '#ffffff';
   const DEFAULT_CUSTOM_TEXT = '#333333';
@@ -34,6 +35,28 @@
     'sans-serif'
   ]);
 
+  function _safeSetTimeout(fn, ms) {
+    if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+      return window.setTimeout(fn, ms);
+    }
+    if (typeof setTimeout === 'function') {
+      return setTimeout(fn, ms);
+    }
+    if (typeof fn === 'function') fn();
+    return null;
+  }
+
+  function _safeClearTimeout(id) {
+    if (id === null || id === undefined) return;
+    if (typeof window !== 'undefined' && typeof window.clearTimeout === 'function') {
+      window.clearTimeout(id);
+      return;
+    }
+    if (typeof clearTimeout === 'function') {
+      clearTimeout(id);
+    }
+  }
+
   function createReaderUi({ state }) {
     let _runtime = null;
     let _isRuntimeBound = false;
@@ -44,6 +67,7 @@
     let _preResizeCfi = null;
     let _resizeRendition = null;
     let _resizePersistence = null;
+    let _typographyDebounceTimer = null;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -439,7 +463,9 @@
             if (!_releaseReflow(context)) return;
           }
           const newLoc = rendition.currentLocation();
-          if (newLoc && newLoc.start && persistence) persistence.onRelocated(newLoc);
+          if (newLoc && newLoc.start && typeof persistence?.onRelocated === 'function') {
+            persistence.onRelocated(newLoc);
+          }
         });
       });
     }
@@ -666,6 +692,24 @@
       }
     }
 
+    function _scheduleTypographyReflow(persistence) {
+      if (_typographyDebounceTimer !== null) {
+        _safeClearTimeout(_typographyDebounceTimer);
+      }
+      _typographyDebounceTimer = _safeSetTimeout(() => {
+        _typographyDebounceTimer = null;
+        _withCfiLock(() => updateCustomStyles(), persistence);
+      }, TYPOGRAPHY_REFLOW_DEBOUNCE_MS);
+    }
+
+    function _flushTypographyReflow(persistence) {
+      if (_typographyDebounceTimer !== null) {
+        _safeClearTimeout(_typographyDebounceTimer);
+        _typographyDebounceTimer = null;
+        _withCfiLock(() => updateCustomStyles(), persistence);
+      }
+    }
+
     function bindTypography(persistence) {
       if (!dom.fontSizeSlider) return;
 
@@ -674,9 +718,11 @@
         e.target.value = size;
         if (dom.fontSizeValue) dom.fontSizeValue.textContent = size + 'px';
         state.prefs.fontSize = size;
-        _withCfiLock(() => updateCustomStyles(), persistence);
+        updateCustomStyles();
+        _scheduleTypographyReflow(persistence);
       });
       dom.fontSizeSlider.addEventListener('change', (e) => {
+        _flushTypographyReflow(persistence);
         _savePreferencesSafely({
           fontSize: normalizeNumber(Number(e.target.value), DEFAULT_FONT_SIZE, 12, 32)
         });
@@ -687,9 +733,11 @@
         e.target.value = Math.round(val * 10);
         if (dom.lineHeightValue) dom.lineHeightValue.textContent = val.toFixed(1);
         state.prefs.lineHeight = val;
-        _withCfiLock(() => updateCustomStyles(), persistence);
+        updateCustomStyles();
+        _scheduleTypographyReflow(persistence);
       });
       dom.lineHeightSlider?.addEventListener('change', (e) => {
+        _flushTypographyReflow(persistence);
         _savePreferencesSafely({
           lineHeight: normalizeNumber(Number(e.target.value) / 10, DEFAULT_LINE_HEIGHT, 1.2, 3)
         });
@@ -699,6 +747,7 @@
         const fontFamily = VALID_FONT_FAMILIES.has(e.target.value) ? e.target.value : '';
         state.prefs.fontFamily = fontFamily;
         e.target.value = fontFamily;
+        _flushTypographyReflow(persistence);
         _withCfiLock(() => updateCustomStyles(), persistence);
         _savePreferencesSafely({ fontFamily });
       });
@@ -871,8 +920,12 @@
         _resizeHandler = null;
       }
       if (_resizeTimer !== null) {
-        clearTimeout(_resizeTimer);
+        _safeClearTimeout(_resizeTimer);
         _resizeTimer = null;
+      }
+      if (_typographyDebounceTimer !== null) {
+        _safeClearTimeout(_typographyDebounceTimer);
+        _typographyDebounceTimer = null;
       }
       _preResizeCfi = null;
       _resizeRendition = null;

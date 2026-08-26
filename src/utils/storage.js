@@ -146,6 +146,44 @@ const EpubStorage = {
     return (await this._migrateLegacyBookMeta(bookId)) || null;
   },
 
+  async getBookMetaBatch(bookIds) {
+    if (!Array.isArray(bookIds) || bookIds.length === 0) return {};
+    const validIds = bookIds.filter((id) => typeof id === 'string' && id);
+    if (validIds.length === 0) return {};
+
+    const keys = validIds.map((id) => KEYS.bookMeta(id));
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get(keys, async (result) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          return reject(chrome.runtime.lastError);
+        }
+        const map = {};
+        const migrationPromises = [];
+
+        for (const id of validIds) {
+          const raw = result ? result[KEYS.bookMeta(id)] : null;
+          const normalized = this._normalizeBookMeta(raw);
+          if (normalized) {
+            map[id] = normalized;
+          } else {
+            migrationPromises.push(
+              this._migrateLegacyBookMeta(id).then((migrated) => {
+                map[id] = migrated || null;
+              }).catch(() => {
+                map[id] = null;
+              })
+            );
+          }
+        }
+
+        if (migrationPromises.length > 0) {
+          await Promise.all(migrationPromises);
+        }
+        resolve(map);
+      });
+    });
+  },
+
   async saveBookMeta(bookId, meta) {
     if (!bookId || !this._isRecord(meta)) return;
     const normalized = this._normalizeBookMeta(meta);

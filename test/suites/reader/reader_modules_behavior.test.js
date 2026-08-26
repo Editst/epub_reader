@@ -2770,4 +2770,121 @@ test.describe('Reader 模块基础行为', () => {
       assert.equal(count(document.getElementById('btn-show-toolbar'), 'click'), 1);
     }
   });
+
+  test.it('ReaderUi 字号滑块连续 input 触发时防抖合并为单次重排', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const displays = [];
+    const timers = [];
+    const rendition = {
+      currentLocation() { return { start: { cfi: 'debounce-cfi' } }; },
+      getContents() { return []; },
+      display(cfi) { displays.push(cfi); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'debounce-cfi'
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener() {},
+      setTimeout(fn, ms) {
+        const id = { fn, ms };
+        timers.push(id);
+        return id;
+      },
+      clearTimeout(id) {
+        const index = timers.indexOf(id);
+        if (index !== -1) timers.splice(index, 1);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, {});
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '20';
+    fontSizeSlider.dispatch('input');
+    fontSizeSlider.value = '22';
+    fontSizeSlider.dispatch('input');
+    fontSizeSlider.value = '24';
+    fontSizeSlider.dispatch('input');
+
+    // 连续触发 input，此时 timer 数组中仅保留最后一次调度的 timer
+    assert.equal(timers.length, 1);
+    assert.deepEqual(displays, [], '在 timer 触发前不应提前触发 display 重排');
+
+    // 执行防抖 timer
+    const lastTimer = timers.pop();
+    lastTimer.fn();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(displays, ['debounce-cfi']);
+    assert.equal(state.prefs.fontSize, 24);
+  });
+
+  test.it('ReaderUi 字号滑块 change 事件立即 flush 待执行的字体重排', async () => {
+    const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
+    const displays = [];
+    const timers = [];
+    const savedPrefs = [];
+    const rendition = {
+      currentLocation() { return { start: { cfi: 'flush-cfi' } }; },
+      getContents() { return []; },
+      display(cfi) { displays.push(cfi); return Promise.resolve(); }
+    };
+    const state = {
+      prefs: { fontSize: 18, lineHeight: 1.8, theme: 'light' },
+      rendition,
+      isBookLoaded: true,
+      isResizing: false,
+      isRestoringPosition: false,
+      currentStableCfi: 'flush-cfi'
+    };
+    const windowMock = {
+      document,
+      focus() {},
+      addEventListener() {},
+      setTimeout(fn, ms) {
+        const id = { fn, ms };
+        timers.push(id);
+        return id;
+      },
+      clearTimeout(id) {
+        const index = timers.indexOf(id);
+        if (index !== -1) timers.splice(index, 1);
+      }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences(prefs) { savedPrefs.push(prefs); } }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    await ui.bindRuntime({}, {});
+
+    const fontSizeSlider = document.getElementById('font-size-slider');
+    fontSizeSlider.value = '22';
+    fontSizeSlider.dispatch('input');
+    assert.equal(timers.length, 1);
+
+    // 用户松开滑块触发 change，立即 flush 并保存
+    fontSizeSlider.dispatch('change');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(timers.length, 0, 'change 事件后待执行 timer 应被清空');
+    assert.deepEqual(displays, ['flush-cfi']);
+    assert.equal(savedPrefs.length, 1);
+    assert.equal(savedPrefs[0].fontSize, 22);
+  });
 });

@@ -1112,4 +1112,31 @@ test.describe('EpubStorage 行为覆盖', () => {
       if (entry.op === 'start') lastBookId = entry.bookId;
     }
   });
+
+  test.it('getBookMetaBatch 批量获取多本书籍元数据并支持部分缺失与 legacy 迁移', async () => {
+    // 准备测试数据：book1 有完整 meta，book2 有 legacy pos，book3 不存在
+    await EpubStorage.saveBookMeta('book1', {
+      pos: { cfi: 'cfi-1', percentage: 0.5, timestamp: 1000 },
+      time: 120,
+      speed: { sampledSeconds: 60, sampledProgress: 0.2, contentUnitCount: 1000, contentUnitVersion: 1 }
+    });
+    await new Promise((resolve) => chrome.storage.local.set({
+      'pos_book2': { cfi: 'cfi-2', percentage: 0.8, timestamp: 2000 }
+    }, resolve));
+
+    const result = await EpubStorage.getBookMetaBatch(['book1', 'book2', 'book3']);
+
+    assert.equal(result.book1.pos.cfi, 'cfi-1');
+    assert.equal(result.book1.time, 120);
+    assert.equal(result.book1.speed.sampledSeconds, 60);
+
+    assert.equal(result.book2.pos.cfi, 'cfi-2');
+    assert.equal(result.book2.pos.percentage, 0.8);
+
+    assert.equal(result.book3, null);
+
+    // 空入参安全降级
+    const emptyResult = await EpubStorage.getBookMetaBatch([]);
+    assert.deepEqual(emptyResult, {});
+  });
 });

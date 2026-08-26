@@ -666,12 +666,33 @@ const Annotations = {
    * whose text is longer than 10 characters (chapter/section titles).
    */
   _isTocList(listEl) {
+    if (!listEl) return false;
+    const children = listEl.children;
+    if (children && children.length !== undefined) {
+      if (children.length < _TOC_MIN_ITEMS) return false;
+      let liCount = 0;
+      let longLinked = 0;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        if (child && child.tagName === 'LI') {
+          liCount++;
+          const a = typeof child.querySelector === 'function' ? child.querySelector('a') : null;
+          if (a && a.textContent && a.textContent.trim().length > _TOC_LINK_TEXT_MIN_LENGTH) {
+            longLinked++;
+          }
+        }
+      }
+      if (liCount < _TOC_MIN_ITEMS) return false;
+      return (longLinked / liCount) >= _TOC_LONG_LINK_RATIO;
+    }
+
+    if (typeof listEl.querySelectorAll !== 'function') return false;
     const items = listEl.querySelectorAll(':scope > li');
     if (items.length < _TOC_MIN_ITEMS) return false;
     let longLinked = 0;
     for (let i = 0; i < items.length; i++) {
       const a = items[i].querySelector('a');
-      if (a && a.textContent.trim().length > _TOC_LINK_TEXT_MIN_LENGTH) longLinked++;
+      if (a && a.textContent && a.textContent.trim().length > _TOC_LINK_TEXT_MIN_LENGTH) longLinked++;
     }
     return (longLinked / items.length) >= _TOC_LONG_LINK_RATIO;
   },

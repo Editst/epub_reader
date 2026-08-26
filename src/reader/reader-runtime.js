@@ -23,6 +23,7 @@
   const LOCATIONS_BREAK_MEDIUM          = 3200;
   const LOCATIONS_BREAK_SMALL           = 1600;
   const CONTENT_UNIT_VERSION            = 1;
+  const CONTENT_UNIT_COUNT_BATCH_SIZE   = 8;
   const CONTENT_UNIT_EXCLUDED_SELECTOR  = 'script,style,noscript,template,[hidden],[aria-hidden="true"],rt,rp';
   const FONT_READY_TIMEOUT_MS           = 300;
   const GAP_SCROLLED_PX                 = 48;
@@ -212,7 +213,9 @@
             }
           }
         }
-        await _delay(0);
+        if ((index + 1) % CONTENT_UNIT_COUNT_BATCH_SIZE === 0) {
+          await _delay(0);
+        }
       }
 
       return totalUnits;

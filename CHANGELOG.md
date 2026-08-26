@@ -8,6 +8,22 @@
 
 ---
 
+## [2.5.38] - 2026-08-27
+
+### perf
+- **字号/行距滑块防抖重排**：`reader-ui.js` 中将滑块高频 `input` 事件与重量级 `_withCfiLock` 重排逻辑解耦；拖动过程中立即更新数值显示与 iframe 自定义 CSS（实时视觉预览），重排与位置恢复通过 200ms 防抖调度，并在 `change` 松开时立即 flush，彻底消除滑块连续拖动时的严重掉帧与假死。
+- **全文搜索耗时预算调度**：`search.js` 中将逐章固定 10ms 无条件等待改为 16ms 帧预算（Time Budgeting）驱动让步，并对搜索进度文本进行节流刷新；大部头书籍（300+ 章节）搜索调度延迟从数秒级降至可忽略。
+- **正文计数批量让步**：`reader-runtime.js` 中的 `_countBookContentUnits` 扫描由逐章 `_delay(0)` 优化为每 8 章让步一次，消除浏览器嵌套定时器的 4ms 调度税，大幅加快大书阅读速度与 ETA 就绪速度。
+- **书架 bookMeta 批量读取**：`EpubStorage` 新增 `getBookMetaBatch(bookIds)` 接口，`home.js` 书架渲染时单次 `chrome.storage.local.get` 批量获取所有书籍元数据，消除书架 N+1 跨进程 IPC 往返延迟（20 本书场景省 20-100ms）。
+- **脚注扫描短路优化**：`annotations.js` 中 `_isTocList` 优先利用 `children` 属性和子项统计快速短路，跳过大型列表的 `:scope > li` 复杂选择器解析。
+
+### test
+- 增加字号滑块连续 `input` 防抖合并与 `change` 立即 flush 专项回归测试；
+- 增加 `EpubStorage.getBookMetaBatch` 批量拉取与 legacy 迁移单元测试；
+- 全量自动化测试用例增至 302 项（全部通过）。
+
+---
+
 ## [2.5.37] - 2026-08-26
 
 ### perf

@@ -78,16 +78,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  let _shelfPreloadedMetaMap = null;
+
   async function loadBookCardData(book) {
+    const preloaded = _shelfPreloadedMetaMap ? _shelfPreloadedMetaMap[book.id] : undefined;
     const [coverBlob, meta] = await Promise.all([
       EpubStorage.getCover(book.id).catch((err) => {
         console.warn('[Home] get cover failed:', book.id, err);
         return null;
       }),
-      EpubStorage.getBookMeta(book.id).catch((err) => {
-        console.warn('[Home] get book meta failed:', book.id, err);
-        return null;
-      })
+      (preloaded !== undefined)
+        ? Promise.resolve(preloaded)
+        : EpubStorage.getBookMeta(book.id).catch((err) => {
+            console.warn('[Home] get book meta failed:', book.id, err);
+            return null;
+          })
     ]);
     return { coverBlob, meta };
   }
@@ -171,6 +176,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     shelfEmpty.classList.remove('show');
     btnClearAll.classList.remove('is-hidden');
     renderBookshelfSkeleton(books.length);
+
+    const bookIds = books.map((b) => b.id);
+    _shelfPreloadedMetaMap = null;
+    if (typeof EpubStorage.getBookMetaBatch === 'function') {
+      try {
+        _shelfPreloadedMetaMap = await EpubStorage.getBookMetaBatch(bookIds);
+      } catch (err) {
+        console.warn('[Home] getBookMetaBatch failed, fallback to single reads:', err);
+      }
+    }
+    if (renderSeq !== bookshelfRenderSeq) return;
 
     const tasks = books.map((book, index) => streamRenderBookCard(book, index, renderSeq));
     await Promise.all(tasks);

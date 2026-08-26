@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.37
-更新：2026-08-26
+版本：v2.5.38
+更新：2026-08-27
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -251,6 +251,9 @@ getBookMeta(bookId: string): Promise<BookMeta | null>
 // v2.2 的 sessions/sessionCount 已停用；读取旧数据时归一化丢弃，不再继续持久化
 // 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
 // lazy migration 必须进入同书 bookMeta 队列，不能绕过队列直接 _set
+
+getBookMetaBatch(bookIds: string[]): Promise<Record<string, BookMeta | null>>
+// v2.5.38：单次 chrome.storage.local.get 批量拉取多本书籍的 bookMeta，消除书架 N+1 跨进程 IPC 往返
 
 saveBookMeta(bookId: string, meta: BookMeta): Promise<void>
 // 整体覆写，批量更新时使用
@@ -576,6 +579,7 @@ _mountFeatureModules(): void
 | `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | 1 | 恢复期同 CFI 直接重放次数上限 |
 | `FILE_LOAD_RETRY_ATTEMPTS` | 5 | loadFileByBookId 缓存未就绪重试次数 |
 | `FILE_LOAD_RETRY_INTERVAL_MS` | 200 | loadFileByBookId 重试间隔 (ms) |
+| `CONTENT_UNIT_COUNT_BATCH_SIZE` | 8 | 正文计数后台让步批次大小 (章) |
 
 **行为约束**：
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。

@@ -7,6 +7,8 @@
   const _SEARCH_MAX_RESULTS = 1000;
   const _SEARCH_UI_YIELD_MS = 10;
   const _SEARCH_FOCUS_DELAY_MS = 100;
+  const _SEARCH_TIME_BUDGET_MS = 16;
+  const _SEARCH_STATUS_THROTTLE_MS = 100;
 
   let book = null;
   let rendition = null;
@@ -159,17 +161,34 @@
       const spine = activeBook.spine;
       const activeLoad = typeof activeBook.load === 'function' ? activeBook.load.bind(activeBook) : undefined;
       
+      let lastYieldTime = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+      let lastStatusTime = 0;
+
       for (let i = 0; i < spine.length; i++) {
         if (searchId !== currentSearchId || !isSearching) break;
         if (results.length >= _SEARCH_MAX_RESULTS) break;
 
+        const now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+          ? performance.now()
+          : Date.now();
+
+        if (now - lastStatusTime >= _SEARCH_STATUS_THROTTLE_MS || i === 0) {
+          statusEl.textContent = `搜索中... (章节 ${i + 1}/${spine.length})`;
+          lastStatusTime = now;
+        }
+
+        // 仅当连续耗时达到帧预算时才让步给 UI 线程
+        if (now - lastYieldTime >= _SEARCH_TIME_BUDGET_MS) {
+          await new Promise(r => setTimeout(r, _SEARCH_UI_YIELD_MS));
+          lastYieldTime = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+          if (searchId !== currentSearchId || !isSearching) break;
+        }
+
         const item = spine.get(i);
-        statusEl.textContent = `搜索中... (章节 ${i + 1}/${spine.length})`;
-        
-        // Yield to browser UI thread to allow status text to render
-        await new Promise(r => setTimeout(r, _SEARCH_UI_YIELD_MS));
-        
-        if (searchId !== currentSearchId || !isSearching) break;
 
         let itemResults = [];
         let loaded = false;
