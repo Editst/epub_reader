@@ -8,6 +8,20 @@
 
 ---
 
+## [2.5.37] - 2026-08-26
+
+### perf
+- **消除 getFile LRU 写放大**：将 EPUB 文件访问时间戳从 IndexedDB `files` 存储中拆离，维护于 `chrome.storage.local` 的轻量 `fileTimestamps` Map；`getFile()` 变为纯读取操作，彻底消除每次打开缓存时数十 MB 二进制大对象的 IDB 结构化克隆与写盘开销（冷开/热开延迟降低 100-400ms）。
+- **初始化存储并发读取**：`ReaderRuntime._initializeBook()` 中的 `getPreferences()`、`getBookMeta()` 与 `getLocations()` 从串行 3 级瀑布改为 `Promise.all` 一次性并发获取，减少 2 轮存储 I/O往返延迟。
+- **元数据与导航并行等待**：epub.js 的 `book.loaded.metadata` 与 `book.loaded.navigation` 改为并发 `Promise.all` 等待。
+- **首屏渲染非阻塞化**：首屏成功渲染后的 `addRecentBook()` 更新改为非阻塞异步任务，不再阻断功能模块挂载与 loading 蒙层隐藏。
+- **Home 页导入异步化与 Reader 重试**：`home.js` 本地文件导入时在后台异步启动 `EpubStorage.storeFile()` 并立即跳转；`reader-runtime.js` 中的 `loadFileByBookId()` 增加短轮询重试兜底，避免首次导入被大文件 IDB 物理落盘阻塞。
+
+### test
+- 增加 `getFile` 零 IDB 写入、`_initializeBook` 并发读取以及 `loadFileByBookId` 存储延迟重试回归；单元覆盖增至 299 项。
+
+---
+
 ## [2.5.36] - 2026-07-17
 
 ### fix

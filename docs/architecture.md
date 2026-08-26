@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.36
-更新：2026-07-17
+版本：v2.5.37
+更新：2026-08-26
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
 
@@ -347,6 +347,7 @@ storeFile(filename: string, data: Uint8Array, bookId: string): Promise<void>
 
 getFile(bookId: string): Promise<FileRecord | null>
 // FileRecord: { bookId, filename, data, timestamp }
+// v2.5.37：读路径为纯读取（零 IDB 写入），访问时间戳异步更新至 chrome.storage.local 的 fileTimestamps Map，彻底消除大二进制对象的写放大
 // 成功读取后刷新 timestamp，使 LRU 按最后访问时间而非导入时间淘汰
 
 removeFile(bookId: string): Promise<void>

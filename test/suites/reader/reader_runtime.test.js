@@ -3152,4 +3152,128 @@ test.describe('ReaderRuntime', () => {
     // 此测试验证 setLayout 不会导致位置被错误覆盖
     // （isRestoringPosition 保护在实现后生效）
   });
+
+  test.it('_initializeBook 并发发起 preferences, bookMeta 与 locationsCache 读取', async () => {
+    const origGetPref = EpubStorage.getPreferences;
+    const origGetMeta = EpubStorage.getBookMeta;
+    const origGetLocs = EpubStorage.getLocations;
+
+    let prefCalled = false;
+    let metaCalled = false;
+    let locsCalled = false;
+
+    EpubStorage.getPreferences = async () => {
+      prefCalled = true;
+      assert.equal(metaCalled, true, 'getPreferences 与 getBookMeta 应已并发发起');
+      assert.equal(locsCalled, true, 'getPreferences 与 getLocations 应已并发发起');
+      return { layout: 'paginated', fontSize: 18 };
+    };
+    EpubStorage.getBookMeta = async () => {
+      metaCalled = true;
+      return { time: 10, pos: { percentage: 0.2 } };
+    };
+    EpubStorage.getLocations = async () => {
+      locsCalled = true;
+      return null;
+    };
+
+    const rendition = {
+      display: async () => {},
+      currentLocation: () => ({ start: { cfi: 'cfi-1' } }),
+      themes: { default() {} },
+      hooks: { content: { register() {} } },
+      on() {}
+    };
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: 'Test Title', creator: 'Author' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }, activeReadingSeconds: 0,
+      cachedSpeed: null, sessionStart: null, lastProgress: 0
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-parallel-test', 'test.epub');
+      assert.equal(prefCalled, true);
+      assert.equal(metaCalled, true);
+      assert.equal(locsCalled, true);
+    } finally {
+      EpubStorage.getPreferences = origGetPref;
+      EpubStorage.getBookMeta = origGetMeta;
+      EpubStorage.getLocations = origGetLocs;
+    }
+  });
+
+  test.it('loadFileByBookId 在存储短暂延迟时进行重试并成功加载', async () => {
+    const origGetFile = EpubStorage.getFile;
+    let attempts = 0;
+    EpubStorage.getFile = async (bookId) => {
+      attempts++;
+      if (attempts < 3) return null;
+      return { bookId, filename: 'delayed.epub', data: new Uint8Array([1, 2, 3]) };
+    };
+
+    const rendition = {
+      display: async () => {},
+      currentLocation: () => ({ start: { cfi: 'cfi-1' } }),
+      themes: { default() {} },
+      hooks: { content: { register() {} } },
+      on() {}
+    };
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve({ title: 'Delayed Title', creator: 'Author' }),
+        navigation: Promise.resolve({ toc: [] })
+      }
+    });
+
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }, activeReadingSeconds: 0,
+      cachedSpeed: null, sessionStart: null, lastProgress: 0
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, setReaderDimmed() {},
+        syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      await runtime.loadFileByBookId('book-delayed-retry');
+      assert.equal(attempts, 3, '应重试至第3次成功读取文件');
+      assert.equal(state.currentBookId, 'book-delayed-retry');
+    } finally {
+      EpubStorage.getFile = origGetFile;
+    }
+  });
 });

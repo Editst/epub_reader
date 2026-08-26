@@ -32,6 +32,8 @@
   const NAV_DEBOUNCE_MS                 = 150;
   const RESTORE_PERCENT_MISMATCH_THRESHOLD = 0.5;
   const RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS = 1;
+  const FILE_LOAD_RETRY_ATTEMPTS        = 5;
+  const FILE_LOAD_RETRY_INTERVAL_MS     = 200;
 
   function createReaderRuntime(deps) {
     const { state, ui, persistence, moduleLifecycle } = deps;
@@ -680,22 +682,16 @@
       state.isLayoutStable = false;
       state.navLock = false;
 
-      // ── 加载 meta & prefs ───────────────────────────────────────────────────
-      const prefs = await _attemptStorage(
-        'load preferences',
-        () => EpubStorage.getPreferences(),
-        null
-      );
+      // ── 并行加载 meta、prefs 与 locations 缓存 ─────────────────────────────
+      const [prefs, meta, rawLocsJSON] = await Promise.all([
+        _attemptStorage('load preferences', () => EpubStorage.getPreferences(), null),
+        _attemptStorage('load book metadata', () => EpubStorage.getBookMeta(bookId), null),
+        _attemptStorage('load locations cache', () => EpubStorage.getLocations(bookId), null)
+      ]);
       _assertOpenActive(openLifecycleSeq);
       state.prefs = { ...state.prefs, ...(prefs || {}) };
       ui.syncPrefsToControls();
 
-      const meta = await _attemptStorage(
-        'load book metadata',
-        () => EpubStorage.getBookMeta(bookId),
-        null
-      );
-      _assertOpenActive(openLifecycleSeq);
       state.activeReadingSeconds = (meta && meta.time) ? meta.time : 0;
       state.pendingReadingSeconds = 0;
       state.lastReadingTimeSave = null;
@@ -742,14 +738,13 @@
         finally { if (coverUrl) URL.revokeObjectURL(coverUrl); }
       })();
 
-      // ── metadata / title ────────────────────────────────────────────────────
-      const bookMeta = await state.book.loaded.metadata;
+      // ── metadata & navigation 并行加载 ─────────────────────────────────────
+      const [bookMeta] = await Promise.all([
+        state.book.loaded.metadata,
+        state.book.loaded.navigation
+      ]);
       _assertOpenActive(openLifecycleSeq);
       ui.setBookTitle(bookMeta.title || state.currentFileName);
-
-      // ── TOC ─────────────────────────────────────────────────────────────────
-      await state.book.loaded.navigation;
-      _assertOpenActive(openLifecycleSeq);
 
       // ── savedPos → 进度条初始值 ─────────────────────────────────────────────
       const savedPos = meta && meta.pos ? meta.pos : null;
@@ -758,12 +753,7 @@
         ui.updateProgress(initialPercent);
       }
 
-      let cachedLocsJSON = await _attemptStorage(
-        'load locations cache',
-        () => EpubStorage.getLocations(bookId),
-        null
-      );
-      _assertOpenActive(openLifecycleSeq);
+      let cachedLocsJSON = rawLocsJSON;
       let cachedLocationsLoaded = _loadCachedLocations(cachedLocsJSON);
       if (cachedLocsJSON && !cachedLocationsLoaded) cachedLocsJSON = null;
 
@@ -797,8 +787,8 @@
       }
       console.info('[Runtime] open_to_first_render(ms):', Date.now() - openStartedAt);
 
-      // ── recentBooks ─────────────────────────────────────────────────────────
-      await _attemptStorage(
+      // ── recentBooks (非阻塞异步写入) ────────────────────────────────────────
+      _attemptStorage(
         'update recent books',
         () => EpubStorage.addRecentBook({
           id:       bookId,
@@ -807,8 +797,7 @@
           filename: state.currentFileName
         }),
         undefined
-      );
-      _assertOpenActive(openLifecycleSeq);
+      ).catch(() => {});
 
       // ── 子模块 mount（统一生命周期） ─────────────────────────────────────────
       _mountFeatureModules();
@@ -855,7 +844,15 @@
       const loadLifecycleSeq = lifecycleSeq;
       try {
         ui.showLoading(true);
-        const record = await EpubStorage.getFile(bookId);
+        let record = await EpubStorage.getFile(bookId);
+        if (!record) {
+          for (let attempt = 0; attempt < FILE_LOAD_RETRY_ATTEMPTS; attempt++) {
+            await _delay(FILE_LOAD_RETRY_INTERVAL_MS);
+            _assertOpenActive(loadLifecycleSeq);
+            record = await EpubStorage.getFile(bookId);
+            if (record) break;
+          }
+        }
         _assertOpenActive(loadLifecycleSeq);
         if (record && record.data) {
           const fileName = record.filename || '';

@@ -884,6 +884,27 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(await EpubStorage.getFile('unopened-new'), null);
   });
 
+  test.it('getFile 为纯读取操作，不向 IndexedDB files store 执行 put 写入', async () => {
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'zero-write-book', filename: 'test.epub', data: new Uint8Array([1, 2, 3]), timestamp: Date.now()
+    });
+
+    let filesPutCount = 0;
+    const originalPut = EpubStorage._dbGateway.put.bind(EpubStorage._dbGateway);
+    EpubStorage._dbGateway.put = async (storeName, data) => {
+      if (storeName === 'files') filesPutCount++;
+      return originalPut(storeName, data);
+    };
+
+    try {
+      const record = await EpubStorage.getFile('zero-write-book');
+      assert.notEqual(record, null);
+      assert.equal(filesPutCount, 0, 'getFile 不应向 files store 发起 IDB put 写入');
+    } finally {
+      EpubStorage._dbGateway.put = originalPut;
+    }
+  });
+
   test.it('removeAllBooks 清理 recentBooks 外的孤立 Chrome 与 IndexedDB 数据', async () => {
     await EpubStorage.addRecentBook({ id: 'recent-book', title: 'Recent' });
     await EpubStorage.saveBookMeta('orphan-meta', {

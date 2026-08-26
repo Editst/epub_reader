@@ -145,7 +145,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       const arrayBuffer = await file.arrayBuffer();
       const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-      await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+      EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId)
+        .catch((err) => console.warn('[Home] background storeFile failed:', err));
       window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
     } catch (err) {
       console.error('[Home] Failed to open file:', err);

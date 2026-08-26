@@ -32,6 +32,7 @@ const DELETED_BOOK_PREFIX = 'deletedBook_';
 const KEYS = Object.freeze({
   preferences: 'preferences',
   recentBooks: 'recentBooks',
+  fileTimestamps: 'fileTimestamps',
   legacyHighlightIndex: 'highlightKeys',
   bookMeta: (bookId) => 'bookMeta_' + bookId,
   legacyPosition: (bookId) => 'pos_' + bookId,
@@ -60,6 +61,7 @@ const EpubStorage = {
   _lockManager: typeof navigator !== 'undefined' ? navigator.locks : null,
   _preferencesQueue: Promise.resolve(),
   _recentBooksQueue: Promise.resolve(),
+  _fileTimestampsQueue: Promise.resolve(),
   _bookMetaQueue: new Map(),
   _bookResourceWrites: new Map(),
   _bookDeleteTasks: new Map(),
@@ -402,12 +404,43 @@ const EpubStorage = {
 
   // ── Files (IndexedDB) ─────────────────────────────────────────────────────
 
+  async _touchFileTimestamp(bookId) {
+    if (!bookId || this._deletingBookIds.has(bookId)) return;
+    return this._enqueueKeyWrite(
+      '_fileTimestampsQueue',
+      KEYS.fileTimestamps,
+      {},
+      (map) => {
+        if (this._deletingBookIds.has(bookId)) return map;
+        const nextMap = { ...(this._isRecord(map) ? map : {}) };
+        nextMap[bookId] = Date.now();
+        return nextMap;
+      }
+    );
+  },
+
+  async _removeFileTimestamp(bookId) {
+    if (!bookId) return;
+    return this._enqueueKeyWrite(
+      '_fileTimestampsQueue',
+      KEYS.fileTimestamps,
+      {},
+      (map) => {
+        if (!this._isRecord(map)) return {};
+        const nextMap = { ...map };
+        delete nextMap[bookId];
+        return nextMap;
+      }
+    );
+  },
+
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
     return this._withBookLock(bookId, 'exclusive', () =>
       this._trackBookResourceWrite(bookId, async () => {
         await this._dbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
         await this._remove(KEYS.deletedBook(bookId));
+        await this._touchFileTimestamp(bookId);
         await this.enforceFileLRU(10);
       })
     );
@@ -422,20 +455,20 @@ const EpubStorage = {
           const stored = await this._dbGateway.get(STORES.files, bookId);
           if (!stored) return null;
           fallbackRecord = stored;
-          const touchedRecord = { ...stored, timestamp: Date.now() };
-          await this._dbGateway.put(STORES.files, touchedRecord);
-          return touchedRecord;
+          await this._touchFileTimestamp(bookId);
+          return stored;
         })
       );
       return record || null;
     } catch (e) {
-      console.warn('[Storage] getFile: failed to refresh LRU timestamp', bookId, e);
+      console.warn('[Storage] getFile: failed to load or refresh LRU timestamp', bookId, e);
       return fallbackRecord;
     }
   },
 
   async removeFile(bookId) {
     if (!bookId) return;
+    await this._removeFileTimestamp(bookId);
     return this._dbGateway.delete(STORES.files, bookId);
   },
 
@@ -448,15 +481,29 @@ const EpubStorage = {
    * 淘汰串行执行并逐项隔离失败，避免单本失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
-    const meta = await this._dbGateway.getAllMeta(STORES.files, ['timestamp']);
-    if (meta.length <= maxCount) return;
-    meta.sort((a, b) => b.timestamp - a.timestamp);
-    const toRemove = meta.slice(maxCount);
+    const [meta, storedTimestamps] = await Promise.all([
+      this._dbGateway.getAllMeta(STORES.files, ['timestamp']),
+      this._get(KEYS.fileTimestamps)
+    ]);
+    if (!meta || meta.length <= maxCount) return;
+
+    const timestampsMap = this._isRecord(storedTimestamps) ? { ...storedTimestamps } : {};
+
+    const filesWithTime = meta.map((m) => {
+      const ts = (typeof timestampsMap[m.bookId] === 'number')
+        ? timestampsMap[m.bookId]
+        : (m.timestamp || 0);
+      return { bookId: m.bookId, timestamp: ts };
+    });
+
+    filesWithTime.sort((a, b) => b.timestamp - a.timestamp);
+    const toRemove = filesWithTime.slice(maxCount);
     for (const m of toRemove) {
       try {
         await this._withBookLock(m.bookId, 'exclusive', () =>
           this._dbGateway.delete(STORES.files, m.bookId)
         );
+        await this._removeFileTimestamp(m.bookId);
       } catch (e) {
         console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
       }
