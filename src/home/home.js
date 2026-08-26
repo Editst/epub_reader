@@ -147,15 +147,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     const file = e.target.files[0];
     if (!file) return;
     e.target.value = '';
+    
+    const originalBtnText = btnUpload.innerHTML;
+    btnUpload.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> 导入中...';
+    btnUpload.style.pointerEvents = 'none';
+    btnUpload.style.opacity = '0.7';
+
     try {
       const arrayBuffer = await file.arrayBuffer();
       const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-      EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId)
-        .catch((err) => console.warn('[Home] background storeFile failed:', err));
+      await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
       window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
     } catch (err) {
       console.error('[Home] Failed to open file:', err);
-      alert('无法打开文件: ' + err.message);
+      alert('无法导入文件: ' + err.message);
+    } finally {
+      btnUpload.innerHTML = originalBtnText;
+      btnUpload.style.pointerEvents = 'auto';
+      btnUpload.style.opacity = '1';
     }
   });
 

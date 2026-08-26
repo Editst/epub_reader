@@ -778,12 +778,25 @@
         } else if (savedPos && savedPos.percentage !== undefined) {
           state.lastPercent = savedPos.percentage;
         }
-        if (displayCfi) await state.rendition.display(displayCfi);
-        else await state.rendition.display();
+        if (displayCfi) {
+          try {
+            await state.rendition.display(displayCfi);
+          } catch (displayErr) {
+            console.warn('[Runtime] rendition.display(cfi) failed, fallback to default:', displayErr);
+            await state.rendition.display();
+          }
+        }
+        else {
+          await state.rendition.display();
+        }
         _assertOpenActive(openLifecycleSeq);
         if (!targetCfi && savedPos && state.currentStableLocator) {
-          await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator }, displayCfi);
-          _assertOpenActive(openLifecycleSeq);
+          try {
+            await _correctRestoredPage({ ...savedPos, locator: state.currentStableLocator }, displayCfi);
+            _assertOpenActive(openLifecycleSeq);
+          } catch (correctErr) {
+            console.warn('[Runtime] _correctRestoredPage failed, ignored:', correctErr);
+          }
         }
       } finally {
         state.isRestoringPosition = false;
