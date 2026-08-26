@@ -41,6 +41,7 @@
     let navigationSeq = 0;
     let layoutSeq = 0;
     let lifecycleSeq = 0;
+    let openSessionSeq = 0;
     let isMounted = true;
     let openBookQueue = Promise.resolve();
 
@@ -518,6 +519,7 @@
     }
 
     async function _teardownActiveBookForReplacement() {
+      navigationSeq++;
       if (!state.book && !state.rendition) {
         state.currentBookId = '';
         state.currentFileName = '';
@@ -744,11 +746,11 @@
 
       // ── metadata & navigation 并行加载 ─────────────────────────────────────
       const [bookMeta] = await Promise.all([
-        state.book.loaded.metadata,
-        state.book.loaded.navigation
+        state.book.loaded.metadata.catch(() => null),
+        state.book.loaded.navigation.catch(() => null)
       ]);
       _assertOpenActive(openLifecycleSeq);
-      ui.setBookTitle(bookMeta.title || state.currentFileName);
+      ui.setBookTitle(bookMeta?.title || state.currentFileName);
 
       // ── savedPos → 进度条初始值 ─────────────────────────────────────────────
       const savedPos = meta && meta.pos ? meta.pos : null;
@@ -782,6 +784,7 @@
           try {
             await state.rendition.display(displayCfi);
           } catch (displayErr) {
+            if (targetCfi) throw displayErr;
             console.warn('[Runtime] rendition.display(cfi) failed, fallback to default:', displayErr);
             await state.rendition.display();
           }
@@ -809,8 +812,8 @@
         'update recent books',
         () => EpubStorage.addRecentBook({
           id:       bookId,
-          title:    bookMeta.title   || '',
-          author:   bookMeta.creator || '',
+          title:    bookMeta?.title   || '',
+          author:   bookMeta?.creator || '',
           filename: state.currentFileName
         }),
         undefined
@@ -858,6 +861,7 @@
 
     async function loadFileByBookId(bookId, options = {}) {
       const { targetCfi = null } = options;
+      const sessionSeq = ++openSessionSeq;
       const loadLifecycleSeq = lifecycleSeq;
       try {
         ui.showLoading(true);
@@ -865,26 +869,29 @@
         if (!record) {
           for (let attempt = 0; attempt < FILE_LOAD_RETRY_ATTEMPTS; attempt++) {
             await _delay(FILE_LOAD_RETRY_INTERVAL_MS);
+            if (sessionSeq !== openSessionSeq) return;
             _assertOpenActive(loadLifecycleSeq);
             record = await EpubStorage.getFile(bookId);
             if (record) break;
           }
         }
+        if (sessionSeq !== openSessionSeq) return;
         _assertOpenActive(loadLifecycleSeq);
         if (record && record.data) {
           const fileName = record.filename || '';
           try {
             await openBook(record.data, bookId, fileName, targetCfi);
           } catch (err) {
-            if (err?.name === 'AbortError') return;
+            if (sessionSeq !== openSessionSeq || err?.name === 'AbortError') return;
             console.error('[Runtime] loadFileByBookId: openBook failed', err);
             ui.showLoadError('无法解析该 EPUB 缓存文件: ' + err.message);
           }
         } else {
+          if (sessionSeq !== openSessionSeq) return;
           ui.showLoadError('该书籍缓存不存在或已被自动清理，请通过"打开文件"重新导入。');
         }
       } catch (e) {
-        if (e?.name === 'AbortError') return;
+        if (sessionSeq !== openSessionSeq || e?.name === 'AbortError') return;
         console.error('[Runtime] loadFileByBookId error:', e);
         ui.showLoadError('读取缓存数据失败。请重新导入该电子书。');
       }
@@ -909,13 +916,13 @@
     }
 
     async function navigateTo(target) {
-      if (!target || !state.rendition || !state.isLayoutStable) return false;
+      if (!target || !state.rendition || !state.isLayoutStable || state.isResizing) return false;
       _markUserPositionIntent();
       return _performNavigation('display', () => state.rendition.display(target));
     }
 
     async function next() {
-      if (state.navLock || !state.rendition || !state.isLayoutStable) return false;
+      if (state.navLock || !state.rendition || !state.isLayoutStable || state.isResizing) return false;
       _markUserPositionIntent();
       state.navLock = true;
       const navigationId = ++navigationSeq;
@@ -927,7 +934,7 @@
     }
 
     async function prev() {
-      if (state.navLock || !state.rendition || !state.isLayoutStable) return false;
+      if (state.navLock || !state.rendition || !state.isLayoutStable || state.isResizing) return false;
       _markUserPositionIntent();
       state.navLock = true;
       const navigationId = ++navigationSeq;
@@ -950,7 +957,7 @@
     }
 
     async function displayPercentage(percent) {
-      if (!state.rendition || !state.book || !state.isLayoutStable) return false;
+      if (!state.rendition || !state.book || !state.isLayoutStable || state.isResizing) return false;
       const cfi = ReaderState.getCfiFromPercentage(state.book.locations, percent / 100);
       if (!cfi) return false;
       _markUserPositionIntent();
@@ -1156,6 +1163,7 @@
       isMounted = false;
       lifecycleSeq++;
       layoutSeq++;
+      navigationSeq++;
       _destroyActiveBookResources();
 
       state.book = null;
@@ -1175,6 +1183,7 @@
       loadFileByBookId,
       discardDeletedBook,
       scheduleLocationsGeneration,
+      navigateTo,
       next,
       prev,
       displayPercentage,

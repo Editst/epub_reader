@@ -3416,4 +3416,82 @@ test.describe('ReaderRuntime', () => {
       EpubStorage.getLocations = origGetLocs;
     }
   });
+
+  test.it('next/prev/navigateTo 在 isResizing 重排保护期间拦截导航操作', async () => {
+    let displayCalls = 0;
+    let nextCalls = 0;
+    const state = {
+      navLock: false,
+      isLayoutStable: true,
+      isResizing: true, // 模拟正在进行排版缩放
+      rendition: {
+        display: async () => { displayCalls++; },
+        next: async () => { nextCalls++; },
+        currentLocation: () => ({ start: { cfi: 'cfi_1' } })
+      }
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: { setReaderDimmed() {}, ensureFocus() {} },
+      persistence: {},
+      moduleLifecycle: {}
+    });
+
+    const navRes = await runtime.navigateTo('cfi_target');
+    const nextRes = await runtime.next();
+    const prevRes = await runtime.prev();
+
+    assert.equal(navRes, false, 'isResizing 期间 navigateTo 应返回 false');
+    assert.equal(nextRes, false, 'isResizing 期间 next 应返回 false');
+    assert.equal(prevRes, false, 'isResizing 期间 prev 应返回 false');
+    assert.equal(displayCalls, 0, 'isResizing 期间不应调用 rendition.display');
+    assert.equal(nextCalls, 0, 'isResizing 期间不应调用 rendition.next');
+  });
+
+  test.it('非标 EPUB metadata 为 null 时安全降级使用文件名', async () => {
+    let displayedCfi = null;
+    const rendition = {
+      display: async (cfi) => { displayedCfi = cfi; },
+      destroy() {},
+      themes: { default() {}, fontSize() {} },
+      hooks: { content: { register() {} } },
+      on() {},
+      off() {},
+      currentLocation: () => ({ start: { cfi: 'cfi_fallback' } })
+    };
+    global.ePub = () => ({
+      ready: Promise.resolve(),
+      renderTo() { return rendition; },
+      destroy() {},
+      coverUrl: async () => null,
+      loaded: {
+        metadata: Promise.resolve(null), // 模拟损坏/非标 metadata
+        navigation: Promise.resolve(null)
+      }
+    });
+
+    let setBookTitleCalledWith = null;
+    const state = {
+      book: null, rendition: null, currentBookId: '', currentFileName: '',
+      isBookLoaded: false, prefs: { layout: 'paginated' }, activeReadingSeconds: 0,
+      cachedSpeed: null, sessionStart: null, lastProgress: 0
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        setReaderVisible() {}, clearReaderError() {},
+        setBookTitle(title) { setBookTitleCalledWith = title; },
+        setReaderDimmed() {}, syncPrefsToControls() {}, applyThemeToRendition() {},
+        setupRenditionKeyEvents() {}, ensureFocus() {}, updateProgress() {},
+        showLoading() {}, setLocationIndexStatus() {}
+      },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    await runtime.openBook(new Uint8Array([1, 2, 3]), 'book-null-meta', 'nonstandard.epub');
+    assert.equal(state.isBookLoaded, true);
+    assert.equal(setBookTitleCalledWith, 'nonstandard.epub', 'metadata 为 null 时应降级使用文件名');
+  });
 });
+

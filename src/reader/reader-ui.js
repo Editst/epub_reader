@@ -693,12 +693,25 @@
       }
     }
 
+    let _preTypographyCfi = null;
+
+    function _beginTypographyAdjustment() {
+      if (!state.rendition || !state.isBookLoaded) return;
+      if (!_preTypographyCfi) {
+        const loc = state.rendition.currentLocation();
+        _preTypographyCfi = (loc && loc.start) ? loc.start.cfi : state.currentStableCfi;
+      }
+      state.isResizing = true;
+      state.isRestoringPosition = true;
+    }
+
     function _scheduleTypographyReflow(persistence) {
       if (_typographyDebounceTimer !== null) {
         _safeClearTimeout(_typographyDebounceTimer);
       }
       _typographyDebounceTimer = _safeSetTimeout(() => {
         _typographyDebounceTimer = null;
+        _preTypographyCfi = null;
         _withCfiLock(() => updateCustomStyles(), persistence);
       }, TYPOGRAPHY_REFLOW_DEBOUNCE_MS);
     }
@@ -707,6 +720,7 @@
       if (_typographyDebounceTimer !== null) {
         _safeClearTimeout(_typographyDebounceTimer);
         _typographyDebounceTimer = null;
+        _preTypographyCfi = null;
         _withCfiLock(() => updateCustomStyles(), persistence);
       }
     }
@@ -719,6 +733,7 @@
         e.target.value = size;
         if (dom.fontSizeValue) dom.fontSizeValue.textContent = size + 'px';
         state.prefs.fontSize = size;
+        _beginTypographyAdjustment();
         updateCustomStyles();
         _scheduleTypographyReflow(persistence);
       });
@@ -734,6 +749,7 @@
         e.target.value = Math.round(val * 10);
         if (dom.lineHeightValue) dom.lineHeightValue.textContent = val.toFixed(1);
         state.prefs.lineHeight = val;
+        _beginTypographyAdjustment();
         updateCustomStyles();
         _scheduleTypographyReflow(persistence);
       });
@@ -839,6 +855,7 @@
             await new Promise(resolve => requestAnimationFrame(resolve));
             if (!_isCurrentReflow(context)) return;
             if (targetCfi) await rendition.display(targetCfi);
+            await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
             if (_isCurrentReflow(context)) newLoc = rendition.currentLocation();
           } catch (e) {
             console.warn('[Ui] bindResize display failed:', e);
