@@ -926,6 +926,21 @@
       bindPanelState();
       bindDragAndDrop();
       bindResize(_resizePersistence);
+
+      if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+          if (area === 'local' && changes.preferences && changes.preferences.newValue) {
+            if (!state.isResizing) {
+              state.prefs = normalizePreferences(changes.preferences.newValue);
+              syncPrefsToControls();
+              if (state.rendition && state.isBookLoaded) {
+                applyThemeToRendition(state.prefs.theme);
+                updateCustomStyles();
+              }
+            }
+          }
+        });
+      }
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────

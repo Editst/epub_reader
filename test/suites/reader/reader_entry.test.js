@@ -68,4 +68,12 @@ test.describe('Reader 入口与装配契约', () => {
     ]);
     assert.ok(localScripts.every((src) => !src.includes('?')), '本地脚本不应使用手动查询串刷新缓存');
   });
+
+  test.it('ReaderUi 注册 chrome.storage.onChanged 以支持多标签页偏好实时同步', () => {
+    const uiSrc = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    assert.ok(uiSrc.includes('chrome.storage?.onChanged?.addListener') || uiSrc.includes('chrome.storage.onChanged.addListener'),
+      'ReaderUi 应监听 storage.onChanged 实现多标签页主题与字体偏好同步');
+    assert.ok(uiSrc.includes('changes.preferences'), '应监听 preferences 变更');
+  });
 });
+
