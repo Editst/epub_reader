@@ -719,16 +719,18 @@ closePanelWithOverlayCheck(panelElement: HTMLElement): void
 closeAllPanels(): void
 ```
 
-### 命名常量（v2.4.0）
+### 命名常量（v2.4.0 / v2.5.38）
 
 | 常量 | 默认值 | 用途 |
 |------|--------|------|
 | `RESIZE_DEBOUNCE_MS` | 250 | 窗口 resize 防抖 |
+| `TYPOGRAPHY_REFLOW_DEBOUNCE_MS` | 200 | 字号/行距滑块重排与位置恢复防抖 |
 
 **v2.3.3 行为约束**：
 - `progress-location` 用于承载非阻塞定位索引状态。
 - 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到"先等索引再阅读"的旧行为。
 - `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
+- **v2.5.38 滑块双轨时序约束**：字号与行距滑块在 `input` 高频事件中立即更新数值文本并执行 `updateCustomStyles()` 替换 iframe CSS（实时视觉反馈）；重量级的 `_withCfiLock` 重排与位置恢复通过 `TYPOGRAPHY_REFLOW_DEBOUNCE_MS`（200ms）防抖调度；用户松开滑块触发 `change` 事件时立即 flush 待执行重排并持久化偏好设置，兼顾视觉流畅度与零卡顿。
 - `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。由于 resize 事件触发时 viewport 已经改变，恢复目标必须优先使用变化前 `currentStableLocator.restoreCfi`（且 `sourceCfi` 匹配主 CFI），再回退 `currentStableCfi`，不得把此时的 `currentLocation()` 当作首选快照。
 - resize handler、timer、锚点和 persistence 引用由 ReaderUi 实例持有；`unmount()` 必须移除监听、取消 timer、作废 reflow 代次并释放保护锁，后续 `mount()` 可恢复单一监听。
 - resize timer 即使被字号、行高等更新 reflow 作废，也必须按 timer 身份清理自己的旧锚点；迟到 timer 不得清除更新任务状态，下一次 resize 不得复用旧视口 CFI。
@@ -880,6 +882,20 @@ Search.mount(context): void
 Search.unmount(): void
 // v2.1.1：接入 Reader 统一生命周期
 ```
+
+### 命名常量（v2.4.0 / v2.5.38）
+
+| 常量 | 默认值 | 用途 |
+|------|--------|------|
+| `_SEARCH_MAX_RESULTS` | 1000 | 搜索结果上限 |
+| `_SEARCH_UI_YIELD_MS` | 10 | 基础让步间隔 (ms) |
+| `_SEARCH_FOCUS_DELAY_MS` | 100 | 面板聚焦延迟 (ms) |
+| `_SEARCH_TIME_BUDGET_MS` | 16 | 连续执行帧预算 (ms) |
+| `_SEARCH_STATUS_THROTTLE_MS` | 100 | 搜索状态文本刷新节流周期 (ms) |
+
+**v2.5.38 调度约束**：
+- 搜索循环由每章无条件让步改为 16ms 帧预算驱动让步（`_SEARCH_TIME_BUDGET_MS`），短章节直接连续遍历，耗时达到帧预算时才让出主线程给浏览器 UI 渲染。
+- 搜索进度状态文本通过 `_SEARCH_STATUS_THROTTLE_MS` 节流更新，避免每章无条件操作 DOM。
 
 ---
 
