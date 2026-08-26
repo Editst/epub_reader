@@ -21,7 +21,7 @@
     const modules = [ImageViewer, Annotations, TOC, Search, Bookmarks, Highlights];
 
     function invoke(module, method, ...args) {
-      if (typeof module[method] !== 'function') return;
+      if (!module || typeof module[method] !== 'function') return;
       try {
         const lifecycleResult = module[method](...args);
         Promise.resolve(lifecycleResult).catch((e) => {
@@ -75,7 +75,7 @@
     });
 
     // ── 绑定 runtime（注册所有 DOM 事件监听） ─────────────────────────────────
-    await ui.bindRuntime(runtime, persistence);
+    ui.bindRuntime(runtime, persistence);
 
     // ── 各层 mount ────────────────────────────────────────────────────────────
     ui.mount();

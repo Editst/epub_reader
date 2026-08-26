@@ -36,7 +36,7 @@
       if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const active = document.activeElement;
         const tag = active ? active.tagName : '';
-        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA') {
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA' && !active?.isContentEditable) {
           e.preventDefault();
           this.toggle();
         }
@@ -61,6 +61,7 @@
   },
 
   build(navigation, rendition) {
+    if (!this.container) return;
     this.rendition = rendition;
     this.container.innerHTML = '';
 
@@ -72,15 +73,22 @@
       return;
     }
 
-    this._buildItems(navigation.toc, 1);
+    const hasFragment = typeof document.createDocumentFragment === 'function';
+    const fragment = hasFragment ? document.createDocumentFragment() : this.container;
+    this._buildItems(navigation.toc, 1, fragment);
+    if (hasFragment) {
+      this.container.appendChild(fragment);
+    }
   },
 
   /**
    * Recursively build TOC items
    * @param {Array} items - TOC items
    * @param {number} level - Nesting level
+   * @param {DocumentFragment|HTMLElement} targetContainer
    */
-  _buildItems(items, level) {
+  _buildItems(items, level, targetContainer = this.container) {
+    if (!items || !targetContainer) return;
     items.forEach((item) => {
       const el = document.createElement('div');
       el.className = `toc-item toc-item-level-${Math.min(level, 3)}`;
@@ -94,11 +102,11 @@
         }
       });
 
-      this.container.appendChild(el);
+      targetContainer.appendChild(el);
 
       // Recursively add sub-items
       if (item.subitems && item.subitems.length > 0) {
-        this._buildItems(item.subitems, level + 1);
+        this._buildItems(item.subitems, level + 1, targetContainer);
       }
     });
   },
@@ -108,6 +116,7 @@
    * @param {string} href - Current section href
    */
   setActive(href) {
+    if (!this.container) return;
     const items = this.container.querySelectorAll('.toc-item');
 
     items.forEach((item) => {
@@ -120,7 +129,7 @@
   },
 
   toggle() {
-    if (this.sidebar.classList.contains('open')) {
+    if (this.sidebar?.classList.contains('open')) {
       this.close();
     } else {
       this.open();

@@ -195,7 +195,13 @@
         let node = walker.nextNode();
         while (node) {
           if (seenCurrent && node.data && node.data.length > 0) return node;
-          if (node === currentNode) seenCurrent = true;
+          if (node === currentNode) {
+            seenCurrent = true;
+          } else if (!seenCurrent && typeof currentNode.compareDocumentPosition === 'function' && typeof Node !== 'undefined') {
+            if (currentNode.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+              if (node.data && node.data.length > 0) return node;
+            }
+          }
           node = walker.nextNode();
         }
       } catch (_) {
@@ -483,7 +489,9 @@
 
         // 跳跃检测：>5% 视为手动跳转，结束当前 session 并以新位置续期
         if (state.sessionStart && Math.abs(progress - state.lastProgress) > _getJumpDetectionThreshold()) {
-          flushSpeedSession(progress);  // async，非阻塞
+          flushSpeedSession(progress).catch((e) => {
+            console.warn('[Persistence] flushSpeedSession failed:', e);
+          });
         }
         state.lastProgress = progress;
       }

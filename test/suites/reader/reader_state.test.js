@@ -128,4 +128,23 @@ test.describe('ReaderState', () => {
     assert.equal(ReaderState.getCfiFromPercentage(invalidLocations, 0.5), null);
     assert.equal(ReaderState.getCfiFromPercentage(invalidLocations, 2), null);
   });
+
+  test.it('buildPrefsSignature 在输入 null 或 undefined 时安全返回默认值', () => {
+    const sigNull = ReaderState.buildPrefsSignature(null);
+    const sigUndef = ReaderState.buildPrefsSignature(undefined);
+
+    assert.equal(sigNull.layout, 'paginated');
+    assert.equal(sigNull.fontSize, 18);
+    assert.equal(sigNull.lineHeight, 1.8);
+    assert.equal(sigUndef.layout, 'paginated');
+  });
+
+  test.it('resetReadingSession 重置 isLayoutStable 和 navLock', () => {
+    const state = ReaderState.createReaderState();
+    state.isLayoutStable = true;
+    state.navLock = true;
+    ReaderState.resetReadingSession(state);
+    assert.equal(state.isLayoutStable, false);
+    assert.equal(state.navLock, false);
+  });
 });

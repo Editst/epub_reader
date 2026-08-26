@@ -179,27 +179,27 @@
       const hookedRendition = _rendition;
       _rendition.hooks.content.register((contents) => {
         if (_rendition !== hookedRendition) return;
-        bindContentMouseDown(contents, _contextSeq, _bookId, hookedRendition);
+        bindContentMouseDown(contents, _bookId, hookedRendition);
       });
     }
 
     if (typeof _rendition.getContents === 'function') {
       _rendition.getContents().forEach((contents) => {
-        bindContentMouseDown(contents, contextSeq, bookId, rendition);
+        bindContentMouseDown(contents, bookId, rendition);
       });
     }
   }
 
-  function bindContentMouseDown(contents, contextSeq, bookId, rendition) {
+  function bindContentMouseDown(contents, bookId, rendition) {
     const doc = contents && contents.document;
     if (!doc || _hookedContentDocuments.has(doc)) return;
     _hookedContentDocuments.add(doc);
 
     // iframe 获得焦点时可能吞掉 click，因此使用 mousedown 收口悬浮层状态。
     doc.addEventListener('mousedown', () => {
-      if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+      if (_bookId !== bookId || _rendition !== rendition || !_rendition) return;
       setTimeout(() => {
-        if (!isCurrentContext(contextSeq, bookId, rendition)) return;
+        if (_bookId !== bookId || _rendition !== rendition || !_rendition) return;
         if (toolbar.classList.contains('show') || notePopup.classList.contains('show')) {
           if (!_internalAction) closePanels();
           return;
@@ -294,6 +294,17 @@
     btnCancelNote.addEventListener('click', closeNotePopup);
   }
 
+  let _notePopupTimerId = null;
+
+  function clearPendingNotePopup() {
+    if (_notePopupTimerId !== null) {
+      if (typeof clearTimeout === 'function') {
+        clearTimeout(_notePopupTimerId);
+      }
+      _notePopupTimerId = null;
+    }
+  }
+
   // Handle click on existing highlight
   function handleHighlightClick(e, cfiRange, context) {
      if (!isCurrentContext(context.seq, context.bookId, context.rendition)) return;
@@ -337,7 +348,9 @@
         if (hl.note) {
           // Provide bounds-checked coordinates for the note
           const anchorRect = { top: top, left: left };
-          setTimeout(() => {
+          clearPendingNotePopup();
+          _notePopupTimerId = setTimeout(() => {
+            _notePopupTimerId = null;
             if (!isCurrentContext(context.seq, context.bookId, context.rendition)) return;
             showNotePopup(hl, anchorRect);
           }, 50);
@@ -346,6 +359,7 @@
   }
 
   function showNotePopup(hl, anchorRect) {
+      clearPendingNotePopup();
       noteTextarea.value = hl.note || '';
       
       let top = anchorRect.top;
@@ -374,8 +388,12 @@
           const bookId = _bookId;
           const rendition = _rendition;
           const activeCfi = _activeHighlightCfi;
-          rendition.annotations.remove(activeCfi, "highlight");
-          rendition.annotations.remove(activeCfi, "underline");
+          if (rendition && rendition.annotations) {
+            try {
+              rendition.annotations.remove(activeCfi, "highlight");
+              rendition.annotations.remove(activeCfi, "underline");
+            } catch (_) {}
+          }
           _renderedHighlightCfis.delete(activeCfi);
           highlights = highlights.filter(h => h.cfi !== activeCfi);
           await syncHighlightSafely(bookId, activeCfi);
@@ -562,6 +580,7 @@
   }
   
   function closeNotePopup() {
+    clearPendingNotePopup();
     notePopup.classList.remove('show');
     _pendingCfi = null;
   }
@@ -582,6 +601,7 @@
   function unmount() {
     _contextSeq++;
     resetInternalAction();
+    clearPendingNotePopup();
     if (_rendition) {
       try { _rendition.off('selected', handleSelection); } catch (_) {}
     }

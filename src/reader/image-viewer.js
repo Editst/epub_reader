@@ -75,10 +75,19 @@
     // Keyboard
     document.addEventListener('keydown', (e) => {
       if (!this.overlay || this.overlay.classList.contains('is-hidden')) return;
-      if (e.key === 'Escape') this.close();
-      if (e.key === '+' || e.key === '=') this.zoom(BUTTON_ZOOM_STEP);
-      if (e.key === '-') this.zoom(-BUTTON_ZOOM_STEP);
-      if (e.key === '0') this.resetTransform();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.close();
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        this.zoom(BUTTON_ZOOM_STEP);
+      } else if (e.key === '-') {
+        e.preventDefault();
+        this.zoom(-BUTTON_ZOOM_STEP);
+      } else if (e.key === '0') {
+        e.preventDefault();
+        this.resetTransform();
+      }
     });
   },
 
@@ -87,16 +96,18 @@
    * @param {string} src - Image source URL (blob or data URL)
    */
   open(src) {
+    if (!this.img || !this.overlay) return;
     this.resetTransform();
     this.img.src = src;
     this.overlay.classList.remove('is-hidden');
-    document.body.classList.add('image-viewer-open');
+    document.body?.classList.add('image-viewer-open');
   },
 
   close() {
-    this.overlay.classList.add('is-hidden');
-    this.img.src = '';
-    document.body.classList.remove('image-viewer-open');
+    this.isDragging = false;
+    if (this.overlay) this.overlay.classList.add('is-hidden');
+    if (this.img) this.img.src = '';
+    document.body?.classList.remove('image-viewer-open');
   },
 
   zoom(delta) {
@@ -105,6 +116,7 @@
   },
 
   resetTransform() {
+    this.isDragging = false;
     this.scale = 1;
     this.translateX = 0;
     this.translateY = 0;
@@ -112,6 +124,7 @@
   },
 
   applyTransform() {
+    if (!this.img) return;
     this.img.style.transform =
       `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
   },
@@ -126,8 +139,6 @@
     this._contextSeq++;
     this._rendition = null;
     this.close();
-    this.hookedRenditions = new WeakSet();
-    this.hookedDocuments = new WeakSet();
   },
 
   _currentContext() {

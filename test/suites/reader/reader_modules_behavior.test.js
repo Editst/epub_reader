@@ -2969,4 +2969,44 @@ test.describe('Reader 模块基础行为', () => {
     };
     assert.equal(Annotations._isTocList(plainList), false);
   });
+
+  test.it('ImageViewer close 与 unmount 显式重置 isDragging 状态', () => {
+    const { document } = createMockDocument([
+      'image-viewer', 'image-viewer-img', 'image-viewer-container',
+      'image-viewer-close', 'img-zoom-in', 'img-zoom-out', 'img-zoom-reset'
+    ]);
+    const ImageViewer = loadIsolatedWindowExport('src/reader/image-viewer.js', 'ImageViewer', {
+      document,
+      window: { document }
+    });
+    ImageViewer.init();
+    ImageViewer.isDragging = true;
+    ImageViewer.close();
+    assert.equal(ImageViewer.isDragging, false);
+
+    ImageViewer.isDragging = true;
+    ImageViewer.resetTransform();
+    assert.equal(ImageViewer.isDragging, false);
+
+    ImageViewer.isDragging = true;
+    ImageViewer.unmount();
+    assert.equal(ImageViewer.isDragging, false);
+  });
+
+  test.it('Bookmarks.renderList 和 isBookmarked 在非数组或异常时安全兜底', async () => {
+    const { document } = createMockDocument(['bookmarks-panel', 'bookmarks-list']);
+    const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+      document,
+      EpubStorage: {
+        async getBookmarks() { throw new Error('storage down'); },
+        async updateBookmarks() {}
+      }
+    });
+    Bookmarks.init();
+    Bookmarks.renderList(null);
+    Bookmarks.renderList(undefined);
+
+    const isMarked = await Bookmarks.isBookmarked('bad-cfi');
+    assert.equal(isMarked, false);
+  });
 });

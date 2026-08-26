@@ -211,10 +211,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function streamRenderBookCard(book, index, renderSeq) {
-    const { coverBlob, meta } = await loadBookCardData(book);
-    if (renderSeq !== bookshelfRenderSeq) return;
+    try {
+      const { coverBlob, meta } = await loadBookCardData(book);
+      if (renderSeq !== bookshelfRenderSeq) return;
 
-    {
       const card = document.createElement('div');
       card.className = 'book-card';
 
@@ -317,6 +317,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
       if (skeleton) skeleton.replaceWith(card);
       else booksContainer.appendChild(card);
+    } catch (err) {
+      console.warn('[Home] render book card failed:', book.id, err);
+      if (renderSeq !== bookshelfRenderSeq) return;
+      const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
+      if (skeleton) skeleton.remove();
     }
   }
 
@@ -399,7 +404,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
 
       item.querySelector('.annotation-book').addEventListener('click', () => {
-        if (hl._bookContext.filename) {
+        if (hl._bookId) {
           window.location.href = chrome.runtime.getURL('reader/reader.html') +
             '?bookId=' + encodeURIComponent(hl._bookId) +
             '&target=' + encodeURIComponent(hl.cfi);
@@ -410,8 +415,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         e.stopPropagation();
         if (confirm('确定要删除这条标注吗？')) {
           try {
-            const currentHighlights = await EpubStorage.getHighlights(hl._bookId) || [];
-            await EpubStorage.saveHighlights(hl._bookId, currentHighlights.filter(h => h.cfi !== hl.cfi));
+            await EpubStorage.updateHighlights(hl._bookId, (highlights) =>
+              (highlights || []).filter((h) => h.cfi !== hl.cfi)
+            );
             loadAnnotationsSafely(filterType);
           } catch (err) {
             console.warn('[Home] remove annotation failed:', err);

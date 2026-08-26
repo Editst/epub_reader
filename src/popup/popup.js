@@ -89,20 +89,21 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 逐项容错：单本封面/元数据加载失败不影响整个列表渲染。
-    const dataList = await Promise.all(books.map(async (book) => {
-      const [coverBlob, meta] = await Promise.all([
-        EpubStorage.getCover(book.id).catch(() => null),
-        EpubStorage.getBookMeta(book.id).catch(() => null)
-      ]);
-      return { book, coverBlob, meta };
-    }));
+    // 批量读取元数据 + 并行读取封面，单本容错不影响整体渲染。
+    const bookIds = books.map((b) => b.id);
+    const [metaMap, covers] = await Promise.all([
+      EpubStorage.getBookMetaBatch(bookIds).catch(() => ({})),
+      Promise.all(bookIds.map((id) => EpubStorage.getCover(id).catch(() => null)))
+    ]);
     if (renderSeq !== recentBooksRenderSeq) return;
 
     emptyState.style.display = 'none';
     clearRenderedRecentItems();
 
-    for (const { book, coverBlob, meta } of dataList) {
+    for (let i = 0; i < books.length; i++) {
+      const book = books[i];
+      const coverBlob = covers[i];
+      const meta = metaMap[book.id] || null;
       const item = document.createElement('div');
       item.className = 'recent-item';
 
@@ -162,7 +163,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       item.appendChild(removeBtn);
 
-      infoEl.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.recent-item-remove')) return;
         chrome.tabs.create({
           url: chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id)
         });

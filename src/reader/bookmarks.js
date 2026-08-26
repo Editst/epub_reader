@@ -46,31 +46,40 @@
 
   async toggle(cfi, chapterName, progress) {
     const bookId = this.bookId;
-    const bookmarks = await EpubStorage.updateBookmarks(bookId, (current) => {
-      if (bookId !== this.bookId) return false;
-      const existing = current.findIndex(b => b.cfi === cfi);
-      if (existing >= 0) {
-        current.splice(existing, 1);
-      } else {
-        current.push({
-          cfi,
-          chapter: chapterName,
-          progress: Math.round(progress * 1000) / 10,
-          timestamp: Date.now()
-        });
-        current.sort((a, b) => a.progress - b.progress);
-      }
-      return current;
-    });
-    if (bookId !== this.bookId) return;
-    if (Array.isArray(bookmarks)) this.renderList(bookmarks);
+    const safeProgress = Number.isFinite(progress) ? Math.round(progress * 1000) / 10 : 0;
+    try {
+      const bookmarks = await EpubStorage.updateBookmarks(bookId, (current) => {
+        if (bookId !== this.bookId) return false;
+        const existing = current.findIndex(b => b.cfi === cfi);
+        if (existing >= 0) {
+          current.splice(existing, 1);
+        } else {
+          current.push({
+            cfi,
+            chapter: chapterName,
+            progress: safeProgress,
+            timestamp: Date.now()
+          });
+          current.sort((a, b) => a.progress - b.progress);
+        }
+        return current;
+      });
+      if (bookId !== this.bookId) return;
+      if (Array.isArray(bookmarks)) this.renderList(bookmarks);
+    } catch (err) {
+      console.warn('[Bookmarks] toggle bookmark failed:', err);
+    }
   },
 
   async isBookmarked(cfi) {
     const bookId = this.bookId;
-    const bookmarks = await EpubStorage.getBookmarks(bookId);
-    if (bookId !== this.bookId) return false;
-    return bookmarks.some(b => b.cfi === cfi);
+    try {
+      const bookmarks = await EpubStorage.getBookmarks(bookId);
+      if (bookId !== this.bookId || !Array.isArray(bookmarks)) return false;
+      return bookmarks.some(b => b.cfi === cfi);
+    } catch (_) {
+      return false;
+    }
   },
 
   async loadBookmarks() {
@@ -90,8 +99,9 @@
   renderList(bookmarks) {
     if (!this.listEl) return;
     this.listEl.innerHTML = '';
+    const list = Array.isArray(bookmarks) ? bookmarks : [];
 
-    if (bookmarks.length === 0) {
+    if (list.length === 0) {
       const emptyEl = document.createElement('div');
       emptyEl.className = 'bookmarks-empty';
       emptyEl.innerHTML = '暂无书签<br><span>按 B 键或点击书签按钮添加</span>';
@@ -99,7 +109,7 @@
       return;
     }
 
-    bookmarks.forEach((bm) => {
+    list.forEach((bm) => {
       const item = document.createElement('div');
       item.className = 'bookmark-item';
 
@@ -152,7 +162,7 @@
   },
 
   togglePanel() {
-    if (this.panel.classList.contains('open')) {
+    if (this.panel?.classList.contains('open')) {
       this.closePanel();
     } else {
       if (this.panelController) {

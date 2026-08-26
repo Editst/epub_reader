@@ -544,6 +544,7 @@
         if (e.key === 'Escape') (e.target?.blur ? e.target : active)?.blur();
         return;
       }
+      if (e.altKey) return;
       switch (e.key) {
         case 'Escape':
           e.preventDefault(); closeAllPanels(); break;
@@ -747,7 +748,10 @@
         const fontFamily = VALID_FONT_FAMILIES.has(e.target.value) ? e.target.value : '';
         state.prefs.fontFamily = fontFamily;
         e.target.value = fontFamily;
-        _flushTypographyReflow(persistence);
+        if (_typographyDebounceTimer !== null) {
+          _safeClearTimeout(_typographyDebounceTimer);
+          _typographyDebounceTimer = null;
+        }
         _withCfiLock(() => updateCustomStyles(), persistence);
         _savePreferencesSafely({ fontFamily });
       });
@@ -874,7 +878,7 @@
     /**
      * 注册所有顶层事件监听，必须在 runtime 实例化后调用。
      */
-    async function bindRuntime(runtime, persistence) {
+    function bindRuntime(runtime, persistence) {
       _runtime = runtime;
       _resizePersistence = persistence;
       if (_isRuntimeBound) return;

@@ -8,6 +8,34 @@
 
 ---
 
+## [2.5.39] - 2026-08-27
+
+### fix
+- **Home 标注删除原子化**：`home.js` 中的标注删除从裸 `get` + `save` 改为调用 `EpubStorage.updateHighlights`，消除跨标签页覆写 Reader 端新笔记的竞态丢失风险。
+- **Home 标注跳转条件修正**：`home.js` 标注点击跳转判定由检查 `filename` 修正为检查 `hl._bookId`，确保淘汰出最近列表的书籍标注仍能正常定位打开。
+- **Home 骨架屏异常清理**：`streamRenderBookCard` 增加全局 `try...catch` 兜底，单卡片解析或渲染异常时主动清理对应骨架屏节点，杜绝灰色僵尸骨架残留。
+- **Popup 批量 IPC 与全卡片点击**：`popup.js` 适配 `EpubStorage.getBookMetaBatch` 单次 IPC 批量读取元数据；将点击跳转事件提升至整个 `.recent-item` 卡片，解决封面与进度条无法触发跳转的交互断层。
+- **Storage 回调异常保护与规范化**：`storage.js` 中的 `getBookMetaBatch` 异步回调内包裹 `try...catch` 防御，避免底层同步异常导致 Promise 永久挂起；`saveHighlights` 与 `saveBookmarks` 在落盘前统一经过 `_normalizeRecordList(..., 'cfi')` 规范化过滤。
+- **Reader 核心与生命周期加固**：
+  - `reader-persistence.js`: 优化 `_findNextTextNode` 在 Range 起点落在 Element 节点时的后序匹配逻辑；`onRelocated` 中非阻塞调用 `flushSpeedSession` 增加 `.catch` 保护；
+  - `reader-ui.js`: `fontFamilySelect` 切换时清理挂起的防抖定时器，消除同一 Tick 内的双重重排；`_handleKeyNav` 校验 `e.altKey` 避免劫持系统级浏览器后退；`bindRuntime` 精简为同步函数；
+  - `reader-runtime.js`: `_applyLocationsProgress` 增加 `state.rendition` 空指针防御；`_clearBrokenLayoutContext` 同步重置 `state.isLayoutStable = false`；
+  - `reader-state.js`: `buildPrefsSignature` 添加 `prefs` 空值防御；`resetReadingSession` 统一纳入导航控制锁重置；
+  - `reader.js`: `createModuleLifecycle` 中的 `invoke` 增加模块对象防御判空；
+  - `annotations.js`: `showFootnote` 读取 `currentLocation` 时采用可选链防护；
+  - `highlights.js`: `bindContentMouseDown` 动态校验 `_rendition` 与 `_bookId` 避免 `contextSeq` 闭包失效；记录 `_notePopupTimerId` 并在关闭与卸载时显式清理；`handleClearHighlight` 包装 `try...catch`；
+  - `bookmarks.js` / `toc.js` / `image-viewer.js` / `search.js`: 补齐可选链、DOM 存在性防护与快捷键 `isContentEditable` 检查；`image-viewer.js` 在关闭与卸载时重置 `isDragging`；`search.js` 循环外预编译正则与 O(1) 激活状态切换。
+
+### test
+- 新增 `Utils.formatDuration` / `formatMinutes` 的 `Infinity`/`NaN` 边界防护测试；
+- 新增 `Utils.formatDate` / `formatDateTime` 非法时间戳测试；
+- 新增 `ReaderState.buildPrefsSignature(null)` 与 `resetReadingSession` 导航锁测试；
+- 新增 `ImageViewer.isDragging` 卸载与重置测试；
+- 新增 `Bookmarks.renderList(null)` 与 `isBookmarked` 异常兜底测试；
+- 全量测试用例扩充至 313 项（20 个主套件全部 100% 通过）。
+
+---
+
 ## [2.5.38] - 2026-08-27
 
 ### perf

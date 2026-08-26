@@ -37,13 +37,14 @@ const Utils = {
    * @returns {string}
    */
   formatDate(timestamp, fallback = '未知时间') {
-    if (!timestamp) return fallback;
-    const diff = Date.now() - timestamp;
+    const num = Number(timestamp);
+    if (!Number.isFinite(num) || num <= 0) return fallback;
+    const diff = Date.now() - num;
     if (diff < 60_000)       return '刚刚';
     if (diff < 3_600_000)    return Math.floor(diff / 60_000)    + ' 分钟前';
     if (diff < 86_400_000)   return Math.floor(diff / 3_600_000) + ' 小时前';
     if (diff < 604_800_000)  return Math.floor(diff / 86_400_000) + ' 天前';
-    return new Date(timestamp).toLocaleDateString('zh-CN');
+    return new Date(num).toLocaleDateString('zh-CN');
   },
 
   /**
@@ -54,8 +55,9 @@ const Utils = {
    * @returns {string}
    */
   formatDateTime(timestamp, fallback = '') {
-    if (!timestamp) return fallback;
-    const date = new Date(timestamp);
+    const num = Number(timestamp);
+    if (!Number.isFinite(num) || num <= 0) return fallback;
+    const date = new Date(num);
     return date.toLocaleDateString('zh-CN') + ' ' +
       date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
   },
@@ -68,7 +70,7 @@ const Utils = {
    * @returns {string}
    */
   formatDuration(seconds) {
-    if (seconds === undefined || seconds === null || isNaN(seconds)) return '0秒';
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0秒';
     const s = Math.max(0, Math.floor(seconds));
     if (s < 60)   return `${s}秒`;
     const mins = Math.floor(s / 60);
@@ -86,7 +88,7 @@ const Utils = {
    * @returns {string}
    */
   formatMinutes(minutes) {
-    if (!minutes || minutes <= 0) return '0分钟';
+    if (!Number.isFinite(minutes) || minutes <= 0) return '0分钟';
     const m = Math.round(minutes);
     if (m < 60) return `${m}分钟`;
     const h = Math.floor(m / 60);

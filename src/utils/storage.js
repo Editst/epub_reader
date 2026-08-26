@@ -154,32 +154,36 @@ const EpubStorage = {
     const keys = validIds.map((id) => KEYS.bookMeta(id));
     return new Promise((resolve, reject) => {
       chrome.storage.local.get(keys, async (result) => {
-        if (chrome.runtime && chrome.runtime.lastError) {
-          return reject(chrome.runtime.lastError);
-        }
-        const map = {};
-        const migrationPromises = [];
-
-        for (const id of validIds) {
-          const raw = result ? result[KEYS.bookMeta(id)] : null;
-          const normalized = this._normalizeBookMeta(raw);
-          if (normalized) {
-            map[id] = normalized;
-          } else {
-            migrationPromises.push(
-              this._migrateLegacyBookMeta(id).then((migrated) => {
-                map[id] = migrated || null;
-              }).catch(() => {
-                map[id] = null;
-              })
-            );
+        try {
+          if (chrome.runtime && chrome.runtime.lastError) {
+            return reject(chrome.runtime.lastError);
           }
-        }
+          const map = {};
+          const migrationPromises = [];
 
-        if (migrationPromises.length > 0) {
-          await Promise.all(migrationPromises);
+          for (const id of validIds) {
+            const raw = result ? result[KEYS.bookMeta(id)] : null;
+            const normalized = this._normalizeBookMeta(raw);
+            if (normalized) {
+              map[id] = normalized;
+            } else {
+              migrationPromises.push(
+                this._migrateLegacyBookMeta(id).then((migrated) => {
+                  map[id] = migrated || null;
+                }).catch(() => {
+                  map[id] = null;
+                })
+              );
+            }
+          }
+
+          if (migrationPromises.length > 0) {
+            await Promise.all(migrationPromises);
+          }
+          resolve(map);
+        } catch (err) {
+          reject(err);
         }
-        resolve(map);
       });
     });
   },
@@ -335,8 +339,9 @@ const EpubStorage = {
 
   async saveHighlights(bookId, highlights) {
     if (!bookId || !Array.isArray(highlights)) return;
+    const normalized = this._normalizeRecordList(highlights, 'cfi');
     return this._runBookResourceWrite(bookId, 'highlights', () =>
-      this._set({ [KEYS.highlights(bookId)]: highlights })
+      this._set({ [KEYS.highlights(bookId)]: normalized })
     );
   },
 
@@ -385,8 +390,9 @@ const EpubStorage = {
 
   async saveBookmarks(bookId, bookmarks) {
     if (!bookId || !Array.isArray(bookmarks)) return;
+    const normalized = this._normalizeRecordList(bookmarks, 'cfi');
     return this._runBookResourceWrite(bookId, 'bookmarks', () =>
-      this._set({ [KEYS.bookmarks(bookId)]: bookmarks })
+      this._set({ [KEYS.bookmarks(bookId)]: normalized })
     );
   },
 

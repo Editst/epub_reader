@@ -598,6 +598,7 @@
     }
 
     function _applyLocationsProgress(initSpeedTracking) {
+      if (!state.rendition || typeof state.rendition.currentLocation !== 'function' || !state.book) return;
       const loc = state.rendition.currentLocation();
       if (!loc || !loc.start) return;
 
@@ -987,6 +988,7 @@
       state.currentBookId = '';
       state.currentFileName = '';
       state.isBookLoaded = false;
+      state.isLayoutStable = false;
       state.navLock = false;
       ReaderState.resetReadingSession(state);
       if (typeof ui.showLoadError === 'function') {

@@ -83,6 +83,8 @@
     state.isResizing           = false;
     state.isRestoringPosition  = false;
     state.isRestoreAnchorProtected = false;
+    state.isLayoutStable       = false;
+    state.navLock              = false;
     state.lastPositionSave     = null;
     state.locationsStatus      = 'idle';
     if (state.readingTimer) {
@@ -105,23 +107,17 @@
   }
 
   function getTocItemLabel(item) {
-    if (!item || item.label === null || item.label === undefined) return '';
-    return String(item.label).trim();
+    if (!item) return '';
+    const label = item.label || item.title || item.name || '';
+    return typeof label === 'string' ? label.trim() : String(label).trim();
   }
 
   function hasLocations(locations) {
-    if (!locations || typeof locations.length !== 'function') return false;
-    try {
-      const count = locations.length();
-      return Number.isFinite(count) && count > 0;
-    } catch (_) {
-      return false;
-    }
+    return !!(locations && typeof locations.length === 'function' && locations.length() > 0);
   }
 
   function getLocationProgress(locations, cfi) {
-    if (!hasLocations(locations) || typeof locations.percentageFromCfi !== 'function') return null;
-    if (typeof cfi !== 'string' || !cfi) return null;
+    if (!hasLocations(locations) || !cfi) return null;
     try {
       const progress = locations.percentageFromCfi(cfi);
       return Number.isFinite(progress) && progress >= 0 && progress <= 1 ? progress : null;
@@ -131,8 +127,9 @@
   }
 
   function getCfiFromPercentage(locations, percentage) {
-    if (!hasLocations(locations) || typeof locations.cfiFromPercentage !== 'function') return null;
-    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 1) return null;
+    if (!hasLocations(locations) || !Number.isFinite(percentage) || percentage < 0 || percentage > 1) {
+      return null;
+    }
     try {
       const cfi = locations.cfiFromPercentage(percentage);
       return typeof cfi === 'string' && cfi ? cfi : null;
@@ -165,13 +162,14 @@
    * @returns {object}
    */
   function buildPrefsSignature(prefs) {
+    const p = (prefs && typeof prefs === 'object') ? prefs : {};
     return {
-      layout: prefs.layout || 'paginated',
-      fontSize: prefs.fontSize || 18,
-      lineHeight: prefs.lineHeight || 1.8,
-      fontFamily: prefs.fontFamily || '',
-      paragraphIndent: prefs.paragraphIndent !== false,
-      spread: prefs.spread || 'auto'
+      layout: p.layout || 'paginated',
+      fontSize: p.fontSize || 18,
+      lineHeight: p.lineHeight || 1.8,
+      fontFamily: p.fontFamily || '',
+      paragraphIndent: p.paragraphIndent !== false,
+      spread: p.spread || 'auto'
     };
   }
 

@@ -71,15 +71,15 @@
 
     // Keyboard shortcut (F)
     document.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey) {
+      if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (!book) return;
         const active = document.activeElement;
         const tag = active ? active.tagName : '';
-        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA' && !active?.isContentEditable) {
           e.preventDefault();
           togglePanel();
-          if (panel.classList.contains('open')) {
-            searchInput.focus();
+          if (panel?.classList.contains('open')) {
+            searchInput?.focus();
           }
         }
       }
@@ -244,9 +244,13 @@
   }
 
   function renderPartialResults(newResults, query, searchId) {
-    if (searchId !== currentSearchId || !resultsList) return;
+    if (searchId !== currentSearchId || !resultsList || !Array.isArray(newResults)) return;
+
+    const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const splitRegex = new RegExp(`(${safeQuery})`, 'gi');
+    const testRegex = new RegExp(`^${safeQuery}$`, 'i');
+
     newResults.forEach(res => {
-      if (searchId !== currentSearchId) return;
       const itemEl = document.createElement('div');
       itemEl.className = 'bookmark-item search-result-item';
 
@@ -254,12 +258,9 @@
       textEl.className = 'bookmark-title search-result-text';
 
       const excerpt = (res.excerpt || '').trim();
-      const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(${safeQuery})`, 'gi');
-
-      const parts = excerpt.split(regex);
+      const parts = excerpt.split(splitRegex);
       parts.forEach(part => {
-        if (new RegExp(`^${safeQuery}$`, 'i').test(part)) {
+        if (testRegex.test(part)) {
           const mark = document.createElement('mark');
           mark.className = 'search-highlight';
           mark.textContent = part;
@@ -273,8 +274,7 @@
 
       itemEl.addEventListener('click', () => {
         if (searchId !== currentSearchId) return;
-        const allItems = resultsList.querySelectorAll('.search-result-item');
-        allItems.forEach(el => el.classList.remove('active'));
+        resultsList.querySelector('.search-result-item.active')?.classList.remove('active');
         itemEl.classList.add('active');
 
         if (rendition && rendition.annotations) {
@@ -289,12 +289,15 @@
     });
   }
 
-
   // 清理上一次结果定位产生的 rendition annotation，避免跨搜索残留。
   function clearSearchHighlight() {
     if (_lastSearchAlertCfi && rendition && rendition.annotations) {
-      rendition.annotations.remove(_lastSearchAlertCfi, 'highlight');
-      _lastSearchAlertCfi = null;
+      try {
+        rendition.annotations.remove(_lastSearchAlertCfi, 'highlight');
+      } catch (_) {
+      } finally {
+        _lastSearchAlertCfi = null;
+      }
     }
   }
 

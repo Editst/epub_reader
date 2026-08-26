@@ -840,8 +840,9 @@ const Annotations = {
           try        { displayHref = contents.cfiFromNode(target); }
           catch (_)  {
             try {
-              const cur = _parseHref(context.rendition.currentLocation().start.href).sectionHref;
-              displayHref = `${cur}#${targetId}`;
+              const startHref = context.rendition?.currentLocation?.()?.start?.href;
+              const cur = startHref ? _parseHref(startHref).sectionHref : '';
+              displayHref = cur ? `${cur}#${targetId}` : '';
             } catch (_) {}
           }
           this._displayContent(this._extractContent(target), displayHref || href, context);

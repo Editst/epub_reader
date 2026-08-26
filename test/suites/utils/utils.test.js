@@ -31,6 +31,7 @@ test.describe('Utils 基础工具函数', () => {
     const now = Date.now();
     assert.equal(Utils.formatDate(null), '未知时间'); // 默认 fallback
     assert.equal(Utils.formatDate(null, 'N/A'), 'N/A'); // 自定义 fallback
+    assert.equal(Utils.formatDate('invalid'), '未知时间');
     assert.equal(Utils.formatDate(now - 10000), '刚刚'); // 30秒内
     assert.equal(Utils.formatDate(now - 7200000), '2 小时前');
     assert.equal(Utils.formatDate(now - 3 * 86400000), '3 天前');
@@ -44,6 +45,7 @@ test.describe('Utils 基础工具函数', () => {
       new Date(timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
     assert.equal(Utils.formatDateTime(null), '');
+    assert.equal(Utils.formatDateTime('invalid'), '');
     assert.equal(Utils.formatDateTime(timestamp), expected);
   });
 
@@ -51,6 +53,8 @@ test.describe('Utils 基础工具函数', () => {
     assert.equal(Utils.formatDuration(0), '0秒');
     assert.equal(Utils.formatDuration(null), '0秒');
     assert.equal(Utils.formatDuration(undefined), '0秒');
+    assert.equal(Utils.formatDuration(Infinity), '0秒');
+    assert.equal(Utils.formatDuration(NaN), '0秒');
     assert.equal(Utils.formatDuration(59), '59秒');
     assert.equal(Utils.formatDuration(60), '1分钟');
     assert.equal(Utils.formatDuration(90), '1分钟'); // v1.x 逻辑：取整分钟
@@ -62,6 +66,7 @@ test.describe('Utils 基础工具函数', () => {
   test.it('Utils.formatMinutes', () => {
     assert.equal(Utils.formatMinutes(0), '0分钟');
     assert.equal(Utils.formatMinutes(null), '0分钟');
+    assert.equal(Utils.formatMinutes(Infinity), '0分钟');
     assert.equal(Utils.formatMinutes(45), '45分钟');
     assert.equal(Utils.formatMinutes(60), '1小时');
     assert.equal(Utils.formatMinutes(90), '1小时30分钟');

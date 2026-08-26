@@ -80,6 +80,9 @@ const DbGateway = {
         this._retryEpoch++;   // invalidate cooldown timers from the previous failure streak
         resolve(db);
       };
+      request.onblocked = () => {
+        console.warn('[DbGateway] IDB open blocked by open connections in other tabs');
+      };
       request.onerror   = (e) => {
         if (this._dbPromise === connectionPromise) this._dbPromise = null;
         this._recordConnectionFailure();
@@ -156,8 +159,9 @@ const DbGateway = {
    * @param {string[]} fields      field names to include (keyPath always included)
    * @returns {Promise<object[]>}
    */
-  async getAllMeta(storeName, fields) {
+  async getAllMeta(storeName, fields = []) {
     const db = await this.connect();
+    const safeFields = Array.isArray(fields) ? fields : [];
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(storeName)) return resolve([]);
       const tx      = db.transaction(storeName, 'readonly');
@@ -169,7 +173,7 @@ const DbGateway = {
         const cursor = e.target.result;
         if (!cursor) return;
         const rec = { [store.keyPath]: cursor.primaryKey };
-        for (const f of fields) {
+        for (const f of safeFields) {
           if (f !== store.keyPath && f in cursor.value) rec[f] = cursor.value[f];
         }
         results.push(rec);
