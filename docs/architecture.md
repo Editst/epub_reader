@@ -141,7 +141,7 @@ epub_reader/
 使用 `SHA-256(filename + content[:64KB])` 生成 ID。截取前 64KB 平衡去重准确度与哈希耗时（~100ms）。
 
 ### 4.2 完整数据生命周期
-1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`；Reader 页本地导入必须等待 `storeFile()` 落盘后再 `openBook()`。
+1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`；Home 首页本地导入在后台异步执行 `storeFile()` 并立即跳转 Reader，Reader 具备短重试；Reader 页本地导入等待 `storeFile()` 落盘后再 `openBook()`。
 2. **阅读**：`onRelocated` → `schedulePositionSave`（每次有意义的位置变化立即写入，并开启 300ms 最新事件保护窗）→ `bookMeta_<id>`。
 3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
 4. **统计**：计时器累计本页尚未提交的阅读秒数，定期或在 `visibilitychange` / 切书 / 关闭时由 `flushReadingTime` 原子累加；`flushSpeedSession` 记录速度采样。
@@ -153,6 +153,7 @@ epub_reader/
 chrome.storage.local
 ├── preferences              全局偏好设置
 ├── recentBooks              书架列表（最多 20 本，读改写串行合并）
+├── fileTimestamps           文件访问时间戳 Map（bookId -> timestamp，用于零写放大 LRU）
 ├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
 │     ├── pos: { cfi, percentage, timestamp, locator? }
 │     ├── time: number               累计阅读秒数
@@ -573,6 +574,8 @@ _mountFeatureModules(): void
 | `POST_OPEN_FOCUS_DELAY_MS` | 300 | openBook 后聚焦延迟 |
 | `NAV_DEBOUNCE_MS` | 150 | 翻页防抖 |
 | `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | 1 | 恢复期同 CFI 直接重放次数上限 |
+| `FILE_LOAD_RETRY_ATTEMPTS` | 5 | loadFileByBookId 缓存未就绪重试次数 |
+| `FILE_LOAD_RETRY_INTERVAL_MS` | 200 | loadFileByBookId 重试间隔 (ms) |
 
 **行为约束**：
 - `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
