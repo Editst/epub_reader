@@ -67,9 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function _processFile(file) {
     try {
       openBtn.disabled = true;
-      const arrayBuffer = await file.arrayBuffer();
-      const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-      await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+      const { bookId } = await EpubStorage.importBookFile(file);
       chrome.tabs.create({
         url: chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId)
       });

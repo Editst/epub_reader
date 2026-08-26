@@ -8,6 +8,17 @@
 
 ---
 
+## [2.5.42] - 2026-08-27
+
+### refactor
+- **跨模块导航胶水代码统一**：在 `reader-state.js` 中抽象 `ReaderState.safeNavigate` 纯函数，`toc.js`、`bookmarks.js`、`search.js` 统一接入，消除多处重复的导航捕获与 Promise 容错样板。
+- **EPUB 本地导入管道一站式抽象**：在 `storage.js` 中封装 `EpubStorage.importBookFile`，整合 ArrayBuffer 读取、哈希生成与 IDB 落盘流程，`home.js` 和 `popup.js` 统一复用。
+- **封面 ObjectURL 释放模式归一**：在 `utils.js` 中提取 `Utils.releaseElementCoverUrl` 并在工具测试中全量覆盖，统一全工程 Blob URL 内存回收模式。
+- **书架标注内存级过滤与排序优化**：`home.js` 的 `loadAnnotations` 引入数据集内存缓存机制，颜色筛选与时间升降序切换直接在内存中执行，彻底消除切换视图时重复拉取 Chrome Storage 的 I/O 损耗与渲染闪烁。
+- **DOM 缓存引用收口与定时器安全加固**：`reader-ui.js` 将 `btnPrev`/`btnNext` 纳入统一 `dom` 缓存字典，并加固了沙箱环境下的安全定时器包装。
+
+---
+
 ## [2.5.41] - 2026-08-27
 
 ### fix

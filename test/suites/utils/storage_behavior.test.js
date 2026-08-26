@@ -1300,5 +1300,23 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(tombstones.length, 0, '清空书架后不应遗留 deletedBook_ 墓碑键');
     assert.equal(allKeys.fileTimestamps, undefined, '清空书架后应清理 fileTimestamps');
   });
+
+  test.it('importBookFile 一站式完成 ArrayBuffer 读取、哈希生成与落盘', async () => {
+    resetAll();
+    const fakeContent = new Uint8Array([1, 2, 3, 4, 5]);
+    const fakeFile = {
+      name: 'test-import.epub',
+      async arrayBuffer() {
+        return fakeContent.buffer;
+      }
+    };
+    const result = await EpubStorage.importBookFile(fakeFile);
+    assert.ok(result.bookId, '应返回有效 bookId');
+    assert.equal(result.filename, 'test-import.epub');
+    const stored = await EpubStorage.getFile(result.bookId);
+    assert.ok(stored, 'IndexedDB 中应存在该文件');
+    assert.equal(stored.filename, 'test-import.epub');
+  });
 });
+
 

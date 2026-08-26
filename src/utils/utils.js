@@ -256,6 +256,20 @@ const Utils = {
     }
 
     return { minutes: null, isEstimating: true, source: 'insufficient' };
+  },
+
+  /**
+   * 安全释放挂载在 DOM 节点 dataset 上的 Blob ObjectURL，防止内存泄漏。
+   * @param {HTMLElement|null} element
+   * @param {string} [attrName] dataset 属性名，默认为 coverUrl
+   */
+  releaseElementCoverUrl(element, attrName = 'coverUrl') {
+    const objectUrl = element?.dataset?.[attrName];
+    if (!objectUrl) return;
+    delete element.dataset[attrName];
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 };
 

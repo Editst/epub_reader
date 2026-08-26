@@ -81,6 +81,8 @@
       fileInput:          document.getElementById('file-input'),
       bookTitleEl:        document.getElementById('book-title'),
       chapterTitleEl:     document.getElementById('chapter-title'),
+      btnPrev:            document.getElementById('btn-prev'),
+      btnNext:            document.getElementById('btn-next'),
       progressSlider:     document.getElementById('progress-slider'),
       progressCurrent:    document.getElementById('progress-current'),
       progressLocation:   document.getElementById('progress-location'),
@@ -621,8 +623,8 @@
     // ── Event Binding ─────────────────────────────────────────────────────────
 
     function bindNavigation() {
-      document.getElementById('btn-prev')?.addEventListener('click', () => _runtime && _runtime.prev());
-      document.getElementById('btn-next')?.addEventListener('click', () => _runtime && _runtime.next());
+      dom.btnPrev?.addEventListener('click', () => _runtime && _runtime.prev());
+      dom.btnNext?.addEventListener('click', () => _runtime && _runtime.next());
 
       dom.readerMain?.addEventListener('wheel', (e) => {
         if (!state.isBookLoaded || !state.rendition) return;
@@ -874,7 +876,6 @@
         showLoading(true);
         const arrayBuffer = await file.arrayBuffer();
         const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-        // storeFile 参数顺序：(filename, data, bookId)
         await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
         await runtime.openBook(arrayBuffer, bookId, file.name);
         const readerUrl = chrome.runtime.getURL('reader/reader.html') +

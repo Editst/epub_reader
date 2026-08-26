@@ -484,6 +484,14 @@ const EpubStorage = {
     );
   },
 
+  async importBookFile(file) {
+    if (!file) throw new Error('No file provided');
+    const arrayBuffer = await file.arrayBuffer();
+    const bookId = await this.generateBookId(file.name, arrayBuffer);
+    await this.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+    return { bookId, filename: file.name };
+  },
+
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
     await this._withBookLock(bookId, 'exclusive', () =>

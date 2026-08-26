@@ -241,4 +241,19 @@ test.describe('安全与注入防护 (Utils)', () => {
     }
   });
 
+  test.it('releaseElementCoverUrl: 正确删除 dataset 属性并调用 URL.revokeObjectURL', () => {
+    let revokedUrl = null;
+    const oldRevoke = global.URL.revokeObjectURL;
+    global.URL.revokeObjectURL = (url) => { revokedUrl = url; };
+    try {
+      const el = { dataset: { coverUrl: 'blob:test/123' } };
+      Utils.releaseElementCoverUrl(el);
+      assert.equal(el.dataset.coverUrl, undefined);
+      assert.equal(revokedUrl, 'blob:test/123');
+    } finally {
+      global.URL.revokeObjectURL = oldRevoke;
+    }
+  });
+
 });
+

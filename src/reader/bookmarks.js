@@ -190,14 +190,7 @@
   },
 
   _navigateTo(target) {
-    const navigate = this.navigate || ((value) => this.rendition?.display(value));
-    try {
-      Promise.resolve(navigate(target)).catch((err) => {
-        console.warn('[Bookmarks] navigation failed:', err);
-      });
-    } catch (err) {
-      console.warn('[Bookmarks] navigation failed:', err);
-    }
+    return ReaderState.safeNavigate(this.navigate, this.rendition, target, 'Bookmarks');
   },
 
   reset() {

@@ -303,14 +303,7 @@
   }
 
   function navigateTo(target) {
-    const navigateCommand = navigate || ((value) => rendition?.display(value));
-    try {
-      Promise.resolve(navigateCommand(target)).catch((err) => {
-        console.warn('[Search] navigation failed:', err);
-      });
-    } catch (err) {
-      console.warn('[Search] navigation failed:', err);
-    }
+    return ReaderState.safeNavigate(navigate, rendition, target, 'Search');
   }
 
   function mount(context) {

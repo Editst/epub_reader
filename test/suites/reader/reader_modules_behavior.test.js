@@ -3054,5 +3054,23 @@ test.describe('Reader 模块基础行为', () => {
     assert.ok(tags.includes("'figcaption'"), '应包含 figcaption');
     assert.ok(tags.includes("'article'"), '应包含 article');
   });
+
+  test.it('ReaderState.safeNavigate 优先调用注入 navigate 并能安全捕获异常', async () => {
+    let captured = null;
+    const mockNavigate = (t) => { captured = t; return Promise.resolve('ok'); };
+    const res = await ReaderState.safeNavigate(mockNavigate, null, 'epubcfi(/6/2!)');
+    assert.equal(captured, 'epubcfi(/6/2!)');
+    assert.equal(res, 'ok');
+
+    // 拒绝与同步异常测试
+    const mockFailNav = () => { throw new Error('sync nav error'); };
+    const resFail = await ReaderState.safeNavigate(mockFailNav, null, 'bad-cfi', 'TestTag');
+    assert.equal(resFail, null);
+
+    const mockRejectNav = () => Promise.reject(new Error('async reject error'));
+    const resReject = await ReaderState.safeNavigate(mockRejectNav, null, 'bad-cfi', 'TestTag');
+    assert.equal(resReject, null);
+  });
 });
+
 

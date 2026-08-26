@@ -64,9 +64,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function loadAnnotationsSafely(filterType = 'all') {
+  let _cachedRawHighlights = null;
+  let _cachedRecentBooks = null;
+
+  async function loadAnnotationsSafely(filterType = 'all', forceReload = false) {
     try {
-      await loadAnnotations(filterType);
+      await loadAnnotations(filterType, forceReload);
     } catch (err) {
       console.warn('[Home] load annotations failed:', err);
     }
@@ -154,9 +157,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnUpload.style.opacity = '0.7';
 
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-      await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+      const { bookId } = await EpubStorage.importBookFile(file);
       window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
     } catch (err) {
       console.error('[Home] Failed to open file:', err);
@@ -355,14 +356,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // --- Annotations Management ---
-  async function loadAnnotations(filterType = 'all') {
+  async function loadAnnotations(filterType = 'all', forceReload = false) {
     const renderSeq = ++annotationsRenderSeq;
-    const allHighlights = await EpubStorage.getAllHighlights() || {};
-    if (renderSeq !== annotationsRenderSeq) return;
+    if (forceReload || !_cachedRawHighlights || !_cachedRecentBooks) {
+      const [allHighlights, recentBooks] = await Promise.all([
+        EpubStorage.getAllHighlights() || {},
+        EpubStorage.getRecentBooks()
+      ]);
+      if (renderSeq !== annotationsRenderSeq) return;
+      _cachedRawHighlights = allHighlights;
+      _cachedRecentBooks = recentBooks;
+    }
+    const allHighlights = _cachedRawHighlights || {};
+    const recentBooks = _cachedRecentBooks || [];
     const bookKeys = Object.keys(allHighlights);
-
-    const recentBooks = await EpubStorage.getRecentBooks();
-    if (renderSeq !== annotationsRenderSeq) return;
     const bookMetaMap = {};
     for (const b of recentBooks) bookMetaMap[b.id] = b;
 
@@ -436,7 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 !(h.cfi === hl.cfi && (hl.timestamp ? h.timestamp === hl.timestamp : true))
               )
             );
-            loadAnnotationsSafely(filterType);
+            loadAnnotationsSafely(filterType, true);
           } catch (err) {
             console.warn('[Home] remove annotation failed:', err);
           }
@@ -503,7 +510,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (document.visibilityState === 'visible') {
       loadBookshelfSafely();
       const activeFilter = document.querySelector('.filter-btn.active');
-      loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all');
+      loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', true);
     }
   });
 });

@@ -173,6 +173,27 @@
     };
   }
 
+  /**
+   * 统一跨模块的安全导航调用，优先调用注入的 navigate 函数，回退到 rendition.display。
+   * @param {Function|null} navigateFn 外部注入的导航函数
+   * @param {object|null} rendition epub.js rendition 实例
+   * @param {string} target 目标 CFI 或 href
+   * @param {string} [logTag] 日志前缀
+   * @returns {Promise<any>}
+   */
+  function safeNavigate(navigateFn, rendition, target, logTag = 'Navigation') {
+    const nav = typeof navigateFn === 'function' ? navigateFn : ((val) => rendition?.display(val));
+    try {
+      return Promise.resolve(nav(target)).catch((err) => {
+        console.warn(`[${logTag}] navigation failed:`, err);
+        return null;
+      });
+    } catch (err) {
+      console.warn(`[${logTag}] navigation failed:`, err);
+      return Promise.resolve(null);
+    }
+  }
+
   window.ReaderState = {
     createReaderState,
     resetReadingSession,
@@ -182,6 +203,7 @@
     getLocationProgress,
     getCfiFromPercentage,
     findTocItem,
-    buildPrefsSignature
+    buildPrefsSignature,
+    safeNavigate
   };
 })();

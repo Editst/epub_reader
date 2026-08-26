@@ -162,14 +162,7 @@
   },
 
   _navigateTo(target) {
-    const navigate = this.navigate || ((value) => this.rendition?.display(value));
-    try {
-      Promise.resolve(navigate(target)).catch((err) => {
-        console.warn('[TOC] navigation failed:', err);
-      });
-    } catch (err) {
-      console.warn('[TOC] navigation failed:', err);
-    }
+    return ReaderState.safeNavigate(this.navigate, this.rendition, target, 'TOC');
   },
 
   reset() {
