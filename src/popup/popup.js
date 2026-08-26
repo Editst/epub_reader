@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
       window.close();
     } catch (e) {
       console.error('[Popup] Failed to process EPUB:', e);
+      alert('无法导入文件: ' + (e.message || '格式错误或存储受限'));
       openBtn.disabled = false;
     }
   }
@@ -173,6 +174,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        const bookTitle = book.title || book.filename || '该书籍';
+        if (typeof confirm === 'function' && !confirm(`确定要移除《${bookTitle}》吗？这将删除所有阅读记录与本地缓存。`)) {
+          return;
+        }
         try {
           await EpubStorage.removeBook(book.id);
         } catch (err) {

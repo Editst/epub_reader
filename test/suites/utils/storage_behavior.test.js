@@ -1257,4 +1257,48 @@ test.describe('EpubStorage 行为覆盖', () => {
       EpubStorage._get = originalGet;
     }
   });
+
+  test.it('updateHighlights & _enqueueKeyWrite 支持 async mutator 且不会将 Promise 序列化为对象', async () => {
+    const bookId = 'book_async_mutator';
+    await EpubStorage.saveHighlights(bookId, [{ cfi: 'cfi_1', text: 'first', color: '#ff0' }]);
+
+    const updated = await EpubStorage.updateHighlights(bookId, async (current) => {
+      // 模拟异步操作（如并发校验）
+      await new Promise((r) => setTimeout(r, 10));
+      return [...current, { cfi: 'cfi_2', text: 'second', color: '#0f0' }];
+    });
+
+    assert.equal(updated.length, 2);
+    assert.equal(updated[1].cfi, 'cfi_2');
+
+    const stored = await EpubStorage.getHighlights(bookId);
+    assert.equal(stored.length, 2);
+    assert.equal(stored[0].cfi, 'cfi_1');
+    assert.equal(stored[1].cfi, 'cfi_2');
+  });
+
+  test.it('getBookMetaBatch 自动去重且过滤空白 bookId', async () => {
+    const bookId = 'batch_dedup_book';
+    await EpubStorage.saveBookMeta(bookId, { pos: { cfi: 'test_cfi', percentage: 50 } });
+
+    const res = await EpubStorage.getBookMetaBatch(['  ', bookId, bookId, '', '\t']);
+    assert.equal(Object.keys(res).length, 1);
+    assert.ok(res[bookId]);
+    assert.equal(res[bookId].pos.cfi, 'test_cfi');
+  });
+
+  test.it('removeAllBooks 执行后清理全量 deletedBook 墓碑键与时间戳', async () => {
+    const bookId = 'tombstone_book';
+    await EpubStorage.addRecentBook({ id: bookId, title: 'Tombstone', author: '', filename: 't.epub' });
+    await EpubStorage.saveBookMeta(bookId, { pos: { cfi: 'c' } });
+    await EpubStorage.storeFile('t.epub', new Uint8Array([1, 2, 3]), bookId);
+
+    await EpubStorage.removeAllBooks();
+
+    const allKeys = await new Promise((r) => chrome.storage.local.get(null, r));
+    const tombstones = Object.keys(allKeys).filter((k) => k.startsWith('deletedBook_'));
+    assert.equal(tombstones.length, 0, '清空书架后不应遗留 deletedBook_ 墓碑键');
+    assert.equal(allKeys.fileTimestamps, undefined, '清空书架后应清理 fileTimestamps');
+  });
 });
+

@@ -173,8 +173,11 @@ const DbGateway = {
         const cursor = e.target.result;
         if (!cursor) return;
         const rec = { [store.keyPath]: cursor.primaryKey };
-        for (const f of safeFields) {
-          if (f !== store.keyPath && f in cursor.value) rec[f] = cursor.value[f];
+        const val = cursor.value;
+        if (val && typeof val === 'object') {
+          for (const f of safeFields) {
+            if (f !== store.keyPath && f in val) rec[f] = val[f];
+          }
         }
         results.push(rec);
         cursor.continue();

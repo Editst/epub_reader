@@ -37,6 +37,8 @@ test.describe('Utils 基础工具函数', () => {
     assert.equal(Utils.formatDate(now - 3 * 86400000), '3 天前');
     const old = now - 10 * 86400000;
     assert.ok(Utils.formatDate(old).includes('-') || Utils.formatDate(old).split('/').length >= 2); // 本地日期
+    const future = now + 86400000;
+    assert.ok(Utils.formatDate(future).includes('-') || Utils.formatDate(future).split('/').length >= 2); // 未来时间不应为“刚刚”
   });
 
   test.it('Utils.formatDateTime: 格式化绝对日期与分钟时间', () => {

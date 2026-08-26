@@ -323,10 +323,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
+      // 挂载前再次确认代次，若已失效立即释放 ObjectURL
+      if (renderSeq !== bookshelfRenderSeq) {
+        releaseCoverObjectUrl(card);
+        return;
+      }
+
       const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
       if (skeleton) skeleton.replaceWith(card);
       else booksContainer.appendChild(card);
     } catch (err) {
+      if (card) releaseCoverObjectUrl(card);
       console.warn('[Home] render book card failed:', book.id, err);
       if (renderSeq !== bookshelfRenderSeq) return;
       const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
@@ -425,7 +432,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (confirm('确定要删除这条标注吗？')) {
           try {
             await EpubStorage.updateHighlights(hl._bookId, (highlights) =>
-              (highlights || []).filter((h) => h.cfi !== hl.cfi)
+              (highlights || []).filter((h) =>
+                !(h.cfi === hl.cfi && (hl.timestamp ? h.timestamp === hl.timestamp : true))
+              )
             );
             loadAnnotationsSafely(filterType);
           } catch (err) {
@@ -447,15 +456,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         const allHighlights = await EpubStorage.getAllHighlights() || {};
         const recentBooks   = await EpubStorage.getRecentBooks();
+        const bookMetaMap   = {};
+        for (const b of recentBooks) bookMetaMap[b.id] = b;
+
         let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
         let hasData = false;
-        for (const book of recentBooks) {
-          const hls = allHighlights[book.id];
+
+        for (const [bookId, hls] of Object.entries(allHighlights)) {
           if (hls && hls.length > 0) {
             hasData = true;
-            md += `## 《${book.title || book.filename}》\n\n`;
-            md += `*作者：${book.author || '未知'}*\n\n`;
-            hls.sort((a, b) => a.timestamp - b.timestamp).forEach(hl => {
+            const bookContext = bookMetaMap[bookId] || { title: '未知书籍', author: '未知' };
+            md += `## 《${bookContext.title || bookContext.filename || '未知书籍'}》\n\n`;
+            md += `*作者：${bookContext.author || '未知'}*\n\n`;
+            hls.slice().sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)).forEach(hl => {
               const quote = String(hl.text || '').trim().replace(/\n/g, '\n> ');
               md += `> ${quote}\n\n`;
               if (hl.note) md += `**✏️ 笔记**：${String(hl.note).trim()}\n\n`;
@@ -486,4 +499,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadBookshelfSafely();
   await loadAnnotationsSafely('all');
 
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      loadBookshelfSafely();
+      const activeFilter = document.querySelector('.filter-btn.active');
+      loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all');
+    }
+  });
 });

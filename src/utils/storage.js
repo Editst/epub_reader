@@ -47,7 +47,8 @@ const KEY_PREFIXES = Object.freeze({
   legacyPosition: 'pos_',
   legacyReadingTime: 'time_',
   highlights: 'highlights_',
-  bookmarks: 'bookmarks_'
+  bookmarks: 'bookmarks_',
+  deletedBook: DELETED_BOOK_PREFIX
 });
 
 const STORES = Object.freeze({
@@ -148,7 +149,11 @@ const EpubStorage = {
 
   async getBookMetaBatch(bookIds) {
     if (!Array.isArray(bookIds) || bookIds.length === 0) return {};
-    const validIds = bookIds.filter((id) => typeof id === 'string' && id);
+    const validIds = Array.from(new Set(
+      bookIds
+        .filter((id) => typeof id === 'string' && id.trim().length > 0)
+        .map((id) => id.trim())
+    ));
     if (validIds.length === 0) return {};
 
     const keys = validIds.map((id) => KEYS.bookMeta(id));
@@ -368,7 +373,8 @@ const EpubStorage = {
 
     for (const key of Object.keys(allItems || {})) {
       if (key.startsWith(KEY_PREFIXES.highlights)) {
-        bookIds.add(key.slice(KEY_PREFIXES.highlights.length));
+        const id = key.slice(KEY_PREFIXES.highlights.length).trim();
+        if (id) bookIds.add(id);
       }
     }
 
@@ -480,14 +486,14 @@ const EpubStorage = {
 
   async storeFile(filename, data, bookId) {
     if (!filename || !data || !bookId) return;
-    return this._withBookLock(bookId, 'exclusive', () =>
+    await this._withBookLock(bookId, 'exclusive', () =>
       this._trackBookResourceWrite(bookId, async () => {
         await this._dbGateway.put(STORES.files, { bookId, filename, data, timestamp: Date.now() });
         await this._remove(KEYS.deletedBook(bookId));
         await this._touchFileTimestamp(bookId);
-        await this.enforceFileLRU(10);
       })
     );
+    await this.enforceFileLRU(10);
   },
 
   async getFile(bookId) {
@@ -631,6 +637,15 @@ const EpubStorage = {
     const bookIds = await this.getAllBookIds();
     const results = await Promise.allSettled(bookIds.map((bookId) => this.removeBook(bookId)));
     const failure = results.find((result) => result.status === 'rejected');
+
+    // 清理全量墓碑键与时间戳
+    const allItems = await this._getAll();
+    const tombstoneKeys = Object.keys(allItems || {}).filter((k) => k.startsWith(KEY_PREFIXES.deletedBook));
+    if (tombstoneKeys.length > 0) {
+      await this._remove(tombstoneKeys).catch(() => {});
+    }
+    await this._remove(KEYS.fileTimestamps).catch(() => {});
+
     if (failure) throw failure.reason;
   },
 
@@ -717,7 +732,7 @@ const EpubStorage = {
           : this._isRecord(stored);
         const current = isCompatible ? stored : defaultValue;
         const mutableValue = Array.isArray(current) ? current.slice() : current;
-        const updated = mutator(mutableValue) || mutableValue;
+        const updated = (await mutator(mutableValue)) || mutableValue;
         await this._set({ [key]: updated });
       }));
     this[queueField] = next.catch(() => {});
@@ -739,7 +754,7 @@ const EpubStorage = {
       }
 
       if (this._deletingBookIds.has(bookId)) return;
-      const updated = mutator(current) || current;
+      const updated = (await mutator(current)) || current;
       await this._set({ [KEYS.bookMeta(bookId)]: updated });
       if (shouldRemoveLegacy) this._removeLegacyBookMetaKeys(bookId).catch(() => {});
       return updated;
@@ -758,7 +773,7 @@ const EpubStorage = {
     return this._runBookResourceWrite(bookId, resourceName, async () => {
       const stored = this._normalizeRecordList(await this._get(key), requiredField);
       const mutableRecords = stored.map((record) => ({ ...record }));
-      const mutated = mutator(mutableRecords);
+      const mutated = await mutator(mutableRecords);
       if (mutated === false) return stored;
       const updated = this._normalizeRecordList(
         Array.isArray(mutated) ? mutated : mutableRecords,

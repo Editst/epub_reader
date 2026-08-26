@@ -40,6 +40,7 @@ const Utils = {
     const num = Number(timestamp);
     if (!Number.isFinite(num) || num <= 0) return fallback;
     const diff = Date.now() - num;
+    if (diff < 0) return new Date(num).toLocaleDateString('zh-CN');
     if (diff < 60_000)       return '刚刚';
     if (diff < 3_600_000)    return Math.floor(diff / 60_000)    + ' 分钟前';
     if (diff < 86_400_000)   return Math.floor(diff / 3_600_000) + ' 小时前';
