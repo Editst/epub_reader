@@ -124,6 +124,9 @@
       const itemHref = item.dataset.href;
       if (ReaderState.isTocHrefMatch(href, itemHref)) {
         item.classList.add('active');
+        if (this.sidebar?.classList.contains('open') && typeof item.scrollIntoView === 'function') {
+          item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
       }
     });
   },
@@ -139,10 +142,14 @@
   open() {
     if (this.panelController) {
       this.panelController.openExclusivePanel(this.sidebar);
-      return;
+    } else {
+      this.sidebar?.classList.add('open');
+      this.overlay?.classList.add('visible');
     }
-    this.sidebar?.classList.add('open');
-    this.overlay?.classList.add('visible');
+    const activeItem = this.container?.querySelector('.toc-item.active');
+    if (activeItem && typeof activeItem.scrollIntoView === 'function') {
+      activeItem.scrollIntoView({ block: 'nearest' });
+    }
   },
 
   close() {

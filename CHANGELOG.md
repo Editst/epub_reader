@@ -8,6 +8,21 @@
 
 ---
 
+## [2.5.41] - 2026-08-27
+
+### fix
+- **Web Locks 自死锁与跨标签页 ABBA 死锁彻底根除**：`storage.js` 将 `storeFile` 内部对 `enforceFileLRU(10)` 的调用移出 `_withBookLock` 单书独占锁外，彻底解决了重导同 ID 书籍时的不可重入单线程死锁，以及多标签页同时导入不同书籍引发的分布式死锁。
+- **全量笔记导出上限截断修复**：`home.js` 导出笔记主循环由遍历受 20 本硬上限截断的 `recentBooks` 修正为遍历 `getAllHighlights()` 全量书籍字典，彻底杜绝被 LRU 淘汰出书架列表但底层存储完好的书籍笔记在导出时被静默丢弃的问题。
+- **存储队列 Async Mutator 支持**：`storage.js` 的 `_enqueueKeyWrite` 与 `_updateBookRecordList` 统一对 mutator 返回结果执行 `await`，防止向存储队列传递异步函数时导致 Promise 对象被序列化为空对象 `{}` 造成的数据损毁。
+- **搜索特殊正则字符静默崩溃修复**：`search.js` 在向 epub.js 传递章节查找关键词前进行安全正则元字符转义（`query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`），彻底解决搜索 `C++`、`[1]`、`*` 等字符时底层 `new RegExp` 抛出 `SyntaxError` 导致的搜索静默中断。
+- **会话代次与迟到重试覆写保护**：`reader-runtime.js` 为 `loadFileByBookId` 引入 `openSessionSeq` 会话代次保护，彻底防止多重重试定时器唤醒后意外覆写正在阅读的新书或破坏新书 DOM 树。
+- **重排期间导航保护与排版滑块防漂移**：`reader-runtime.js` 导航入口（`next`、`prev`、`navigateTo`、`displayPercentage`）全面增加 `state.isResizing` 保护，拦截重排期间翻页导致的跳回旧页；`reader-ui.js` 排版滑块在拖拽实时调整时即时加锁，防止字体改变引发的 `relocated` 篡改并持久化漂移后的 CFI。
+- **图片查看器拖拽拉扯卡顿修复**：`image-viewer.js` 在鼠标拖拽平移时临时关闭 CSS `transition`，释放后恢复，彻底消除高频鼠标移动与 200ms 缓动补间冲突引发的画面剧烈迟滞与橡皮筋拉扯。
+- **脚注跳转受控化与块级标签扩充**：`annotations.js` 统一接入 Runtime `navigate` 导航锁，并扩充 `_BLOCK_TAGS` 纳入 `<dd>`、`<dt>`、`<figure>`、`<figcaption>`，杜绝定义列表型脚注正文提取丢失。
+- **书架流式渲染代次校验与内存防泄漏**：`home.js` 的 `streamRenderBookCard` 在 DOM 挂载前再次确认代次，若失效立即释放 Blob ObjectURL 并 abort，杜绝内存泄漏与骨架屏错位；Popup 移除书籍增加 `confirm` 防误触二次确认；书架添加 `visibilitychange` 监听实现跨标签页自动同步。
+
+---
+
 ## [2.5.40] - 2026-08-27
 
 ### fix

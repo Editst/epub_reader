@@ -3009,4 +3009,50 @@ test.describe('Reader 模块基础行为', () => {
     const isMarked = await Bookmarks.isBookmarked('bad-cfi');
     assert.equal(isMarked, false);
   });
+
+  test.it('Search.doSearch 正确转义特殊正则字符避免抛出 SyntaxError', async () => {
+    let capturedQuery = null;
+    const mockBook = {
+      spine: {
+        length: 1,
+        get() {
+          return {
+            async load() {},
+            unload() {},
+            find(query) {
+              capturedQuery = query;
+              // 验证传入底层 epub.js 的字符串作为正则不会抛错
+              new RegExp(query, 'gi');
+              return [{ cfi: 'cfi_res', excerpt: 'found C++' }];
+            }
+          };
+        }
+      }
+    };
+    const { document } = createMockDocument([
+      'search-panel', 'search-input', 'search-btn',
+      'search-status', 'search-results', 'search-close'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      window: { document }
+    });
+    Search.init();
+    Search.setBook(mockBook, {});
+    await Search.doSearch('C++ [1] (foo)*?');
+    assert.equal(capturedQuery, 'C\\+\\+ \\[1\\] \\(foo\\)\\*\\?');
+  });
+
+  test.it('Annotations._BLOCK_TAGS 包含 dd, dt, figure 等定义列表标签', () => {
+    const src = fs.readFileSync('src/reader/annotations.js', 'utf8');
+    const match = src.match(/const _BLOCK_TAGS = new Set\(\[([\s\S]*?)\]\);/);
+    assert.ok(match, '_BLOCK_TAGS 应存在');
+    const tags = match[1];
+    assert.ok(tags.includes("'dd'"), '应包含 dd');
+    assert.ok(tags.includes("'dt'"), '应包含 dt');
+    assert.ok(tags.includes("'figure'"), '应包含 figure');
+    assert.ok(tags.includes("'figcaption'"), '应包含 figcaption');
+    assert.ok(tags.includes("'article'"), '应包含 article');
+  });
 });
+

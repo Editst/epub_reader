@@ -87,7 +87,10 @@ const _FN_STYLE_CSS = `
     border-bottom: 1px dotted currentColor !important;
   }
 `;
-const _BLOCK_TAGS = new Set(['p', 'div', 'li', 'aside', 'section', 'blockquote']);
+const _BLOCK_TAGS = new Set([
+  'p', 'div', 'li', 'aside', 'section', 'blockquote',
+  'dd', 'dt', 'figure', 'figcaption', 'article'
+]);
 const _PAGINATION_SETTLE_MS = 100;
 const _TOC_MIN_ITEMS = 3;
 const _TOC_LINK_TEXT_MIN_LENGTH = 10;
@@ -506,6 +509,7 @@ const Annotations = {
 
   mount(context) {
     if (!context) return;
+    this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
     this._bindGlobalEvents();
     this.setBook(context.book);
     this.hookRendition(context.rendition);
@@ -515,6 +519,7 @@ const Annotations = {
     this._contextSeq++;
     this.book = null;
     this.rendition = null;
+    this.navigate = null;
     this.close();
     this._clearSectionCache();
     if (this._onKeyDown) {
@@ -1100,15 +1105,16 @@ const Annotations = {
       e.preventDefault();
       if (!this._isCurrentContext(context)) return;
       this.close();
-      if (!context.rendition || !href) return;
+      if (!href) return;
+      const nav = this.navigate || ((t) => context.rendition?.display(t));
       try {
-        await context.rendition.display(href);
+        await nav(href);
         await this._compensatePaginationOffset(href, context);
       } catch (_) {
         try {
           const base = _parseHref(href).sectionHref;
           if (base && base !== href) {
-            await context.rendition.display(base);
+            await nav(base);
             await this._compensatePaginationOffset(href, context);
           }
         } catch (__) { console.warn('Annotation: navigate failed', href); }

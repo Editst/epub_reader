@@ -227,7 +227,6 @@
     colorBtns.forEach(b => b.classList.remove('active'));
     btnClearHl.classList.add('is-hidden');
 
-    // Position toolbar above selection
     const selection = contents.window.getSelection();
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
@@ -237,8 +236,16 @@
       const iframe = contents.window.frameElement;
       const iframeRect = iframe ? iframe.getBoundingClientRect() : { top: 0, left: 0 };
 
-      const top = iframeRect.top + rect.top - FLOATING_UI_GAP_PX;
-      const left = iframeRect.left + rect.left + (rect.width / 2);
+      const TOOLBAR_WIDTH = 220;
+      const TOOLBAR_HEIGHT = 45;
+      const HEADER_HEIGHT = 52;
+      let top = iframeRect.top + rect.top - FLOATING_UI_GAP_PX;
+      let left = iframeRect.left + rect.left + (rect.width / 2);
+
+      if (top - TOOLBAR_HEIGHT < HEADER_HEIGHT) {
+        top = iframeRect.top + rect.bottom + FLOATING_UI_GAP_PX + TOOLBAR_HEIGHT;
+      }
+      left = Math.max(TOOLBAR_WIDTH / 2 + 12, Math.min(window.innerWidth - TOOLBAR_WIDTH / 2 - 12, left));
 
       toolbar.style.top = `${top}px`;
       toolbar.style.left = `${left}px`;
@@ -290,8 +297,22 @@
 
     btnClearHl.addEventListener('click', handleClearHighlight);
     btnAddNote.addEventListener('click', handleAddNote);
-    btnSaveNote.addEventListener('click', handleSaveNote);
-    btnCancelNote.addEventListener('click', closeNotePopup);
+    btnSaveNote?.addEventListener('click', handleSaveNote);
+    btnCancelNote?.addEventListener('click', closeNotePopup);
+
+    if (noteTextarea) {
+      noteTextarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeNotePopup();
+        } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSaveNote();
+        }
+      });
+    }
   }
 
   let _notePopupTimerId = null;
@@ -511,7 +532,7 @@
             _rendition.annotations.underline(
                 hl.cfi,
                 {},
-                (e) => handleHighlightClick(e, hl.cfi, clickContext),
+                isNoteOnlyHighlight(hl) ? ((e) => handleHighlightClick(e, hl.cfi, clickContext)) : () => {},
                 className,
                 {} // Styles handled by CSS class
             );

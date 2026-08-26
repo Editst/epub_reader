@@ -56,6 +56,7 @@
     this.container?.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       this.isDragging = true;
+      if (this.img) this.img.style.transition = 'none';
       this.startX = e.clientX - this.translateX;
       this.startY = e.clientY - this.translateY;
       e.preventDefault();
@@ -69,7 +70,10 @@
     });
 
     document.addEventListener('mouseup', () => {
-      this.isDragging = false;
+      if (this.isDragging) {
+        this.isDragging = false;
+        if (this.img) this.img.style.transition = 'transform 0.2s ease';
+      }
     });
 
     // Keyboard

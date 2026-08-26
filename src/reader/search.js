@@ -199,7 +199,8 @@
             break;
           }
           // item.find returns array of { cfi, excerpt }
-          itemResults = item.find(query);
+          const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          itemResults = item.find(safeQuery);
         } catch(e) {
           console.warn('Search error in chapter', i, e);
         } finally {
@@ -323,7 +324,7 @@
     reset();
   }
 
-  const Search = { init, setBook, togglePanel, closePanel, reset, mount, unmount };
+  const Search = { init, setBook, togglePanel, closePanel, reset, mount, unmount, doSearch };
 
   window.Search = Search;
 })();
