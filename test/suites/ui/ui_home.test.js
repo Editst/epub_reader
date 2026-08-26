@@ -173,4 +173,34 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
     assert.ok(!js.includes('card.remove();'), '单本删除不应维护独立 DOM 真相源');
   });
 
+  test.it('BUG-10: home.js fileInput 选择文件后重置 e.target.value', () => {
+    const src = fs.readFileSync('src/home/home.js', 'utf8');
+    const changeHandlerStart = src.indexOf("fileInput.addEventListener('change'");
+    assert.ok(changeHandlerStart !== -1, 'fileInput change handler must exist');
+
+    const handlerBlock = src.slice(changeHandlerStart, changeHandlerStart + 400);
+    assert.ok(
+      handlerBlock.includes("target.value = ''") ||
+      handlerBlock.includes("target.value=''") ||
+      handlerBlock.includes("fileInput.value = ''") ||
+      handlerBlock.includes("fileInput.value=''"),
+      'fileInput change handler must reset value to empty string after processing'
+    );
+  });
+
+  test.it('BUG-11: home.js Markdown 导出不对 title/author 使用 escapeHtml', () => {
+    const src = fs.readFileSync('src/home/home.js', 'utf8');
+    const exportStart = src.indexOf('btn-export-all');
+    assert.ok(exportStart !== -1, 'export button handler must exist');
+
+    const exportBlock = src.slice(exportStart, exportStart + 2000);
+    const hasEscapeInMdOutput = /escapeHtml\(book\.(title|author|filename)\)/.test(exportBlock);
+    assert.ok(
+      !hasEscapeInMdOutput,
+      'Markdown export must not use escapeHtml for title/author — HTML entities are meaningless in .md files'
+    );
+    assert.match(exportBlock, /finally \{\s*a\.remove\(\);\s*URL\.revokeObjectURL\(url\);\s*\}/,
+      'Markdown download must revoke its Object URL even when click/append fails');
+  });
+
 });

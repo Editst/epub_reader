@@ -23,7 +23,8 @@
 - 增加 `fileTimestamps` 并发写入防竞争、异常损坏降级与级联删除单元测试；
 - 增加 `loadFileByBookId` 重试上限耗尽、重试期间 unmount 中断与存储降级测试；
 - 增加 `Annotations._isTocList` 基于 children 的快速短路边界测试；
-- 全量自动化测试用例增至 311 项（全部通过）。
+- 重构清理历史碎片测试文件（将 `bugfix_home.test.js` 和 `bugfix_data_integrity.test.js` 内聚归并至主套件 `ui_home.test.js` 与 `storage_behavior.test.js`）；
+- 全量自动化测试用例调整为 309 项（20 个测试套件全部 100% 通过）。
 
 ---
 

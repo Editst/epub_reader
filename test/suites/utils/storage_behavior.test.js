@@ -1200,4 +1200,61 @@ test.describe('EpubStorage 行为覆盖', () => {
     map = await EpubStorage._get('fileTimestamps');
     assert.equal(map['to-remove-book'], undefined, 'removeFile 后时间戳 Map 中应已删除该 bookId');
   });
+
+  test.it('BUG-2: saveReadingSpeed 正确保留显式 0 值且支持正文计数 patch', async () => {
+    const bookId = 'book_zero_speed';
+    await EpubStorage.saveReadingSpeed(bookId, {
+      sampledSeconds: 120,
+      sampledProgress: 0.05
+    });
+
+    // 显式重置为 0 必须正常写入，不应被视为 falsy 忽略
+    await EpubStorage.saveReadingSpeed(bookId, {
+      sampledSeconds: 0,
+      sampledProgress: 0
+    });
+
+    const meta = await EpubStorage.getBookMeta(bookId);
+    assert.strictEqual(meta.speed.sampledSeconds, 0, 'sampledSeconds should be 0, not 120');
+    assert.strictEqual(meta.speed.sampledProgress, 0, 'sampledProgress should be 0, not 0.05');
+
+    // 正文计数 patch 保留已有速度
+    await EpubStorage.saveReadingSpeed(bookId, {
+      contentUnitCount: 24000,
+      contentUnitVersion: 1
+    });
+    const speed = await EpubStorage.getReadingSpeed(bookId);
+    assert.equal(speed.sampledSeconds, 0);
+    assert.equal(speed.contentUnitCount, 24000);
+  });
+
+  test.it('BUG-3: getAllHighlights 避免逐本重复调用 _get', async () => {
+    const bookId1 = 'book_hl_1';
+    const bookId2 = 'book_hl_2';
+
+    await EpubStorage.addRecentBook({ id: bookId1, title: 'A', author: '', filename: 'a.epub' });
+    await EpubStorage.addRecentBook({ id: bookId2, title: 'B', author: '', filename: 'b.epub' });
+    await EpubStorage.saveHighlights(bookId1, [{ cfi: 'c1', text: 'hi', color: '#ff0', note: '', timestamp: 1 }]);
+    await EpubStorage.saveHighlights(bookId2, [{ cfi: 'c2', text: 'lo', color: '#0f0', note: '', timestamp: 2 }]);
+
+    const originalGet = EpubStorage._get.bind(EpubStorage);
+    const getCalls = [];
+    EpubStorage._get = async function(key) {
+      getCalls.push(key);
+      return originalGet(key);
+    };
+
+    try {
+      const result = await EpubStorage.getAllHighlights();
+      assert.ok(result[bookId1]);
+      assert.ok(result[bookId2]);
+      assert.strictEqual(result[bookId1].length, 1);
+      assert.strictEqual(result[bookId2].length, 1);
+
+      const highlightGetCalls = getCalls.filter((k) => k.startsWith('highlights_'));
+      assert.strictEqual(highlightGetCalls.length, 0, 'getAllHighlights 不应再对每本书单独发起 _get');
+    } finally {
+      EpubStorage._get = originalGet;
+    }
+  });
 });
