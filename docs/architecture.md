@@ -1,1017 +1,525 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.46
-更新：2026-08-30
+版本：v2.5.46  
+更新：2026-08-30  
 
-本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
-
----
-
-## 1. 项目概述
-
-EPUB Reader 是一个 Chrome MV3 扩展，提供完整的 EPUB 电子书阅读体验。全部数据在本地处理，无任何网络请求（字体资源除外）。
-
-**技术栈**：
-- 渲染引擎：epub.js v0.3.x（解析 EPUB 并渲染到 iframe）
-- 压缩库：JSZip（epub.js 内部依赖）
-- 存储：IndexedDB（via DbGateway）+ chrome.storage.local
-- 扩展平台：Chrome MV3（Manifest Version 3）
-
-**核心约束**：
-- 扩展不依赖后台进程，所有跨页面状态必须持久化到存储层
-- EPUB iframe 与宿主页面跨源隔离，事件穿透需要 epub.js hooks 机制
-- `chrome.storage.local` 总配额 10MB，二进制文件（EPUB、封面）走 IndexedDB
-
-### 历史缺陷复盘形成的审计准则
-
-- **异步任务必须绑定所有者与代次**：timer、RAF、Promise、epub.js hook 和连接事件都可能晚于书籍、页面或 rendition 生命周期；迟到任务既不能操作新上下文，也不能释放新任务的锁。
-- **位置是组合状态，不是单个百分比**：主锚点使用 `location.start.cfi`，分页可视恢复依赖 locator；恢复、字体稳定和重排期间必须抑制临时 relocated 写入，索引换算失败只降级百分比，不能阻断主 CFI 保存。
-- **持久化读改写必须原子化**：同页队列解决调用顺序，跨页面 Web Lock 解决多标签页竞争；时间与速度提交增量，禁止用旧绝对总数覆盖权威数据。
-- **失败路径与成功路径拥有同等生命周期义务**：部分初始化要事务式回滚，批量清理要等待全部 settled，失败 Promise、Object URL、连接、监听和防抖状态都必须收口。
-- **边界输入先归一化再进入核心层**：旧存储、EPUB 元数据、CFI、颜色和 DOM 内容都可能损坏；兼容策略应保留仍有用户价值的数据，并及时清退已无读取者的历史字段与重复分支。
-- **真实浏览器回归以语义为准**：EPUB 的分页粒度、spine、selection 和 locations 密度各异；测试应验证位置恢复、可见内容和持久化结果，不假设固定翻页次数等于固定百分比。
+本文档包含项目系统架构、核心数据模型、模块接口契约与关键调度约束。
 
 ---
 
-## 2. 宏观架构
+## 1. 系统架构与交互流
 
+### 1.1 宏观架构图
+
+```mermaid
+flowchart TB
+    subgraph UI_LAYER["1. UI 入口层 (Extension Pages)"]
+        POPUP["Popup 快速入口<br/>(popup.html / popup.js)"]
+        HOME["Home 主书架与标注<br/>(home.html / home.js)"]
+        READER_SHELL["Reader 容器骨架<br/>(reader.html)"]
+    end
+
+    subgraph READER_CORE["2. 阅读器四层架构 (Reader Architecture)"]
+        ORCHESTRATOR["主装配控制器<br/>(reader.js)"]
+        
+        subgraph READER_MODULES["分层核心模块"]
+            UI["ReaderUi (DOM & Controls)<br/>• 视图渲染与面板互斥<br/>• 滑块实时排版双轨时序<br/>• 视口 Resize 锚点保护"]
+            RUNTIME["ReaderRuntime (Engine Lifecycle)<br/>• Book / Rendition 生命周期<br/>• 翻页 / 跳转 / 布局切换<br/>• Locations / 正文计数后台生成"]
+            PERSISTENCE["ReaderPersistence (Strategy)<br/>• 位置 / 时长 / 速度写策略<br/>• 翻页脱敏与延迟采样<br/>• flushSessionBundle 聚合刷盘"]
+            STATE["ReaderState (Single Source of Truth)<br/>• 集中状态管理 (无 DOM 依赖)<br/>• 跨模块共享纯函数"]
+        end
+    end
+
+    subgraph FEATURES["3. 功能子模块 (Feature Modules - Lifecycle Mounted)"]
+        TOC_M["TOC<br/>目录导航"]
+        BM_M["Bookmarks<br/>书签管理"]
+        HL_M["Highlights<br/>高亮与笔记"]
+        SEARCH_M["Search<br/>帧预算全文搜索"]
+        IMG_M["ImageViewer<br/>图片缩放查看器"]
+        ANNO_M["Annotations<br/>内联注释 / 脚注拦截"]
+    end
+
+    subgraph SANDBOX["4. 渲染沙箱 (Rendering Sandbox)"]
+        EPUB_LIB["epub.js (Book / Rendition)"]
+        IFRAME["EPUB Sandboxed iframe<br/>(隔离文档流 / Hooks 拦截注入)"]
+    end
+
+    subgraph FACADE["5. 存储门面与并发控制 (Storage & Concurrency Facade)"]
+        UTILS["Utils (utils.js)<br/>安全清洗 / 速度与 ETA 模型 / 格式化"]
+        STORAGE["EpubStorage (storage.js)<br/>• 统一持久化门面<br/>• Web Locks 跨标签页并发锁<br/>• 内存 Promise 读改写队列"]
+        DB_GATEWAY["DbGateway (db-gateway.js)<br/>IndexedDB v4 单例 / 游标浅扫描 / 故障自愈"]
+    end
+
+    subgraph PHYSICAL_STORAGE["6. 物理存储介质 (Physical Storage Media)"]
+        CSL[("chrome.storage.local (10MB 配额)<br/>• preferences (全局偏好)<br/>• recentBooks (书架列表)<br/>• fileTimestamps (访问时间戳)<br/>• bookMeta_&lt;id&gt; (位置/时长/速度)<br/>• highlights_&lt;id&gt; (高亮笔记)<br/>• bookmarks_&lt;id&gt; (书签)<br/>• deletedBook_&lt;id&gt; (删除墓碑)")]
+        IDB[("IndexedDB: EpubReaderDB (v4)<br/>• files (EPUB 二进制原文件)<br/>• covers (封面 Blob)<br/>• locations (CFI 位置索引 JSON)")]
+    end
+
+    %% 连接关系
+    POPUP -->|读写偏好 / 最近列表| STORAGE
+    HOME -->|书架流式渲染 / 标注管理 / 导入| STORAGE
+    READER_SHELL --> ORCHESTRATOR
+
+    ORCHESTRATOR --> UI
+    ORCHESTRATOR --> RUNTIME
+    ORCHESTRATOR --> PERSISTENCE
+    ORCHESTRATOR --> STATE
+    ORCHESTRATOR --> FEATURES
+
+    UI <-->|交互代理 / 状态更新| RUNTIME
+    PERSISTENCE -->|DOM 更新委托| UI
+    RUNTIME -->|状态流转| STATE
+    RUNTIME --> EPUB_LIB
+    EPUB_LIB --> IFRAME
+
+    FEATURES <-->|Hooks 注入 / 选区与点击拦截| IFRAME
+    FEATURES -->|数据读写| STORAGE
+    FEATURES -->|安全导航| STATE
+
+    PERSISTENCE -->|原子写入 / 聚合刷盘| STORAGE
+    RUNTIME -->|文件读取 / Locations 存取| STORAGE
+    UI -->|偏好保存| STORAGE
+
+    STORAGE --> UTILS
+    STORAGE -->|异步串行事务| CSL
+    STORAGE -->|大型数据存取| DB_GATEWAY
+    DB_GATEWAY -->|IDB 事务| IDB
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Chrome Extension Shell                 │
-│                                                         │
-│  ┌───────────┐   ┌─────────────────────────────────┐   │
-│  │  popup/   │   │          reader/                │   │
-│  │ popup.html│   │  ┌──────────────────────────┐   │   │
-│  │ popup.js  │   │  │   reader.js(Controller) │   │   │
-│  └─────┬─────┘   │  │  ┌──────┐ ┌──────────┐  │   │   │
-│        │         │  │  │ TOC  │ │Bookmarks │  │   │   │
-│  ┌─────▼─────┐   │  │  ├──────┤ ├──────────┤  │   │   │
-│  │  home/    │   │  │  │Search│ │Highlights│  │   │   │
-│  │ home.html │   │  │  ├──────┤ ├──────────┤  │   │   │
-│  │  home.js  │   │  │  ├──────┤ ├──────────┤  │   │   │
-│  └─────┬─────┘   │  │  │Image │ │Annotation│  │   │   │
-│        │         │  │  │Viewer│ │  Popup   │  │   │   │
-│        │         │  │  └──────┘ └──────────┘  │   │   │
-│        │         │  └──────────────────────────┘   │   │
-│        │         │         epub.js iframe           │   │
-│        │         └─────────────────────────────────┘   │
-│        │                                               │
-│  ┌─────▼─────────────────────────┐                    │
-│  │         utils/                │                    │
-│  │  db-gateway.js  storage.js   utils.js              │
-│  └─────────────────┬─────────────┘                    │
-│                    │                                   │
-│  ┌─────────────────▼─────────────┐                    │
-│  │    IndexedDB (DbGateway)      │                    │
-│  │  files | covers | locations   │                    │
-│  └───────────────────────────────┘                    │
-│  ┌───────────────────────────────┐                    │
-│  │   chrome.storage.local        │                    │
-│  │  preferences | recentBooks    │                    │
-│  │  bookMeta_* | highlights_*    │                    │
-│  │  bookmarks_*                  │                    │
-│  └───────────────────────────────┘                    │
-└─────────────────────────────────────────────────────────┘
-```
 
-**页面间通信**：所有页面（popup、home、reader）通过共享存储交换数据，不维护后台消息总线。
+### 1.2 页面间通信与数据流向契约
 
-**路由方式**：reader.html 通过 URL 参数 `?bookId=<id>` 接收书籍标识，通过 `?target=<cfi>` 接收跳转 CFI（标注定位）。
-
-**书架渲染约束**：home 页书籍卡片可流式渲染，但必须按 `recentBooks` 原始索引替换对应骨架，不能按封面/元数据异步完成顺序 append；每轮书架刷新必须携带代次令牌，旧刷新返回后不得修改新一轮 DOM。
-
-**首页异步错误隔离约束**：home 页主题和书架视图切换应先更新 UI；偏好读取/保存、书架刷新、标注刷新、删除和导出失败只能记录告警，不得阻断后续交互绑定或留下未处理 Promise 拒绝；书架与标注刷新必须忽略过期代次，避免旧请求覆盖最新筛选、排序或删除结果。v2.5.4 起，书架单本卡片的封面与 `bookMeta` 读取失败必须局部降级为无封面/无进度，不得让整轮流式渲染 Promise 失败或留下骨架。v2.5.8 起，单本删除与清空书架无论成功失败都必须等待相关任务收口并重新读取权威 `recentBooks`，不得依赖手工 `card.remove()` 维护第二份 UI 状态。
-
-**首页 DOM / 样式安全约束（v2.5.3）**：EPUB 元数据（书名、文件名、作者）不得拼进 `innerHTML` 模板或带引号的 HTML 属性；书架卡片可保留静态结构模板，但用户/书籍文本必须通过 `textContent` 写入，`title` 等属性必须通过 DOM 属性或 `setAttribute` 赋值。标注颜色进入 inline style 前必须经 `Utils.sanitizeColor()` 与默认色回退归一化，不得通过给任意 hex 字符串追加 alpha 后缀构造颜色。
+| 交互路径 | 通信方式 | 并发控制机制 | 异常降级策略 |
+|---|---|---|---|
+| **页面跳转路由** | URL 查询参数（`?bookId=<id>`、`?target=<cfi>`） | 无状态跳转 | 参数缺失或非法回退欢迎屏 |
+| **偏好设置同步** | `chrome.storage.local` + `storage.onChanged` | `_enqueueKeyWrite` 内存队列 + Web Lock 独占锁 | 读取失败使用内置默认配置 |
+| **最近书籍管理** | `EpubStorage.addRecentBook` / `removeRecentBook` | 针对 `recentBooks` Key 的排他 Web Lock | 单本损坏自动过滤并修复数组 |
+| **阅读进度与统计** | `flushSessionBundle` 聚合单事务原子写入 | 针对 `book:<bookId>` 的独占写锁 | 增量暂存，下次重试累加 |
+| **文件导入与存储** | File Blob 切片哈希 → IDB `files` 存储 | 针对 `book:<bookId>` 独占锁 + LRU 隔离执行 | 导入失败事务回滚并清理半写入状态 |
+| **删除广播与墓碑** | `deletedBook_<id>` 墓碑写入 + `subscribeBookDeletion` | 独占锁删除 7 项资源，全部 settled 释放守卫 | 标记保留至重新导入，屏蔽旧 Reader 迟到写 |
 
 ---
 
-## 3. 目录结构
+## 2. 核心数据模型 (TypeScript 类型定义)
 
-```
-epub_reader/
-├── src/
-│   ├── manifest.json              # MV3 扩展声明
-│   ├── reader/                    # 阅读器页面（主体）
-│   │   ├── reader.html            # 阅读器 UI 骨架
-│   │   ├── reader.css             # 阅读器样式
-│   │   ├── reader.js              # 主控制器（Orchestrator, <120 行）
-│   │   ├── reader-runtime.js      # 生命周期与事件转发
-│   │   ├── reader-state.js        # 集中状态管理
-│   │   ├── reader-persistence.js  # 持久化策略
-│   │   ├── reader-ui.js           # DOM 渲染与交互
-│   │   ├── annotations.js         # EPUB 内联注释弹窗处理
-│   │   ├── bookmarks.js           # 书签管理模块
-│   │   ├── highlights.js          # 高亮与笔记模块
-│   │   ├── image-viewer.js        # 图片放大查看器
-│   │   ├── search.js              # 全文搜索模块
-│   │   └── toc.js                 # 目录侧边栏模块
-│   ├── home/
-│   │   ├── home.html              # 书架主页
-│   │   ├── home.js                # 书架与标注管理
-│   │   └── home.css               # 书架样式
-│   ├── popup/
-│   │   ├── popup.html             # 扩展弹窗（快速入口）
-│   │   └── popup.js               # 弹窗逻辑
-│   ├── utils/
-│   │   ├── db-gateway.js          # IndexedDB 单例封装
-│   │   ├── storage.js             # 统一存储抽象层（唯一入口）
-│   │   └── utils.js               # 共享工具函数
-│   ├── styles/
-│   │   └── themes.css             # 全局主题变量（light/dark/sepia/green/custom）
-│   ├── lib/
-│   │   ├── epub.min.js            # epub.js 渲染引擎
-│   │   └── jszip.min.js           # ZIP 解压库
-│   └── icons/
-│       ├── icon16.png
-│       ├── icon48.png
-│       └── icon128.png
-├── docs/                          # 开发文档
-│   ├── architecture.md
-│   └── ROADMAP.md
-├── CHANGELOG.md
-└── README.md
-```
-
----
-
-## 4. 数据流与存储架构
-
-### 4.1 书籍 ID 生成
-使用 `SHA-256(filename + content[:64KB])` 生成 ID。截取前 64KB 平衡去重准确度与哈希耗时（~100ms）。
-
-### 4.2 完整数据生命周期
-1. **导入**：`generateBookId` → `storeFile` (IDB) → `enforceFileLRU`；Home 首页本地导入在后台异步执行 `storeFile()` 并立即跳转 Reader，Reader 具备短重试；Reader 页本地导入等待 `storeFile()` 落盘后再 `openBook()`。
-2. **阅读**：`onRelocated` → `schedulePositionSave`（每次有意义的位置变化立即写入，并开启 300ms 最新事件保护窗）→ `bookMeta_<id>`。
-3. **索引**：无缓存时先进入正文，再由 `scheduleLocationsGeneration` 在后台生成并写入 IndexedDB `locations(bookId)`。
-4. **统计**：计时器累计本页尚未提交的阅读秒数，定期或在 `visibilitychange` / 切书 / 关闭时由 `flushReadingTime` 原子累加；`flushSpeedSession` 记录速度采样。
-5. **清理**：用户主动删除时，`removeBook` 等待同书 `bookMeta` 与其他资源写入收尾，并行删除 7 项关联数据；自动 LRU 只删除 IndexedDB `files` 中超限的 EPUB 文件缓存，保留 recentBooks、bookMeta、highlights、bookmarks、covers 和 locations，避免误删阅读进度、书签与标注。
-
-### 4.3 存储结构
-
-```
-chrome.storage.local
-├── preferences              全局偏好设置
-├── recentBooks              书架列表（最多 20 本，读改写串行合并）
-├── fileTimestamps           文件访问时间戳 Map（bookId -> timestamp，用于零写放大 LRU）
-├── bookMeta_<bookId>        位置 + 时间 + 速度（高频写，< 200 bytes）
-│     ├── pos: { cfi, percentage, timestamp, locator? }
-│     ├── time: number               累计阅读秒数
-│     └── speed: { sampledSeconds, sampledProgress,
-│                  contentUnitCount, contentUnitVersion }
-├── highlights_<bookId>      高亮与笔记数组（中频写）
-└── bookmarks_<bookId>       书签数组（低频写）
-
-IndexedDB (DB v4)
-├── files(bookId)            EPUB 原文件二进制    index: by_filename(non-unique)
-├── covers(bookId)           封面 Blob
-└── locations(bookId)        epub.js CFI 位置索引 JSON
-```
-
----
-
-## 5. 扩展机制与契约
-
-- **MV3 页面生命周期**：扩展无后台职责，不注册空 service worker；所有状态由页面通过存储层持久化。
-- **Hooks 拦截机制**：通过 `rendition.hooks.content.register` 注入 iframe，拦截点击事件或注入层。
-- **重分布绑定契约**：每次 `setLayout` 后，必须重新调用所有子模块的 `setBook/hookRendition`。
-- **幂等绑定契约**：子模块不得假设 hook 一定早于 `display()`；不得假设同一 rendition 只会被 hook 一次。模块需用 rendition/document 级 guard 防止重复监听，并在 display 后挂载时补绑定当前 iframe。
-
----
-
-## 6. Popup 约束（BUG-B 教训）
-
-`display:none` 元素无法被程序 `.click()`，DevTools 打开时限制放宽。Chrome Extension popup 中：
-
-| 约束 | 原因 |
-|------|------|
-| `popup.html` 必须使用内联 `<style>` | 外部 CSS 异步加载时序不可控 |
-| `#file-input` 必须用物理隐藏（`width:0; height:0; opacity:0`） | Chrome 禁止对 `display:none` 元素 `.click()` |
-| `popup.html` 不得包含 `<link rel="preconnect">` | manifest CSP 未配置 `connect-src` |
-| 不使用 `showOpenFilePicker` | 需要 transient user activation |
-| `emptyState` 显隐保留 `style.display` 直写（popup 特例） | popup 小入口保留既有可靠路径；reader/home 仍优先 classList |
-
-**Popup 异步错误隔离约束**：打开文件、进入书架和 file input 事件必须先绑定，再异步加载最近阅读列表；最近阅读加载和移除书籍失败只能记录告警，不得阻断核心按钮或留下未处理 Promise 拒绝。移除书籍后无论成功失败都重新读取 `recentBooks` 并完整重建列表；空列表时重新挂载 empty state，避免部分级联失败后显示已失效卡片。
-
----
-
-## 7. 模块接口参考
-
-以下列出每个模块的完整公开接口、参数类型、返回值和调用约束。
-
----
-
-### EpubStorage（utils/storage.js）
-
-所有持久化操作的唯一入口。禁止在本文件以外直接调用 `chrome.storage.local` 或 `indexedDB`。
-
-**v2.4.0 存储键常量**：所有 key 字符串统一声明在模块顶部的 `KEYS` 常量对象中，避免散落的硬编码字符串。per-book key 使用函数生成（`KEYS.bookMeta(id)`）。
-
-### 偏好设置
+### 2.1 偏好与基础元数据
 
 ```typescript
-savePreferences(prefs: Partial<Preferences>): Promise<void>
-getPreferences(): Promise<Preferences>
-// Preferences: { theme, fontSize, fontFamily, lineHeight,
-//               paragraphIndent, spread, layout,
-//               customBg, customText, homeView }
-// savePreferences 必须通过内部队列串行执行 read-modify-write 增量合并
-// 多入口并发保存时不得互相覆盖不同字段
+/** 阅读器全局偏好设置 */
+interface Preferences {
+  theme: 'light' | 'dark' | 'sepia' | 'green' | 'custom';
+  fontSize: number;          // 取值范围 12 - 32，默认 18
+  fontFamily: string;        // 字体族白名单，空字符串代表默认宋体/明体
+  lineHeight: number;        // 取值范围 1.2 - 3.0，默认 1.8
+  paragraphIndent: boolean;  // 首行缩进，默认 true
+  spread: 'auto' | 'none';   // 分栏策略，默认 'auto'
+  layout: 'paginated' | 'scrolled'; // 布局模式，默认 'paginated'
+  customBg: string;          // 6 位 HEX 颜色值，默认 '#ffffff'
+  customText: string;        // 6 位 HEX 颜色值，默认 '#333333'
+  homeView: 'grid' | 'list'; // 书架视图形态，默认 'grid'
+}
+
+/** 书架列表条目 */
+interface RecentBook {
+  id: string;                // 'book_<32位十六进制哈希>'
+  title: string;             // 书籍名称
+  author: string;            // 作者名称
+  filename: string;          // 导入时的原始文件名
+  lastOpened?: number;       // 最近打开时间戳 (Unix ms)
+}
 ```
 
-### 最近书籍
+### 2.2 阅读进度与锚点模型
 
 ```typescript
-addRecentBook(book: RecentBook): Promise<void>
-// RecentBook: { id, title, author, filename, lastOpened? }
-// lastOpened 由 addRecentBook 自动设置为 Date.now()
-// 列表上限 20 本，超出时删除最旧
-// addRecentBook/removeRecentBook 必须通过内部队列串行执行 read-modify-write
-// 并发导入、删除或入口刷新不得互相覆盖 recentBooks 列表
+/** 分页恢复定位快照 (复合锚点辅助 locator) */
+interface PositionLocator {
+  strategy: 'epubjs-displayed-page-v1';
+  layout: 'paginated' | 'scrolled';
+  sourceCfi: string;         // 本次采样的基准起始 CFI
+  href: string;              // 所在章节文件相对路径
+  index: number | null;      // Spine 章节索引
+  page: number | null;       // 当前章节内的第几页 (1-based)
+  total: number | null;      // 当前章节内的总页数
+  restoreCfi?: string;       // 经可视区域螺旋采样计算得出的精准重放 CFI
+  prefsSignature: {
+    layout: string;
+    fontSize: number;
+    lineHeight: number;
+    fontFamily: string;
+    paragraphIndent: boolean;
+    spread: string;
+  };
+}
 
-getRecentBooks(): Promise<RecentBook[]>
-
-removeRecentBook(bookId: string): Promise<void>
+/** 书籍位置数据 */
+interface BookPosition {
+  cfi: string;               // 权威主锚点 (location.start.cfi)
+  percentage: number | null; // 0.0 - 100.0 百分比
+  timestamp: number;         // 更新时间戳 (Unix ms)
+  locator?: PositionLocator; // 可选的辅助恢复锚点 locator
+}
 ```
 
-### 书籍元数据（v1.7.0）
+### 2.3 阅读速度与聚合元数据
 
 ```typescript
-getBookMeta(bookId: string): Promise<BookMeta | null>
-// BookMeta: {
-//   pos:   { cfi: string, percentage: number, timestamp: number, locator?: PositionLocator } | null,
-//   time:  number,   // 累计阅读秒数
-//   speed: { 
-//     sampledSeconds: number, 
-//     sampledProgress: number,
-//     contentUnitCount: number | null,                        // v2.5.28
-//     contentUnitVersion: number                              // v2.5.28
-//   }
-// }
-// v2.2 的 sessions/sessionCount 已停用；读取旧数据时归一化丢弃，不再继续持久化
-// 首次调用自动迁移 v1.6.0 的 pos_/time_ 旧 key
-// lazy migration 必须进入同书 bookMeta 队列，不能绕过队列直接 _set
+/** 阅读速度采样与正文统计模型 */
+interface ReadingSpeed {
+  sampledSeconds: number;       // 有效连续阅读采样累计秒数
+  sampledProgress: number;      // 有效连续阅读采样累计进度 (0.0 - 1.0)
+  contentUnitCount: number | null; // 全书混合语言正文统计总量 (字/词数)
+  contentUnitVersion: number;   // 统计算法版本号 (当前为 1)
+}
 
-getBookMetaBatch(bookIds: string[]): Promise<Record<string, BookMeta | null>>
-// v2.5.38：单次 chrome.storage.local.get 批量拉取多本书籍的 bookMeta，消除书架 N+1 跨进程 IPC 往返
+/** 书籍聚合元数据 (高频读写，单个 Key < 200 bytes) */
+interface BookMeta {
+  pos: BookPosition | null;     // 阅读位置
+  time: number;                 // 累计阅读总秒数
+  speed: ReadingSpeed;          // 阅读速度与正文元数据
+}
 
-saveBookMeta(bookId: string, meta: BookMeta): Promise<void>
-// 整体覆写，批量更新时使用
-// 整体覆写也必须进入同书 bookMeta 队列，遵循与 patch 相同的调用顺序
-
-savePosition(bookId: string, cfi: string, percentage?: number, locator?: PositionLocator): Promise<void>
-// Patch pos 字段，保留其他字段不变
-// 同书 bookMeta patch 必须通过内部队列串行执行，避免 pos/time/speed 互相覆盖
-// 首次 patch 创建 bookMeta 时应吸收旧版 pos_/time_ 字段，再应用当前 patch
-
-getPosition(bookId: string): Promise<Position | null>
-// Position: { cfi, percentage, timestamp, locator? }
-
-removePosition(bookId: string): Promise<void>
-// 清除 pos 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
-
-saveReadingTime(bookId: string, seconds: number): Promise<void>
-addReadingTime(bookId: string, seconds: number): Promise<number | undefined>
-// Reader 只提交本页新增秒数；在同书 bookMeta 锁内累加并返回权威总时长，避免多标签页覆盖
-getReadingTime(bookId: string): Promise<number>
-removeReadingTime(bookId: string): Promise<void>
-// 清除 time 字段，必须进入同书队列；无现存 bookMeta 时不得新建空 meta
-
-saveReadingSpeed(bookId: string, speedPatch: Partial<Speed>): Promise<void>
-// Speed: { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
-// 字段级 patch；未提供字段保留当前值，显式 0 必须正常写入
-
-addReadingSpeedSample(bookId: string, sampledSeconds: number, sampledProgress: number): Promise<Speed | undefined>
-// 在同书 bookMeta 锁内累加速度增量并返回权威 speed；多个 Reader 不得用各自旧总数互相覆盖
-getReadingSpeed(bookId: string): Promise<Speed>
-
-flushSessionBundle(bookId: string, bundle: { pos?: Position, readingSeconds?: number, speedSample?: Partial<Speed>, speedPatch?: Partial<Speed> }): Promise<BookMeta | undefined>
-// v2.5.45：聚合生命周期刷盘事务，单次独占 Web Lock 事务内原子合并写入位置、时长与速度样本
-
-removeBookMeta(bookId: string): Promise<void>
-// 同时删除 bookMeta_/pos_/time_ 三个 key（v1.6.0 兼容清理）
-// 删除前会等待同 bookId 的排队写入结束，删除期间跳过新的 bookMeta patch
-// 内部队列 Promise 必须吞掉已返回给调用方的写入失败，避免 finally 派生未处理拒绝
+/** 退出/切书/休眠时提交的聚合事务包 */
+interface SessionBundle {
+  pos?: BookPosition;
+  readingSeconds?: number;
+  speedSample?: {
+    sampledSeconds: number;
+    sampledProgress: number;
+  };
+  speedPatch?: Partial<ReadingSpeed>;
+}
 ```
 
-### 高亮
+### 2.4 标注、书签与文件实体
 
 ```typescript
-getHighlights(bookId: string): Promise<Highlight[]>
-// Highlight: { cfi, text, color, note, timestamp }
+/** 划线高亮与用户笔记 */
+interface HighlightItem {
+  cfi: string;               // epub.js Range CFI 表达式
+  text: string;              // 选中的原始文本片段
+  color: string;             // HEX 颜色值或 'transparent' (纯笔记)
+  note: string;              // 用户输入的笔记文本
+  timestamp: number;         // 创建时间戳 (Unix ms)
+}
 
-saveHighlights(bookId: string, highlights: Highlight[]): Promise<void>
-// 全量覆写，调用方负责维护数组
+/** 章节书签条目 */
+interface BookmarkItem {
+  cfi: string;               // 书签所在位置的 CFI
+  chapter: string;           // 章节标题显示文本
+  progress: number;          // 0.0 - 100.0 百分比
+  timestamp: number;         // 创建时间戳 (Unix ms)
+}
 
-updateHighlights(bookId: string, mutator: (items: Highlight[]) => Highlight[] | false): Promise<Highlight[] | undefined>
-// 在 highlights 资源锁内完成读改写；返回 false 取消写入
-// v2.5.43：_updateBookRecordList 采用 stored.slice() 浅复制数组，mutator 修改项单项替换，未修改项复用原引用，实现 O(1) Copy-on-Write，消除深层对象克隆开销
-
-removeHighlights(bookId: string): Promise<void>
-
-getAllHighlights(): Promise<Record<string, Highlight[]>>
-// 遍历 recentBooks 并行读取，返回 { bookId: highlights[] }
-// 顺带清理遗留的 v1.6.0 highlightKeys key
-```
-
-### 书签
-
-```typescript
-getBookmarks(bookId: string): Promise<Bookmark[]>
-// Bookmark: { cfi, chapter, progress, timestamp }
-// progress: 0-100 百分比
-
-saveBookmarks(bookId: string, bookmarks: Bookmark[]): Promise<void>
-updateBookmarks(bookId: string, mutator: (items: Bookmark[]) => Bookmark[] | false): Promise<Bookmark[] | undefined>
-// 在 bookmarks 资源锁内完成读改写；返回 false 取消写入
-removeBookmarks(bookId: string): Promise<void>
-```
-
-### 封面（IndexedDB）
-
-```typescript
-saveCover(bookId: string, blob: Blob): Promise<void>
-getCover(bookId: string): Promise<Blob | null>
-removeCover(bookId: string): Promise<void>
-```
-
-### Locations（IndexedDB）
-
-```typescript
-saveLocations(bookId: string, locationsJSON: string): Promise<void>
-getLocations(bookId: string): Promise<string | null>
-removeLocations(bookId: string): Promise<void>
-```
-
-**v2.2.1 运行约束**：
-- Reader 首开无 locations 缓存时，正文渲染不可再等待 `saveLocations/getLocations` 完成。
-- `locations` 只影响精确进度、ETA 与百分比跳转，不得阻塞基础阅读流程。
-
-### 文件（IndexedDB）
-
-```typescript
-importBookFile(file: File): Promise<{ bookId: string, filename: string, arrayBuffer: ArrayBuffer }>
-// v2.5.42 引入 / v2.5.44 增强：一站式完成 File 对象的 ArrayBuffer 读取、哈希生成与 storeFile 入库，返回 bookId 与可供直接渲染的 arrayBuffer
-
-storeFile(filename: string, data: Uint8Array, bookId: string): Promise<void>
-// 写入后自动调用 enforceFileLRU(10)
-
-getFile(bookId: string): Promise<FileRecord | null>
-// FileRecord: { bookId, filename, data, timestamp }
-// v2.5.37：读路径为纯读取（零 IDB 写入），访问时间戳异步更新至 chrome.storage.local 的 fileTimestamps Map，彻底消除大二进制对象的写放大
-// 成功读取后刷新 timestamp，使 LRU 按最后访问时间而非导入时间淘汰
-
-removeFile(bookId: string): Promise<void>
-
-enforceFileLRU(maxCount?: number = 10): Promise<void>
-// 串行淘汰最旧的超出 maxCount 的文件（逐项 try/catch）
-// v2.4.7：自动 LRU 仅删除 EPUB 文件缓存，保留 recentBooks、bookMeta、covers、highlights、locations、bookmarks
-// v2.4.0：改为串行执行并逐项隔离失败
-```
-
-### 级联删除
-
-```typescript
-removeBook(bookId: string): Promise<void>
-// 仅用于用户主动删除/显式移除；并行执行 7 项删除：
-// removeRecentBook + removeBookMeta + removeCover +
-// removeHighlights + removeLocations + removeBookmarks + removeFile
-// v2.4.7：删除期间阻止同上下文 bookMeta 队列回写孤立记录
-// v2.5.7：单项失败也等待其余清理全部 settled 后再释放守卫并传播失败；同书并发调用复用同一删除任务
-// v2.5.17：删除先等待已开始的 highlights/bookmarks/cover/locations/file 写入；守卫期间拒绝新的同书资源写入与 recentBooks 回加
-// v2.5.25：Web Locks 跨扩展页面协调读写；持久删除标记阻止仍打开的 Reader 迟到回写
-
-getAllBookIds(): Promise<string[]>
-// 合并 recentBooks、所有书籍级 chrome.storage key 及 files/covers/locations 三个 IDB store 的 bookId
-
-removeAllBooks(): Promise<void>
-// 清理 getAllBookIds() 找到的全部数据；不依赖 recentBooks，避免遗留孤立书籍数据
-
-subscribeBookDeletion(callback: (bookId: string) => void): () => void
-// 监听其他扩展页面写入的删除标记；返回取消订阅函数
-```
-
-所有书籍资源写入先持有同书共享 Web Lock，再按 `book-meta/highlights/bookmarks/cover/locations/file` 持有资源级独占锁；主动删除与重新导入持有书级独占锁。`preferences`、`recentBooks` 的读改写另按 storage key 持有独占锁。删除先写入 `deletedBook_<bookId>` 标记，再级联清理；该标记保留到相同文件重新导入成功，防止另一个仍打开的 Reader 在删除完成后重建位置、时长或标注。带删除标记但因清理失败仍残留的 EPUB 文件对 `getFile()` 不可见。
-
-### 工具
-
-```typescript
-generateBookId(filename: string, arrayBuffer: ArrayBuffer): Promise<string>
-// SHA-256(encode(filename) + arrayBuffer[:64KB])
-// 返回 'book_<32位十六进制>'
+/** IndexedDB 中的 EPUB 原始文件记录 */
+interface FileRecord {
+  bookId: string;            // 主键
+  filename: string;          // 原始文件名
+  data: Uint8Array | ArrayBuffer | Blob; // 二进制文件数据
+  timestamp: number;         // 导入时间戳 (Unix ms)
+}
 ```
 
 ---
 
-## DbGateway（utils/db-gateway.js）
+## 3. 存储与工具层接口规范
 
-IndexedDB 单例封装。通常不直接调用，通过 EpubStorage 间接使用。
+### 3.1 EpubStorage (`src/utils/storage.js`)
+
+所有持久化操作的统一门面单例。
 
 ```typescript
-DbGateway.connect(): Promise<IDBDatabase>
-// 返回单例 DB 连接；连续失败 3 次后抛出错误拒绝重试
-// 当前连接收到 versionchange 时主动 close 并使缓存失效；浏览器 close 后同样失效，下一次访问自动重连
-// 成功连接推进重试 epoch；失败 cooldown 只能递减所属 epoch，旧 timer 不得影响成功后的新失败周期
-// indexedDB.open 同步抛错也计入冷却，但不得缓存 rejected Promise；后续调用仍可重连
-// 连接失效必须按当前 Promise 身份校验，旧连接迟到事件不得清除已建立的新连接缓存
+interface IEpubStorage {
+  // ── 偏好设置 ──
+  savePreferences(prefs: Partial<Preferences>): Promise<void>;
+  getPreferences(): Promise<Preferences>;
 
-DbGateway.get(storeName: string, key: any): Promise<any | null>
-DbGateway.put(storeName: string, data: object): Promise<void>
-// 等待 tx.oncomplete 确保落盘
+  // ── 最近书籍 ──
+  addRecentBook(book: RecentBook): Promise<void>;
+  getRecentBooks(): Promise<RecentBook[]>;
+  removeRecentBook(bookId: string): Promise<void>;
 
-DbGateway.delete(storeName: string, key: any): Promise<void>
-DbGateway.getAll(storeName: string): Promise<any[]>
+  // ── 书籍元数据 (BookMeta) ──
+  getBookMeta(bookId: string): Promise<BookMeta | null>;
+  getBookMetaBatch(bookIds: string[]): Promise<Record<string, BookMeta | null>>;
+  saveBookMeta(bookId: string, meta: BookMeta): Promise<void>;
+  savePosition(bookId: string, cfi: string, percentage?: number | null, locator?: PositionLocator): Promise<void>;
+  getPosition(bookId: string): Promise<BookPosition | null>;
+  removePosition(bookId: string): Promise<void>;
+  getReadingTime(bookId: string): Promise<number>;
+  saveReadingTime(bookId: string, seconds: number): Promise<void>;
+  addReadingTime(bookId: string, seconds: number): Promise<number | undefined>;
+  removeReadingTime(bookId: string): Promise<void>;
+  saveReadingSpeed(bookId: string, speedPatch: Partial<ReadingSpeed>): Promise<void>;
+  addReadingSpeedSample(bookId: string, sampledSeconds: number, sampledProgress: number): Promise<ReadingSpeed | undefined>;
+  getReadingSpeed(bookId: string): Promise<ReadingSpeed>;
+  flushSessionBundle(bookId: string, bundle?: SessionBundle): Promise<BookMeta | undefined>;
+  removeBookMeta(bookId: string): Promise<void>;
 
-DbGateway.getAllMeta(storeName: string, fields: string[]): Promise<object[]>
-// 游标扫描，只提取指定字段（不加载 binary data）
-// 用于 LRU 按 timestamp 排序，避免将 EPUB 全量加载入内存
+  // ── 标注与书签 ──
+  getHighlights(bookId: string): Promise<HighlightItem[]>;
+  saveHighlights(bookId: string, highlights: HighlightItem[]): Promise<void>;
+  updateHighlights(bookId: string, mutator: (items: HighlightItem[]) => HighlightItem[] | false | Promise<HighlightItem[] | false>): Promise<HighlightItem[] | undefined>;
+  removeHighlights(bookId: string): Promise<void>;
+  getAllHighlights(): Promise<Record<string, HighlightItem[]>>;
+  getBookmarks(bookId: string): Promise<BookmarkItem[]>;
+  saveBookmarks(bookId: string, bookmarks: BookmarkItem[]): Promise<void>;
+  updateBookmarks(bookId: string, mutator: (items: BookmarkItem[]) => BookmarkItem[] | false | Promise<BookmarkItem[] | false>): Promise<BookmarkItem[] | undefined>;
+  removeBookmarks(bookId: string): Promise<void>;
 
-// by_filename 索引查询（备用路径，主路径用 bookId）
+  // ── 封面与 Locations (IndexedDB) ──
+  saveCover(bookId: string, blob: Blob): Promise<void>;
+  getCover(bookId: string): Promise<Blob | null>;
+  removeCover(bookId: string): Promise<void>;
+  saveLocations(bookId: string, locationsJSON: string): Promise<void>;
+  getLocations(bookId: string): Promise<string | null>;
+  removeLocations(bookId: string): Promise<void>;
+
+  // ── 文件管理 (IndexedDB) ──
+  importBookFile(file: File): Promise<{ bookId: string; filename: string; fileData: File | ArrayBuffer }>;
+  storeFile(filename: string, data: Uint8Array | ArrayBuffer | Blob, bookId: string): Promise<void>;
+  getFile(bookId: string): Promise<FileRecord | null>;
+  removeFile(bookId: string): Promise<void>;
+  enforceFileLRU(maxCount?: number): Promise<void>;
+
+  // ── 级联清理与监听 ──
+  removeBook(bookId: string): Promise<void>;
+  getAllBookIds(): Promise<string[]>;
+  removeAllBooks(): Promise<void>;
+  subscribeBookDeletion(callback: (bookId: string) => void): () => void;
+  generateBookId(filename: string, data: ArrayBuffer | Blob | Uint8Array): Promise<string>;
+}
 ```
 
-`EpubStorage` 通过实例字段 `_dbGateway` 访问上述接口；生产环境默认绑定 `DbGateway`，测试注入内存实现，禁止通过覆写公开存储方法绕过生产逻辑。
+### 3.2 DbGateway (`src/utils/db-gateway.js`)
 
-偏好和最近书籍的 read-modify-write 统一通过 `_enqueueKeyWrite()` 串行执行。公开读取接口在存储边界同时校验容器与条目：recentBooks/highlights/bookmarks 过滤缺少字符串主键的损坏记录；`bookMeta.pos`、时长与速度数值归一化到有效范围，不把错误类型或负值传播到页面和 Reader 模块。
+IndexedDB 单例操作封装。
 
----
+```typescript
+interface IDbGateway {
+  connect(): Promise<IDBDatabase>;
+  get(storeName: string, key: any): Promise<any | null>;
+  put(storeName: string, data: object): Promise<void>;
+  delete(storeName: string, key: any): Promise<void>;
+  getAll(storeName: string): Promise<any[]>;
+  getAllMeta(storeName: string, fields?: string[]): Promise<object[]>;
+}
+```
 
-## Utils（utils/utils.js）
+### 3.3 Utils (`src/utils/utils.js`)
 
-IIFE 单例，显式暴露为 `window.Utils`。以纯函数为主，`escapeHtml` 依赖浏览器 DOM API (`document.createElement`) 完成安全转义；`DbGateway` 与 `EpubStorage` 同样使用 IIFE 明确导出，避免顶级词法变量污染脚本加载环境。
+通用辅助函数与业务计算模型。
 
 ```typescript
 Utils.escapeHtml(text: any): string
-// 将任意值转为元素正文上下文可用的安全 HTML 字符串
-// 内部用 DOM textContent，无正则漏洞；不要用于带引号的 HTML 属性拼接
-
-Utils.formatDate(timestamp: number, fallback?: string = '未知时间'): string
-// 相对时间（刚刚 / N分钟前 / N小时前 / N天前 / 本地日期）
-
+Utils.formatDate(timestamp: number, fallback?: string): string
 Utils.formatDateTime(timestamp: number, fallback?: string): string
-// 绝对日期 + 分钟时间，用于书签等需要稳定时间点的场景
-
 Utils.formatDuration(seconds: number): string
-// 0秒 / N秒 / N分钟 / N小时N分
-
 Utils.formatMinutes(minutes: number): string
-// 0分钟 / N分钟 / N小时N分钟
-// 用于 ETA 显示
-
 Utils.safeWrite(writer: Function, warningLabel: string): Promise<any>
-// 统一收口持久化调用的同步异常与异步拒绝；失败记录上下文标签并返回 resolved Promise
-
-Utils.sanitizeColor(color: string): string
-// 高亮颜色白名单校验（CSS 有效 hex 长度 3/4/6/8 位或 transparent）
-// 通过返回原值；空值/transparent 返回 transparent；不通过返回默认高亮色 #ffeb3b
-
+Utils.sanitizeColor(colorStr: string): string
 Utils.resolveDisplayColor(color: string): string
-// 生成必须可见的高亮颜色；transparent、空值或非法值回退 #ffeb3b
-
 Utils.normalizePercent(value: any): number
-// 将 storage / 外部输入中的进度归一化为 0-100 有限数字
-// 进入 UI 文本、CSS 自定义属性或进度条前必须使用
+Utils.countReadingUnits(text: any): number
+Utils.computeSessionWeight(deltaProgress: number, deltaSeconds: number): number
+Utils.estimateReadingSpeed(cachedSpeed: ReadingSpeed | null, contentStatus?: string): {
+  unitsPerMinute: number | null;
+  isEstimating: boolean;
+  source: 'history' | 'insufficient' | 'unavailable';
+}
+Utils.estimateRemainingMinutes(params: {
+  remainingProgress: number;
+  cachedSpeed?: ReadingSpeed | null;
+  session?: { startProgress: number; lastProgress: number; deltaSeconds: number } | null;
+}): {
+  minutes: number | null;
+  isEstimating: boolean;
+  source: 'history' | 'session' | 'insufficient' | 'done';
+}
+Utils.releaseElementCoverUrl(element: HTMLElement | null, attrName?: string): void
 ```
 
 ---
 
-## ReaderState（reader/reader-state.js）
+## 4. 阅读器分层体系规范
 
-IIFE 模块，暴露为 `window.ReaderState`。声明状态结构与跨 Reader 共享纯函数，禁止引入任何 DOM 操作。
-
-### 状态字段
+### 4.1 ReaderState (`src/reader/reader-state.js`)
 
 ```typescript
-state.locationsStatus: 'idle' | 'pending' | 'generating' | 'ready' | 'failed'
-state.lastPositionSave: Promise<void> | null
-state.currentStableCfi: string | null
-state.currentStableLocator: object | null
-state.isRestoringPosition: boolean
-state.isRestoreAnchorProtected: boolean
-state.isLayoutStable: boolean
-state.isResizing: boolean
+interface IReaderState {
+  createReaderState(): ReaderStateObject;
+  resetReadingSession(state: ReaderStateObject): void;
+  isTocHrefMatch(currentHref: string, itemHref: string): boolean;
+  getTocItemLabel(item: object | null): string;
+  hasLocations(locations: object | null): boolean;
+  getLocationProgress(locations: object | null, cfi: string): number | null;
+  getCfiFromPercentage(locations: object | null, percentage: number): string | null;
+  findTocItem(items: object[], href: string): object | null;
+  buildPrefsSignature(prefs: object): object;
+  safeNavigate(navigateFn: Function | null, rendition: object | null, target: string, logTag?: string): Promise<any>;
+}
 ```
 
-### 导出工具函数（v2.4.0）
+### 4.2 ReaderRuntime (`src/reader/reader-runtime.js`)
 
 ```typescript
-// 共享工具函数 — 供 reader 模块与功能模块共同使用
-isTocHrefMatch(currentHref: string, itemHref: string): boolean
-// 忽略 fragment 后按路径边界比较两个 TOC href
-
-getTocItemLabel(item: object | null): string
-// 安全归一化缺失、非字符串或带多余空白的目录标题
-
-hasLocations(locations: object): boolean
-getLocationProgress(locations: object, cfi: string): number | null
-getCfiFromPercentage(locations: object, percentage: number): string | null
-// 收口 epub.js locations 的同步异常、空值与越界结果；失败时只降级索引能力
-
-findTocItem(navigation: object[], href: string): object | null
-// 在 TOC navigation 中按路径边界精确匹配当前 href，忽略 fragment，支持 3 级嵌套
-
-buildPrefsSignature(prefs: object): object
-// 生成偏好设置签名快照，用于 locator 布局变化检测
+interface IReaderRuntime {
+  mount(): Promise<void>;
+  unmount(): void;
+  openBook(fileData: ArrayBuffer | Uint8Array | Blob, bookId: string, fileName: string, targetCfi?: string | null): Promise<void>;
+  loadFileByBookId(bookId: string, options?: { targetCfi?: string | null }): Promise<void>;
+  discardDeletedBook(bookId: string): boolean;
+  scheduleLocationsGeneration(task: Function): void;
+  navigateTo(target: string): Promise<boolean>;
+  next(): Promise<boolean>;
+  prev(): Promise<boolean>;
+  displayPercentage(percentage: number): Promise<boolean>;
+  setLayout(layout: 'paginated' | 'scrolled'): Promise<boolean>;
+}
 ```
 
-**运行约束**：
-- `locationsStatus` 驱动底部状态栏与 ETA 降级逻辑。
-- locations 的 CFI/百分比换算统一通过 ReaderState 安全 helper；异常索引不得中断 relocated 主 CFI 保存，恢复时可优先降级到已保存百分比。
-- `lastPositionSave` 记录最近一次位置写入 Promise，供 flush/unmount 路径等待。
-- `currentStableCfi` 保存可落盘位置锚点：分页与滚动模式均以 `location.start.cfi` 为兼容主锚点。
-- `currentStableLocator` 保存 `displayed-page` 信息（layout/href/index/page/total/sourceCfi/prefsSignature），分页模式可额外携带 `restoreCfi` 作为 display 恢复锚点；`restoreCfi` 只有在 `sourceCfi === pos.cfi` 时可信，locator 只用于校验与诊断，不驱动 `next()/prev()` 翻页。
-- 恢复期 `relocated.start.cfi` 不得覆盖 `currentStableCfi`。
-- `isRestoringPosition` 用于区分 `openBook()` 恢复显示与用户正常翻页。
-- `isRestoreAnchorProtected` 用于保护刚恢复的分页锚点；用户导航前，locations 就绪和刷新 flush 都不得用 epub.js 页边界 CFI 覆盖它。
-- `isLayoutStable` 在 `openBook()` display/位置恢复期间为 false，阻止 `next()`/`prev()`/`displayPercentage()` 执行；首屏恢复完成后即设为 true，不等待后台 locations 生成。
-- `isResizing` 在窗口 resize 防抖期间为 true，阻止 relocated 事件写入不完整位置。
-- 切书或 `resetReadingSession()` 时，上述字段必须恢复到初始值。
+**调度与渲染常量表**：
+
+| 常量名 | 默认值 | 作用与调度策略 |
+|---|---|---|
+| `LOCATIONS_GENERATION_TIMEOUT_MS` | `1500ms` | `requestIdleCallback` 超时让步边界 |
+| `LARGE_EPUB_THRESHOLD_BYTES` | `3MB` | 大书划分阈值 |
+| `LOCATIONS_BREAK_LARGE` | `4800` | 大文件 locations 分片字符步长 |
+| `MEDIUM_EPUB_THRESHOLD_BYTES` | `1MB` | 中等书籍划分阈值 |
+| `LOCATIONS_BREAK_MEDIUM` | `3200` | 中等文件 locations 分片字符步长 |
+| `LOCATIONS_BREAK_SMALL` | `1600` | 小文件 locations 分片字符步长 |
+| `FONT_READY_TIMEOUT_MS` | `300ms` | `document.fonts.ready` 等待竞态超时 |
+| `GAP_SCROLLED_PX` / `GAP_PAGINATED_PX` | `48px` / `80px` | 滚动与分页模式下的列间距 |
+| `POST_DISPLAY_FOCUS_DELAY_MS` | `100ms` | 渲染完成后主窗口延迟聚焦时间 |
+| `POST_OPEN_FOCUS_DELAY_MS` | `300ms` | 书籍打开完成后延迟聚焦时间 |
+| `NAV_DEBOUNCE_MS` | `150ms` | 翻页防连击防抖释放时间 |
+| `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | `1` | 首次 display 后同 CFI 直接重放校正上限 |
+| `CONTENT_UNIT_COUNT_BATCH_SIZE` | `8` | 正文统计后台任务让步批次大小 (章节数) |
 
 ---
 
-## ReaderRuntime（reader/reader-runtime.js）
-
-IIFE 模块，暴露为 `window.ReaderRuntime`。
+### 4.3 ReaderPersistence (`src/reader/reader-persistence.js`)
 
 ```typescript
-openBook(
-  fileData: ArrayBuffer | Uint8Array | Blob,
-  bookId: string,
-  fileName: string,
-  targetCfi?: string | null
-): Promise<void>
-
-setLayout(layout: 'paginated' | 'scrolled'): Promise<boolean>
-loadFileByBookId(bookId: string, options?: { targetCfi?: string | null }): Promise<void>
-discardDeletedBook(bookId: string): boolean
-next(): Promise<boolean>
-prev(): Promise<boolean>
-displayPercentage(percentage: number): Promise<boolean>
-
-scheduleLocationsGeneration(task: Function): void
+interface IReaderPersistence {
+  mount(): void;
+  unmount(): void;
+  onRelocated(location: object): void;
+  schedulePositionSave(bookId: string, cfi: string, percent?: number | null, locator?: PositionLocator): void;
+  flushPositionSave(): Promise<void>;
+  flushReadingTime(bookId?: string): Promise<void>;
+  flushSpeedSession(newStartProgress?: number | null): Promise<void>;
+  flushSessionBundle(bookId?: string): Promise<BookMeta | undefined>;
+  updateReadingStats(): void;
+  startReadingTimer(): void;
+}
 ```
 
-### 内部共享辅助函数
+**持久化与统计常量表**：
 
-`openBook()` 与 `setLayout()` 共享私有辅助函数，消除 rendition 创建与模块挂载的重复代码：
-
-```typescript
-// rendition 工厂 — 创建 rendition、注入自定义样式、应用主题
-_createRendition(layout: 'paginated' | 'scrolled'): Rendition
-
-// 模块/事件挂钩 — 绑定 theme、ImageViewer、Annotations、键盘事件、relocated/displayed 监听
-_hookRenditionEvents(rendition: Rendition, theme?: string): void
-
-// 通过统一 lifecycle context 挂载全部功能模块
-_mountFeatureModules(): void
-```
-
-### 命名常量
-
-模块顶部声明所有魔法数字为命名常量，避免散落的硬编码值：
-
-| 常量 | 默认值 | 用途 |
-|------|--------|------|
-| `LOCATIONS_GENERATION_TIMEOUT_MS` | 1500 | requestIdleCallback 超时 |
-| `LARGE_EPUB_THRESHOLD_BYTES` | 3MB | 大书阈值 |
-| `LOCATIONS_BREAK_LARGE` | 4800 | 大书 locations break |
-| `MEDIUM_EPUB_THRESHOLD_BYTES` | 1MB | 中书阈值 |
-| `LOCATIONS_BREAK_MEDIUM` | 3200 | 中书 locations break |
-| `LOCATIONS_BREAK_SMALL` | 1600 | 小书 locations break |
-| `FONT_READY_TIMEOUT_MS` | 300 | 字体加载超时 |
-| `GAP_SCROLLED_PX` | 48 | 滚动模式间距 |
-| `GAP_PAGINATED_PX` | 80 | 分页模式间距 |
-| `POST_DISPLAY_FOCUS_DELAY_MS` | 100 | display 后聚焦延迟 |
-| `POST_OPEN_FOCUS_DELAY_MS` | 300 | openBook 后聚焦延迟 |
-| `NAV_DEBOUNCE_MS` | 150 | 翻页防抖 |
-| `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | 1 | 恢复期同 CFI 直接重放次数上限 |
-| `FILE_LOAD_RETRY_ATTEMPTS` | 5 | loadFileByBookId 缓存未就绪重试次数 |
-| `FILE_LOAD_RETRY_INTERVAL_MS` | 200 | loadFileByBookId 重试间隔 (ms) |
-| `CONTENT_UNIT_COUNT_BATCH_SIZE` | 8 | 正文计数后台让步批次大小 (章) |
-
-**行为约束**：
-- `_createRendition` 由 `openBook` 和 `setLayout` 共享，确保两种路径的 rendition 配置完全一致。
-- `_hookRenditionEvents` 由 `openBook` 和 `setLayout` 共享，确保 rendition 事件绑定一致；功能模块重绑统一通过 `_mountFeatureModules()` 和 lifecycle context 完成。
-- `rendition.on('relocated')`、`displayed` 延迟聚焦、iframe 用户意图事件和 `display()` wrapper 必须校验触发者仍是当前 `state.rendition`；切书或布局重建后，旧 `rendition` 迟到事件不得写入当前书位置、抢焦点或解除恢复锚点保护。
-- `openBook()` 打开新书前必须先收口旧书：`flushPositionSave()`、`flushReadingTime()`、`flushSpeedSession(null)`，随后 `moduleLifecycle.unmount()`、销毁旧 `rendition` 与旧 `book`，再重置阅读 session。
-- 新书加载期间必须设置 `isBookLoaded=false`、`isLayoutStable=false`、`navLock=false`，直到首屏 `display()` 和恢复逻辑完成后再允许导航和计时写入。
-- `loadFileByBookId()` 应直接把缓存 `record.data` 交给 `openBook()`，由 `normalizeBookData()` 统一处理 `ArrayBuffer` / `Blob` / `TypedArray`，避免非零 offset 视图被扩展成完整 backing buffer。
-- `setLayout()` 恢复保护：布局切换期间 `isRestoringPosition = true`；恢复目标优先使用与主 CFI 绑定的 `locator.restoreCfi`，再回退当前页起点/主 CFI。新 rendition 首次 display 后必须等待字体和样式稳定，再重放同一个 CFI 一次，避免重排前分页把用户带到错误列。
-- `setLayout()` 中销毁旧 rendition、创建/挂钩新 rendition、功能模块重绑或 `display()` 任一步失败，必须重建原布局并释放 `isRestoringPosition`；若回滚也失败，则销毁 book/rendition 并清空损坏上下文。
-- 并发布局切换只有最新代次可以恢复稳定锁、保存偏好或清理失败上下文；旧任务迟到完成或迟到回滚失败不得覆盖、销毁新布局状态。
-- `setLayout()` 保存 layout 偏好失败时只记录告警，不得阻断当前布局切换，也不得产生未处理 Promise 拒绝。
-- 若命中 `getLocations(bookId)`，应立即加载缓存索引并恢复精确进度。
-- 若未命中缓存，`openBook()` 必须先完成正文显示，再异步调度 `locations.generate()`。
-- 调用 `rendition.display(displayCfi)` 前，应先把 `displayCfi` 初始化到 `state.currentStableCfi`，确保恢复期关闭页面不会保存 epub.js 回报的 page-start CFI。
-- 分页模式下，若保存位置包含与 `pos.cfi` 同源的 `locator.restoreCfi`，恢复显示应优先使用该 CFI；`state.currentStableCfi` 仍保持 `pos.cfi`，防止关闭刷新时把兼容主锚点改写成临时显示锚点。
-- fresh rendition 首次 `display(displayCfi)` 后，`currentLocation()` 可能短暂回报同章节旧分页；若 href/index、页总数、偏好签名均匹配且页码不一致，只允许在恢复保护期内重放一次同一个 `displayCfi`，不得调用 `next()/prev()`。
-- 若缓存 locations 可用且 `pos.cfi` 对应百分比与 `pos.percentage` 明显不一致，应视为分裂快照，用 `locations.cfiFromPercentage()` 兜底恢复并清空旧 locator。
-- `openBook()` 只读取一次 `bookMeta`，位置、时长和速度均复用同一快照，不得再通过 `getPosition()` 重复读取同一 key。
-- preferences、bookMeta、locations 缓存或 recentBooks 更新失败属于非关键存储故障：记录告警并使用默认值继续阅读；EPUB 解析、ready、metadata、navigation 与首屏 display 失败才进入打开事务回滚。
-- 若缓存 locations 加载失败，应按无缓存处理：先完成正文显示，再异步调度 locations 重建，不得阻断 `openBook()`。
-- 分页模式下，`displayCfi` 恢复完成后应设置 `isRestoreAnchorProtected=true`；`next()`/`prev()`/`displayPercentage()` 以及非恢复期的 `rendition.display()` 会解除该保护。
-- `isRestoringPosition=false` 和 `isLayoutStable=true` 必须在 `_correctRestoredPage` 后立即设置，不可移入 locations 索引段（含 `await getLocations`），否则 `onRelocated` 会长时间跳过位置写入。
-- `isLayoutStable = false` 期间，`next()`/`prev()`/`displayPercentage()` 不执行任何导航。
-- `_correctRestoredPage` 只做章节/签名/页总数校验和同 CFI 直接重放；它不得执行翻页导航。若重放后仍无法与 locator 页码一致，保留 CFI 锚点与保护，不把短暂旧 `currentLocation()` 写回 storage。
-- locations cache-hit 和 generate-complete 路径中，若 `isRestoreAnchorProtected=true`，必须用 `state.currentStableCfi` 计算进度并跳过 `persistence.onRelocated`；否则仅在 `currentLocation().start.cfi !== state.currentStableCfi` 时转交 relocated。
-- v2.5.28 起，缺少当前版本正文计数时，在 locations 就绪后以 idle 后台任务逐章统计混合语言阅读单位；扫描不得阻塞首屏，切书必须取消，任一章节失败不得保存不完整总数。
-- **v2.5.43 TreeWalker 零拷贝统计约束**：`_getSectionReadingText` 严禁使用 `root.cloneNode(true)` 和批量选择器 DOM 删除；必须使用原生 `TreeWalker` 单次线性遍历，过滤排除标签（`SCRIPT`、`STYLE`、`NOSCRIPT`、`TEMPLATE`、`RT`、`RP`）与 `hidden`/`aria-hidden="true"` 隐藏祖先，消除大章节内存与 GC 峰值。
-- **v2.5.43 渲染稳定检测字体跳过约束**：`_waitForRenditionStable()` 支持 `opts.skipFontWait`。在 `_readCurrentDisplayedPage()`（页码校正读取）与 `_displayLayoutRendition()`（布局切换恢复）中显式传入 `skipFontWait: true`，跳过 `document.fonts.ready` 的 300ms 竞态等待，加速渲染完成。
-- 正文计数复用 `speed.contentUnitCount/contentUnitVersion`，并通过 `saveReadingSpeed()` 字段级 patch 落盘；不得覆盖并发更新的历史速度样本。
-- 窗口 resize 期间 `isResizing = true`，防抖结束后 `rendition.resize()` 重排并清除标志。
-- 后台生成失败只允许降级进度能力，不得中断当前阅读会话。
-- `discardDeletedBook()` 只处理与当前 `bookId` 匹配的外部删除事件：作废打开/布局/导航代次，销毁 rendition/book、卸载功能模块并重置 session，但保持 runtime 可供用户重新导入。
-- 加载失败或外部删除的错误 UI 只能清空并隐藏 `#epub-viewer`，不得删除这个固定挂载节点；`clearReaderError()` 同时移除旧错误 wrapper，使用户可在原 Reader 页面重新导入。
-
-**导航边界约束**：
-- `next()`、`prev()`、`displayPercentage()` 和 lifecycle context 的 `navigate(target)` 必须在 `ReaderRuntime` 内消费 rendition 的同步异常与 Promise 拒绝，并以布尔值表示是否成功；DOM 事件调用方不得留下未处理拒绝。
-- TOC、Bookmarks、Search 通过 `mount(context)` 保存 `context.navigate`，用户点击定位不得直接绕过 runtime 调用当前 rendition；仅为独立模块调用保留带错误收口的 fallback。
-- 翻页锁必须等底层导航 settled 后再进入 `NAV_DEBOUNCE_MS` 防抖释放；每次翻页携带递增代次，旧书或旧导航迟到的解锁 timer 不得解除新导航持有的锁。
-
-**打开任务并发约束**：
-- `openBook()` 的 teardown、偏好与元数据读取、rendition 创建、位置恢复、recentBooks 更新和模块 mount 必须作为一个整体串行执行；多个导入、拖放或缓存打开请求不得同时写共享 Reader state。
-- 队列向每个调用方返回其真实结果，但内部队列必须吸收前一任务失败后继续调度后一任务，避免一次损坏 EPUB 使后续打开永久失效。
-- `loadFileByBookId()` 在排队前只使用局部 `fileName`；`currentBookId/currentFileName` 只能由获得队列所有权的打开任务更新，等待中的书籍不得提前冒充当前上下文。
-- ReaderUi 本地导入从 `file.arrayBuffer()` 开始串行，覆盖 bookId 生成、文件落盘和 runtime 打开；连续文件选择或拖放必须按用户触发顺序完成，不能因文件大小不同而反转最终打开顺序。
-
-**打开失败回滚约束**：
-- `_openBook()` 是事务包装：先 teardown 旧书，再执行 `_initializeBook()`；EPUB 解析、ready、metadata、navigation 或 display 等关键阶段失败，必须再次统一 teardown 后原样抛出异常。
-- 失败回滚必须 unmount 功能模块并销毁已创建的 rendition/book，最终清空 `book/rendition/currentBookId/currentFileName`、导航与恢复锁及阅读 session；不得把半初始化书籍留作当前上下文。
-- `_teardownActiveBookForReplacement()` 在尚无 book/rendition 时也必须清空标识并重置 session，覆盖创建资源前的早期失败；清理自身的告警不得替换原始打开错误。
+| 常量名 | 默认值 | 作用与调度策略 |
+|---|---|---|
+| `POSITION_EVENT_SETTLE_MS` | `300ms` | 最新位置事件保护窗时间 |
+| `SPEED_MIN_PROGRESS_DELTA` | `0.001` | 有效速度会话最小进度差值 (0.1%) |
+| `SPEED_MAX_PROGRESS_DELTA` | `0.30` | 有效速度会话最大进度差值 (30%) |
+| `SPEED_MIN_SESSION_SECONDS` | `30s` | 有效速度会话最短持续秒数 |
+| `JUMP_DETECTION_THRESHOLD` | `0.05` | 跳读判定阈值 (进度差 > 5% 判定为跳转) |
+| `JUMP_DETECTION_LOCATION_STEPS` | `1.5` | 稀疏 locations 下动态步长倍率 |
+| `READING_TIMER_INTERVAL_MS` | `1000ms` | 活跃阅读计时器滴答周期 |
+| `READING_TIME_FLUSH_INTERVAL_S` | `10s` | 阅读时长自动落盘周期 |
+| `READING_STATS_UPDATE_INTERVAL_S` | `60s` | 底部 ETA 与平均字速刷新周期 |
 
 ---
 
-## ReaderPersistence（reader/reader-persistence.js）
-
-IIFE 模块，暴露为 `window.ReaderPersistence`。本层负责阅读位置、时间、速度的持久化逻辑，**不持有任何 DOM 引用**。
+### 4.4 ReaderUi (`src/reader/reader-ui.js`)
 
 ```typescript
-mount(): void
-unmount(): void
-
-onRelocated(location: object): void
-schedulePositionSave(bookId: string, cfi: string, percent?: number | null): void
-flushPositionSave(): Promise<void>
-flushReadingTime(bookId?: string): Promise<void>
-flushSpeedSession(newStartProgress?: number | null): Promise<void>
-updateReadingStats(): void
-startReadingTimer(): void
+interface IReaderUi {
+  mount(): void;
+  unmount(): void;
+  bindRuntime(runtime: IReaderRuntime, persistence: IReaderPersistence): void;
+  setReaderVisible(isVisible: boolean): void;
+  clearReaderError(): void;
+  setBookTitle(title: string): void;
+  setReaderDimmed(dimmed: boolean): void;
+  updateChapterTitle(chapterName: string): void;
+  updateBookmarkButtonState(isBookmarked: boolean): void;
+  updateReadingStatsText(text: string): void;
+  showLoading(show: boolean, message?: string): void;
+  showLoadError(msg: string): void;
+  updateProgress(percent: number): void;
+  setLocationIndexStatus(status: string, detail?: string): void;
+  applyTheme(theme: string, save?: boolean): void;
+  applyThemeToRendition(theme: string): void;
+  ensureFocus(): void;
+  setupRenditionKeyEvents(rend: object, persistence: object, runtime: object): void;
+  injectCustomStyleElement(contents: object): void;
+  updateCustomStyles(): void;
+  openExclusivePanel(panelElement: HTMLElement): void;
+  closePanelWithOverlayCheck(panelElement: HTMLElement): void;
+  closeAllPanels(): void;
+  syncPrefsToControls(): void;
+}
 ```
 
-### DOM 委托（v2.4.0）
+**交互与排版常量表**：
 
-本层所有 DOM 更新委托给 `reader-ui.js` 辅助函数：
-
-| DOM 操作 | 委托目标 |
-|----------|----------|
-| 章节标题更新 | `ui.updateChapterTitle(chapterName)` |
-| 书签按钮状态 | `ui.updateBookmarkButtonState(isBookmarked)` |
-| 阅读统计文本 | `ui.updateReadingStatsText(text)` |
-
-### 命名常量
-
-| 常量 | 默认值 | 用途 |
-|------|--------|------|
-| `POSITION_EVENT_SETTLE_MS` | 300 | 最新位置事件保护窗 |
-| `SPEED_MIN_PROGRESS_DELTA` | 0.001 | 最小进度变化阈值 |
-| `SPEED_MAX_PROGRESS_DELTA` | 0.30 | 单次有效采样最大进度 |
-| `SPEED_MIN_SESSION_SECONDS` | 30 | 最短有效采样时长 |
-| `JUMP_DETECTION_THRESHOLD` | 0.05 | 跳读判定阈值 |
-| `JUMP_DETECTION_LOCATION_STEPS` | 1.5 | 稀疏 locations 下允许的自然量化步长 |
-| `READING_TIMER_INTERVAL_MS` | 1000 | 阅读计时周期 |
-| `READING_TIME_FLUSH_INTERVAL_S` | 10 | 阅读时长落盘周期 |
-| `READING_STATS_UPDATE_INTERVAL_S` | 60 | ETA 刷新周期 |
-
-**行为约束**：
-- `schedulePositionSave()` 对每次有意义的位置变化立即启动保存，并刷新 300ms 保护窗；该 timer 不承担延迟写入职责。
-- 保护窗存在时，刷新/关闭不得用可能滞后的 `rendition.currentLocation()` 覆盖 relocated 已确认的新位置。
-- `onRelocated()` 的 UI 更新与即时持久化优先使用事件参数；`rendition.currentLocation()` 在同一 tick 内可能仍是上一页，只在事件缺失 CFI 时兜底。
-- `_isPositionMeaningfullyChanged()` 字符串精确比较新旧 CFI；即使 CFI 相同，只要 locator、`restoreCfi` 或百分比变化，也必须触发 `schedulePositionSave()`。
-- **v2.5.43 翻页脱敏与延迟采样约束**：`onRelocated()` 在常规翻页热路径上**严禁**同步执行 `_buildRestoreAnchorCfi()`（调用 `caretRangeFromPoint` 强制同步重排），默认使用 `sourceCfi` 记录 locator。精确 `restoreCfi` 的采集延迟至 `flushPositionSave()` 与 `_refreshStablePositionFromRendition()` 在退出/休眠写盘前按需触发。采样采用螺旋序列 `ANCHOR_PROBE_SEQUENCE`（中心点 `[0.50, 0.45]` 为首）并在会话内维护 `_anchorCfiCache` 缓存，`unmount()` 时自动释放。
-- `flushPositionSave()` 必须清理位置事件保护 timer；若保护窗仍存在，直接保存 `currentStableCfi/currentStableLocator/lastPercent`，不得重新采样旧 `currentLocation()` 覆盖刚翻到的新页；仅在无保护窗且 `isRestoreAnchorProtected=false` 时，刷新/关闭前重新采样并重建完整 position；若恢复锚点保护仍为 true，直接保存当前稳定锚点。
-- 分页恢复锚点生成依赖 `rendition.getContents()`、`caretRangeFromPoint/caretPositionFromPoint` 与 `contents.cfiFromRange()`，优先从当前 displayed page 所在列的可视区域取样；取样失败时再用 `contents.range(sourceCfi)` 从 `start.cfi` 向页内轻微前移。locator 必须同时写入 `sourceCfi`。生成失败时必须降级为无 `restoreCfi` 的 `location.start.cfi`，不得影响阅读。
-- `onRelocated()` 在 `isRestoringPosition=true` 或 `isRestoreAnchorProtected=true` 时不得替换 `state.currentStableCfi`，但仍应更新进度、章节标题、TOC 与书签按钮状态。
-- 书签按钮状态查询必须只让最新一次结果更新 UI；快速翻页或卸载时，旧页/旧书的 `Bookmarks.isBookmarked()` 慢返回不得覆盖当前页状态。
-- `updateReadingStats()` 在 `book.locations` 不可用时，ETA 必须显示为 `--`；历史字速按 `contentUnitCount × sampledProgress ÷ sampledSeconds × 60` 换算，正文计数或样本不足显示“估算中”。
-- `locationsStatus` 为 `pending/generating/failed` 时，应通过 UI 同步"生成中/不可用"状态，而不是显示误导性的精确进度。
-- `mount()` 注册 `window.addEventListener('beforeunload', _onBeforeUnload)`，`unmount()` 清理。`_onBeforeUnload` 在 `isBookLoaded && currentBookId` 时同时发起位置、阅读时长和速度 flush；页面重新可见时即使进度为 0% 也必须重启速度会话。
-- `flushReadingTime()` 只提交 `pendingReadingSeconds` 增量，并在第一个 `await` 前转移批次所有权；成功后用存储层返回的权威总时长校准当前展示，失败时把该批次退回待提交秒数。多个 Reader 标签页不得用各自缓存的绝对总时长互相覆盖。
-- 位置保存和阅读时长保存失败时只记录告警，不得让 `schedulePositionSave()`、`visibilitychange`、`beforeunload` 或定时写入产生未处理 Promise 拒绝。
-- `flushSpeedSession()` 必须在第一个 `await` 前转移 `sessionStart` 所有权；旧速度写入迟到完成不得清除页面重新可见后建立的新会话。切书时位置、时长和速度三项 flush 必须全部 settled，单项失败不得跳过其余清理。
----
-
-## ReaderUi（reader/reader-ui.js）
-
-IIFE 模块，暴露为 `window.ReaderUi`。本层是 Reader 唯一的 DOM 操作入口。
-
-```typescript
-// UI 辅助函数（供 persistence 层委托调用）
-mount(): void
-unmount(): void
-bindRuntime(runtime: object, persistence: object): Promise<void>
-clearReaderError(): void
-setBookTitle(title: string): void
-setReaderDimmed(dimmed: boolean): void
-updateChapterTitle(chapterName: string): void
-updateBookmarkButtonState(isBookmarked: boolean): void
-updateReadingStatsText(text: string): void
-updateProgress(percent: number): void
-setLocationIndexStatus(status: string, detail?: string): void
-
-// 布局与主题
-applyThemeToRendition(theme: string): void
-injectCustomStyleElement(contents: object): void
-setupRenditionKeyEvents(rendition, persistence, nav): void
-ensureFocus(): void
-
-// 面板控制
-openExclusivePanel(panelElement: HTMLElement): void
-closePanelWithOverlayCheck(panelElement: HTMLElement): void
-closeAllPanels(): void
-```
-
-### 命名常量（v2.4.0 / v2.5.38）
-
-| 常量 | 默认值 | 用途 |
-|------|--------|------|
-| `RESIZE_DEBOUNCE_MS` | 250 | 窗口 resize 防抖 |
-| `TYPOGRAPHY_REFLOW_DEBOUNCE_MS` | 200 | 字号/行距滑块重排与位置恢复防抖 |
-
-**v2.3.3 行为约束**：
-- `progress-location` 用于承载非阻塞定位索引状态。
-- 该状态更新不得重新启用全屏 `loading-overlay`，避免回退到"先等索引再阅读"的旧行为。
-- `_withCfiLock` 保存/恢复 CFI 期间同步设置 `isRestoringPosition = true`，`await display()` + 双帧等待后释除，防止 relocated 事件在新布局下以不同 CFI 覆盖正确位置。
-- **v2.5.38 滑块双轨时序约束**：字号与行距滑块在 `input` 高频事件中立即更新数值文本并执行 `updateCustomStyles()` 替换 iframe CSS（实时视觉反馈）；重量级的 `_withCfiLock` 重排与位置恢复通过 `TYPOGRAPHY_REFLOW_DEBOUNCE_MS`（200ms）防抖调度；用户松开滑块触发 `change` 事件时立即 flush 待执行重排并持久化偏好设置，兼顾视觉流畅度与零卡顿。
-- `bindResize` 监听窗口 resize，防抖 250ms 后调用 `rendition.resize()` + CFI 快照恢复，`isResizing` 期间阻止 relocated 事件写入。由于 resize 事件触发时 viewport 已经改变，恢复目标必须优先使用变化前 `currentStableLocator.restoreCfi`（且 `sourceCfi` 匹配主 CFI），再回退 `currentStableCfi`，不得把此时的 `currentLocation()` 当作首选快照。
-- resize handler、timer、锚点和 persistence 引用由 ReaderUi 实例持有；`unmount()` 必须移除监听、取消 timer、作废 reflow 代次并释放保护锁，后续 `mount()` 可恢复单一监听。
-- resize timer 即使被字号、行高等更新 reflow 作废，也必须按 timer 身份清理自己的旧锚点；迟到 timer 不得清除更新任务状态，下一次 resize 不得复用旧视口 CFI。
-
-**v2.4.0 架构约束**：
-- 所有 DOM 可见性控制使用 CSS 类（`is-hidden`、`is-visible`、面板类），禁止 `style.*` 直写（`image-viewer.js` 动态 transform 和 `highlights.js` 动态弹窗定位除外）。
-- persistence 层通过本层辅助函数委托 DOM 更新，不直接持有元素引用。
-- Reader 页本地导入 EPUB 时，`openLocalFile()` 必须等待 `EpubStorage.storeFile()` 成功后再调用 `runtime.openBook()`；打开成功后通过 `history.replaceState()` 将 URL 的 `bookId` 同步为当前书。缓存或打开失败时不得提前改写 URL，并应显示加载错误。
-- `bindRuntime()` 必须幂等；重复调用只更新当前 runtime 引用，不得重复注册 document/window/按钮级顶层事件监听。
-- 主题、颜色、字号、行距和字体偏好保存失败时，只记录告警并保留当前 UI 更新，不得产生未处理 Promise 拒绝。
-- TOC、Bookmarks、Search 通过 lifecycle context 注入的 panel controller 调用本层面板 API；兄弟面板互斥和共享 overlay 状态不得在功能模块内重复维护。
-
-**v2.5.11 reflow 生命周期约束**：
-- 字号、行高、字体和窗口 resize 共用递增 reflow 代次，并捕获发起时的 rendition；只有最新且仍属于当前书的回调可以恢复 CFI、上报 relocated 或释放保护锁。
-- 切书时 `ReaderState.resetReadingSession()` 必须同步清除 `isResizing` 与 `isRestoringPosition`；旧书迟到 RAF/timer 不得操作新 rendition，也不得改写新书保护状态。
-- 当前 reflow 完成后必须恢复变化前捕获的有效锚点（窗口 resize 优先 locator restore CFI，其余重排至少使用主 CFI），释放两类保护锁，再将当前 rendition 的位置交给 persistence。
-- EPUB iframe 内 `input/select/textarea` 的键盘事件不得触发宿主翻页；键盘分支优先检查事件实际 target，再回退宿主 `activeElement`。
-
-**v2.5.12 外观偏好边界**：
-- `openBook()` 每次读取 preferences 后必须完整合并到 `state.prefs`，再由 `ui.syncPrefsToControls()` 统一归一化；不得维护容易遗漏 `theme/customBg/customText` 的逐字段复制清单。
-- ReaderUi 只接受已知主题、布局、分栏与字体选项；字号限制为 12-32，行距限制为 1.2-3.0，自定义颜色只接受 3/6 位 hex 并归一化为 6 位。损坏或旧数据回退默认值。
-- `generateCustomCss()` 在写入 EPUB iframe `<style>` 前必须再次使用归一化快照；持久化字体字符串和颜色不得未经白名单直接插入 CSS 或传给 `rendition.themes.override()`。
+| 常量名 | 默认值 | 作用与调度策略 |
+|---|---|---|
+| `RESIZE_DEBOUNCE_MS` | `250ms` | 窗口 Resize 重排与位置恢复防抖延迟 |
+| `TYPOGRAPHY_REFLOW_DEBOUNCE_MS` | `200ms` | 字号/行距滑块实时样式与重排防抖延迟 |
+| `DEFAULT_FONT_SIZE` | `18` | 默认字号 (px) |
+| `DEFAULT_LINE_HEIGHT` | `1.8` | 默认行距 |
+| `DEFAULT_THEME` | `'light'` | 默认主题 |
 
 ---
 
-## Highlights（reader/highlights.js）
+## 5. 功能子模块接口规范
 
-IIFE 单例，暴露为 `window.Highlights`。
+所有功能子模块均通过统一的 `mount(context)` / `unmount()` 接口挂载与卸载。
 
 ```typescript
-Highlights.init(): void
-// 注册 window mousedown 监听（一次，不可重复调用）
-// 注册 btn-show-toolbar 点击监听
-
-Highlights.setBookDetails(
-  bookId: string,
-  rendition: Rendition
-): Promise<void>
-// 绑定新书，加载已有高亮，注册 rendition.on('selected')
-// 每次切换书籍或布局时调用
-// v2.3.1：必须补绑定 rendition.getContents() 中已存在 iframe 的空白点击关闭监听
-// v2.4.12：异步加载和保存必须捕获 bookId/rendition 上下文；切书后旧请求不得渲染或保存到新书
-// getHighlights/saveHighlights 失败应记录告警并降级，不得阻断 Reader 打开或产生未处理拒绝
-// v2.5.3：只有显式 color === 'transparent' 才视为纯笔记；缺失/损坏颜色必须回退默认高亮色，避免不可见高亮
-// v2.5.16：iframe/高亮点击、延迟弹窗和内部交互锁必须校验 book/rendition 代次
-// 空白新笔记不得持久化；已有纯笔记清空内容时应删除记录，避免不可见幽灵数据
-// v2.5.43：renderAllHighlights 引入 _HIGHLIGHT_RENDER_BATCH_SIZE = 20 分批异步挂载；首批 20 条立即同步渲染，后续批次通过 requestAnimationFrame 调度并在每批执行前校验 isCurrentContext 代次守卫，防止大批量高亮阻塞主线程或切书内存泄漏
-
-Highlights.closePanels(): void
-// 关闭工具栏和笔记弹窗，清除所有 CFI 状态
-
-Highlights.mount(context): void
-Highlights.unmount(): void
-// v2.2.0：接入子层统一调度
+/** 模块生命周期注入上下文 */
+interface LifecycleContext {
+  book: any;                 // ePub.Book 实例
+  rendition: any;            // ePub.Rendition 实例
+  bookId?: string;           // 当前书籍标识
+  navigate?: (target: string) => Promise<boolean>; // 统一安全导航函数
+  panelController?: {        // 统一面板互斥控制器
+    openExclusivePanel: (panelElement: HTMLElement) => void;
+    closePanelWithOverlayCheck: (panelElement: HTMLElement) => void;
+    updateBookmarkButtonState?: (isBookmarked: boolean) => void;
+  };
+}
 ```
 
-**内部数据结构**：
+### 5.1 模块公开接口汇总
 
-```javascript
-highlights: [
-  {
-    cfi:       string,   // epub.js CFI 范围字符串
-    text:      string,   // 选中文本（存储时截取）
-    color:     string,   // '#ffeb3b' | '#ff6b6b' | ... | 'transparent'（纯笔记）
-    note:      string,   // 用户笔记内容
-    timestamp: number    // 创建时间戳
-  }
-]
-```
+| 模块 | 公开方法签名 | 核心职责与设计约束 |
+|---|---|---|
+| **Highlights** (`highlights.js`) | `init(): void`<br/>`setBookDetails(bookId, rendition): Promise<void>`<br/>`closePanels(): void`<br/>`mount(context): Promise<void>`<br/>`unmount(): void` | • `_HIGHLIGHT_RENDER_BATCH_SIZE = 20` 分批异步挂载<br/>• 仅 `color === 'transparent'` 为纯笔记<br/>• 异步读写绑定 `isCurrentContext` 代次守卫 |
+| **Bookmarks** (`bookmarks.js`) | `init(): void`<br/>`setBook(bookId, rendition): void`<br/>`toggle(cfi, chapter, progress): Promise<void>`<br/>`isBookmarked(cfi): Promise<boolean>`<br/>`loadBookmarks(): Promise<void>`<br/>`renderList(bookmarks): void`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • UI 状态委托 `panelController` 更新<br/>• 读改写采用 Copy-on-Write 机制<br/>• 用户点击跳转通过 `ReaderState.safeNavigate` |
+| **TOC** (`toc.js`) | `init(): void`<br/>`build(navigation, rendition): void`<br/>`setActive(href): void`<br/>`open(): void`<br/>`close(): void`<br/>`toggle(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 递归解析 epub.js navigation，支持 3 级嵌套<br/>• 目录路径匹配忽略 fragment 并校验边界<br/>• 侧边栏互斥委托 `panelController` |
+| **Search** (`search.js`) | `init(): void`<br/>`setBook(book, rendition): void`<br/>`doSearch(query): Promise<void>`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_SEARCH_MAX_RESULTS = 1000` 结果上限<br/>• `_SEARCH_TIME_BUDGET_MS = 16ms` 连续帧预算让步<br/>• 搜索词正则元字符安全转义 |
+| **ImageViewer** (`image-viewer.js`) | `init(): void`<br/>`hookRendition(rendition): void`<br/>`open(src): void`<br/>`close(): void`<br/>`zoom(delta): void`<br/>`resetTransform(): void`<br/>`applyTransform(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 拖拽平移时临时移除 transition 消除橡皮筋冲突<br/>• 缩放范围 `0.2x` ~ `8.0x`<br/>• 滚轮步进 `0.15`，按钮步进 `0.3` |
+| **Annotations** (`annotations.js`) | `init(): void`<br/>`setBook(book): void`<br/>`hookRendition(rendition): void`<br/>`showFootnote(href, contents, cancelToken, context): Promise<boolean>`<br/>`isBackLink(link, ctx): boolean`<br/>`isFootnoteLink(link, ctx): boolean`<br/>`close(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_FOOTNOTE_SECTION_CACHE_LIMIT = 5` 跨章缓存<br/>• `_targetIdIndex` 映射缓存消除二次线性扫描<br/>• 展示内容经 `<template>` DOM 清洗剥离危险标签与自定义属性 |
 
 ---
 
-## Bookmarks（reader/bookmarks.js）
+## 6. 加载链条与封装规范
 
-IIFE 单例，暴露为 `window.Bookmarks`。
-
-```typescript
-Bookmarks.init(): void
-// 注册面板开关事件
-
-Bookmarks.setBook(bookId: string, rendition: Rendition): void
-// 绑定新书，加载书签列表
-
-Bookmarks.toggle(cfi: string, chapterName: string, progress: number): Promise<void>
-// 切换书签状态（存在则删除，不存在则添加）
-// progress: 0-1 小数，内部转为 0-100
-// 异步读写必须捕获发起时的 bookId；切书后旧请求不得渲染或保存到新书
-// 面板自动加载和按钮事件失败时必须记录告警，不得产生未处理 Promise 拒绝
-
-Bookmarks.isBookmarked(cfi: string): Promise<boolean>
-
-Bookmarks.closePanel(): void
-Bookmarks.togglePanel(): void
-
-Bookmarks.reset(): void
-// 切换书籍时调用，清空列表和状态
-
-Bookmarks.mount(context): void
-Bookmarks.unmount(): void
-// v2.2.0：接入子层统一调度
-```
-
----
-
-## TOC（reader/toc.js）
-
-IIFE 单例，暴露为 `window.TOC`。
-
-> v2.1.1：新增 `mount(context)` / `unmount()`，由 reader 入口统一挂载。
-
-```typescript
-TOC.init(): void
-// 注册面板开关和 overlay 点击事件、键盘快捷键 T
-
-TOC.build(navigation: Navigation, rendition: Rendition): void
-// 从 epub.js navigation 构建目录树，支持 3 级嵌套
-
-TOC.setActive(href: string): void
-// 在目录中高亮当前章节（由 onRelocated 调用）
-
-TOC.open(): void
-TOC.close(): void
-TOC.toggle(): void
-TOC.reset(): void
-```
-
----
-
-## Search（reader/search.js）
-
-IIFE 单例，暴露为 `window.Search`。
-
-```typescript
-Search.init(): void
-// 注册 DOM 事件和键盘快捷键 F
-
-Search.setBook(book: Book, rendition: Rendition): void
-// 绑定新书，取消旧搜索任务，先清理旧 rendition 上的搜索高亮，再清空搜索结果
-
-Search.togglePanel(): void
-Search.closePanel(): void
-Search.reset(): void
-// 切换书籍时调用，取消进行中的搜索
-// v2.2.3：关闭/重置进行中的搜索必须恢复搜索按钮 disabled=false
-// v2.4.13：setBook/closePanel/reset 必须递增 searchId 使旧搜索失效；增量渲染和结果点击必须校验 searchId，旧书慢返回不得写入或驱动新书
-// v2.5.1：搜索结果上限必须在每章结果合并前裁剪，单章超量命中不得越过 _SEARCH_MAX_RESULTS 渲染上限
-// v2.5.9：面板关闭、切书和重新初始化必须取消待执行的聚焦 timer；迟到回调还需校验请求代次与面板 open 状态
-
-Search.mount(context): void
-Search.unmount(): void
-// v2.1.1：接入 Reader 统一生命周期
-```
-
-### 命名常量（v2.4.0 / v2.5.38）
-
-| 常量 | 默认值 | 用途 |
-|------|--------|------|
-| `_SEARCH_MAX_RESULTS` | 1000 | 搜索结果上限 |
-| `_SEARCH_UI_YIELD_MS` | 10 | 基础让步间隔 (ms) |
-| `_SEARCH_FOCUS_DELAY_MS` | 100 | 面板聚焦延迟 (ms) |
-| `_SEARCH_TIME_BUDGET_MS` | 16 | 连续执行帧预算 (ms) |
-| `_SEARCH_STATUS_THROTTLE_MS` | 100 | 搜索状态文本刷新节流周期 (ms) |
-
-**v2.5.38 调度约束**：
-- 搜索循环由每章无条件让步改为 16ms 帧预算驱动让步（`_SEARCH_TIME_BUDGET_MS`），短章节直接连续遍历，耗时达到帧预算时才让出主线程给浏览器 UI 渲染。
-- 搜索进度状态文本通过 `_SEARCH_STATUS_THROTTLE_MS` 节流更新，避免每章无条件操作 DOM。
-
----
-
-## ImageViewer（reader/image-viewer.js）
-
-IIFE 单例，暴露为 `window.ImageViewer`。
-
-```typescript
-ImageViewer.init(): void
-// 注册缩放、拖拽、键盘事件
-
-ImageViewer.hookRendition(rendition: Rendition): void
-// 在 rendition.hooks.content 中注册图片 click 拦截
-// v2.3.1：同一 rendition/document 幂等，且 late hook 时补处理当前 getContents()
-// v2.4.13：hook 与图片点击必须捕获 rendition 上下文；切书或布局重建后，旧 iframe 图片点击不得打开当前书籍页面的图片查看器
-
-ImageViewer.mount(context): void
-ImageViewer.unmount(): void
-// v2.1.1：接入 Reader 统一生命周期
-
-ImageViewer.open(src: string): void
-// 打开查看器，显示指定 src 的图片
-
-ImageViewer.close(): void
-```
-
----
-
-## Annotations（reader/annotations.js）
-
-IIFE 单例，暴露为 `window.Annotations`。
-
-```typescript
-Annotations.init(): void
-Annotations.setBook(book: Book): void
-Annotations.hookRendition(rendition: Rendition): void
-Annotations.mount(context): void
-Annotations.unmount(): void
-// 注册 EPUB 内联注释链接的点击处理
-// v2.4.13：hook、点击、异步加载和弹窗跳转必须捕获 book/rendition 上下文；切书或布局重建后，旧 iframe 与旧请求不得显示到新书或驱动新 rendition
-```
-
-**v2.2.3 行为约束**：
-- `mount(context)` 必须确保 Escape 键监听已绑定；`unmount()` 解除后，下一次 mount 要能恢复。
-
-**v2.3.1 行为约束**：
-- `hookRendition()` 对同一 rendition 只能注册一次 `hooks.content` callback。
-- 对同一 contents document 只能绑定一次注释捕获监听；若调用时 iframe 已存在，必须通过 `rendition.getContents()` 补绑定。
-
-**v2.4.14 代码质量约束**：
-- `sup` 祖先/后代判断统一走 `_hasSup()`，不得在 `isBackLink()` / `isFootnoteLink()` 中重复散落 `closest('sup')` + `querySelector('sup')`。
-- href 章节与 fragment 解析统一走 `_parseHref()`，不得在模块内新增 `split('#')` 解析路径。
-- 注释内容块标签、分页补偿等待时间和 TOC-like list 阈值必须保持模块级常量，避免在热路径中重复构造或散落魔法数字。
-- last-resort fallback 提示必须使用 `.annotation-fallback-hint`，不得重新拼接 inline style 字符串。
-- `isFootnoteLink()` 主流程只负责 gate、显式语义和阶段编排；文本/href 启发式与结构 DOM 判断分别集中到 `_checkFootnoteTextSignals()`、`_checkFootnoteStructuralSignals()`。
-
-**v2.4.14 算法约束**：
-- 当链接没有真实 `<sup>` 但 `computedStyle.verticalAlign` 为 `super/sub/top/bottom` 时，可作为脚注引用的强正向结构信号；该检测只能在便宜的字符串与 DOM gate 后触发。
-- 长链接文本若占父块文本 80% 以上，应视为目录/导航式孤立链接并排除，避免扁平 `<p><a>章节标题</a></p>` 或 TOC 变体被 fragment 命中误判为脚注。
-- `_extractContent()` 必须保留 2000 字文本安全阀，超长内容需截断并提示跳转原文；空锚点目标应沿后续 sibling 收集正文，在 `<hr>`、`H1-H6` 或下一个带 id/name 的 `<a>` 处停止。
-
-**v2.4.16 数字 marker 约束**：
-- `noteTextMarker` 的纯数字分支只能接受 1-3 位数字；四位数字默认按年份/正文引用风险处理，不得直接视为脚注 marker。
-- `_isFourDigitNumberMarker()` 必须在 class/fragment 等启发式正向信号前排除四位数字文本，避免 `1984` / `2023` 等正文链接因 `#note2023` 被误判。
-- 显式 EPUB 语义（如 `epub:type="noteref"` 或等价 role）必须在长文本、无 fragment、四位数字等弱负向规则前返回；这些误判抑制规则不得覆盖出版方明确语义。
-
-**v2.4.17 同文档拓扑约束**：
-- 同文档 `href="#fragment"` 目标查找只做一次，并在 class/fragment 弱阳性判断和后续 target analysis 中复用。
-- `_isSameDocumentTargetBeforeSource()` 使用 `compareDocumentPosition()` 判断目标是否位于源链接之前；断连节点或跨 document 节点不得参与负向判断。
-- 目标前置只作为弱负向信号：它只能抑制 `class/id` 或 fragment 形态带来的弱阳性，不得覆盖 `epub:type="noteref"`、role 语义、`<sup>` / CSS 上标或明确 footnote 容器。
-
-**v2.5.0 跨文档拓扑约束**：
-- `_buildDocContext(doc, contents, book)` 必须在单个 iframe 上下文内基于 `contents.sectionIndex` 与 book spine 构建 `currentSpineIndex/currentSpineHref` 和 href 到 spine index 的映射；spine 信息缺失时必须退回旧行为。
-- `_isCrossDocumentTargetBeforeSource()` 只判断跨文件目标 section 是否位于当前 section 之前，并且与同文档前置一样只能作为弱负向信号：压低 class/id 与 fragment 弱阳性，不得覆盖显式 EPUB 语义、role、`<sup>` / CSS 上标或明确 footnote 容器。
-- section href 规范化和相对路径解析必须集中在 `_normalizeSectionHref()` / `_resolveRelativeSectionHref()`；`_loadFromBook()` 的相对 section 查找与分类阶段的 spine index 查找应共享该逻辑，避免 `../` 解析漂移。
-
-**v2.4.18 FB2 兼容约束**：
-- `_buildDocContext()` 必须把 `body[name="notes"]`、`body[name="comments"]` 及其 `section` 下的链接加入 `footnoteSectionNodes`，避免 FB2 注释区内回链被当作正文脚注引用。
-- 同文档 target analysis 必须把目标位于 `body[name="notes"]` / `body[name="comments"]` 内视为明确 footnote 容器信号。
-- FB2 容器识别只能增强注释区/目标容器判断，不得绕过现有全局 TOC、孤立长链接、四位年份和上下文生命周期守卫。
-
-**v2.4.15 / v2.5.43 / v2.5.46 性能约束**：
-- 跨文档注释加载必须经过 `_loadSectionDocument()`，优先命中 `_sectionDocCache`，未命中时再调用 `section.load()`。
-- `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 5` 控制（轻量化防内存膨胀）；缓存读命中必须刷新 LRU 顺序。
-- **v2.5.43 目标索引缓存**：引入 `_targetIdIndex` 映射，首次查找到目标元素（含 Method 4 全书线性扫描）后缓存 `targetId -> sectionHref`。后续相同 targetId 注释点击直接定位章节，消除二次线性遍历；`setBook()` 与 `unmount()` 时自动清空。
-- `setBook()` 发现 book 实例变化以及 `unmount()` 时必须清空 `_sectionDocCache` 与 `_targetIdIndex`，避免旧书尾注内容污染新书。
-
-**安全约束**：
-- 注释弹窗展示 EPUB 内联 HTML 前，必须用 template DOM 解析；移除脚本、样式、iframe、表单、媒体、SVG 等主动内容，并剥离保留排版节点的全部书内属性，防止事件、URL、CSS 和宿主样式碰撞进入扩展页面。环境不支持 template 时只保留转义后的纯文本，不得依赖正则拼接“已清洗 HTML”。
-
----
-
-## 模块加载顺序（reader.html）
+### 6.1 `reader.html` 脚本按序加载列表
 
 ```html
-<!-- 基础库 -->
+<!-- 1. 第三方依赖库 -->
 <script src="../lib/jszip.min.js"></script>
 <script src="../lib/epub.min.js"></script>
 
-<!-- 工具层（无依赖） -->
+<!-- 2. 底层持久化与工具层 -->
 <script src="../utils/db-gateway.js"></script>
 <script src="../utils/utils.js"></script>
-<script src="../utils/storage.js"></script>  <!-- 依赖 DbGateway -->
+<script src="../utils/storage.js"></script>
 
-<!-- 功能模块（依赖 EpubStorage，互不依赖） -->
+<!-- 3. 功能子模块 -->
 <script src="image-viewer.js"></script>
 <script src="annotations.js"></script>
 <script src="toc.js"></script>
@@ -1019,7 +527,7 @@ Annotations.unmount(): void
 <script src="bookmarks.js"></script>
 <script src="highlights.js"></script>
 
-<!-- 主控制器（Orchestrator） -->
+<!-- 4. 阅读器分层体系与控制器 -->
 <script src="reader-state.js"></script>
 <script src="reader-ui.js"></script>
 <script src="reader-persistence.js"></script>
@@ -1027,8 +535,7 @@ Annotations.unmount(): void
 <script src="reader.js"></script>
 ```
 
-**约束**：reader.js 必须最后加载。工具层模块（db-gateway、utils、storage）必须在功能模块前加载。入口本地脚本不使用手动查询串刷新缓存；Chrome 扩展更新/重新加载会刷新扩展资源，保留查询串只会增加 HTML、测试和文档同步成本。
-
-**v2.4.9 IIFE 规范**：全部 11 个 reader 模块统一使用 `(function () { 'use strict'; ... window.XXX = XXX; })();` 封装，避免全局变量污染。功能模块（annotations、bookmarks、toc、search、highlights、image-viewer）与四层架构模块（reader-state、reader-runtime、reader-persistence、reader-ui）均遵循此规范，公开契约测试会校验功能模块挂载到 `window.XXX`。
-
-**v2.4.8 生命周期约束**：功能模块 `init()` 必须按 document 幂等；同一 document 上重复调用不得重复注册按钮、键盘、遮罩或 window 级顶层监听。测试环境切换 document 时允许重新绑定新 DOM。
+### 6.2 代码封装与加载契约
+- **严格 IIFE 封装**：所有模块统一遵循 `(function () { 'use strict'; ... window.ModuleName = ModuleName; })();` 封装，禁止向全局作用域泄漏未定义变量。
+- **依赖前置**：`reader.js` 必须位于脚本加载链最末端；`storage.js` 必须在 `db-gateway.js` 与 `utils.js` 之后加载；功能模块必须在四层架构装配前就绪。
+- **无手动缓存串**：本地脚本禁止附加 `?v=` 等手动查询字符串，依赖 Chrome 开发者模式扩展 Reload 机制更新。
