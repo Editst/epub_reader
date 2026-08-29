@@ -11,6 +11,7 @@
   const NOTE_POPUP_FLIP_THRESHOLD_PX = 200;
   const NOTE_POPUP_FLIP_OFFSET_PX = 60;
   const TOOLBAR_ESTIMATED_HEIGHT_PX = 50;
+  const _HIGHLIGHT_RENDER_BATCH_SIZE = 20;
 
   let _rendition = null;
   let _bookId = '';
@@ -501,7 +502,42 @@
   }
 
   function renderAllHighlights() {
-    highlights.forEach(hl => renderHighlight(hl));
+    const list = highlights;
+    if (!Array.isArray(list) || list.length === 0) return;
+
+    if (list.length <= _HIGHLIGHT_RENDER_BATCH_SIZE) {
+      list.forEach(hl => renderHighlight(hl));
+      return;
+    }
+
+    const firstBatch = list.slice(0, _HIGHLIGHT_RENDER_BATCH_SIZE);
+    firstBatch.forEach(hl => renderHighlight(hl));
+
+    const batchContextSeq = _contextSeq;
+    const currentBook = _bookId;
+    const currentRendition = _rendition;
+    let offset = _HIGHLIGHT_RENDER_BATCH_SIZE;
+
+    function renderNextBatch() {
+      if (!isCurrentContext(batchContextSeq, currentBook, currentRendition)) return;
+      const nextBatch = list.slice(offset, offset + _HIGHLIGHT_RENDER_BATCH_SIZE);
+      nextBatch.forEach(hl => renderHighlight(hl));
+      offset += _HIGHLIGHT_RENDER_BATCH_SIZE;
+
+      if (offset < list.length) {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(renderNextBatch);
+        } else {
+          setTimeout(renderNextBatch, 0);
+        }
+      }
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(renderNextBatch);
+    } else {
+      setTimeout(renderNextBatch, 0);
+    }
   }
 
   function renderHighlight(hl) {

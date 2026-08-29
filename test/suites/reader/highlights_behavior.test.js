@@ -572,4 +572,56 @@ test.describe('Reader Highlights 行为', () => {
 
     assert.deepEqual(stored, []);
   });
+
+  test.it('renderAllHighlights 超过 20 条时分批调度，且切书时自动中断旧批次', async () => {
+    // 构造 50 条高亮记录
+    const stored = [];
+    for (let i = 0; i < 50; i++) {
+      stored.push({
+        cfi: `epubcfi(/6/2!/4/${i * 2})`,
+        text: `Highlight ${i}`,
+        color: '#ffeb3b',
+        timestamp: Date.now()
+      });
+    }
+
+    const rafCallbacks = [];
+    const { Highlights, rendition, annotations, context } = loadHighlights(stored, {
+      EpubStorage: {
+        async getHighlights(bookId) {
+          if (bookId === 'book-other') return [];
+          return stored.map(item => ({ ...item }));
+        },
+        async saveHighlights() {}
+      }
+    });
+    context.requestAnimationFrame = (fn) => {
+      rafCallbacks.push(fn);
+    };
+
+    await Highlights.setBookDetails('book-batch-hl', rendition);
+
+    // 首批 20 条立即同步渲染
+    assert.equal(annotations.length, 20, '首批应立即同步渲染 20 条高亮');
+    assert.equal(rafCallbacks.length, 1, '应排队第 2 批 rAF 回调');
+
+    // 执行第 2 批 (20-40)
+    const nextFn = rafCallbacks.shift();
+    nextFn();
+    assert.equal(annotations.length, 40, '第 2 批执行后渲染数达到 40');
+    assert.equal(rafCallbacks.length, 1, '应排队第 3 批 rAF 回调');
+
+    // 此时模拟切书 (setBookDetails 到空高亮书籍)
+    await Highlights.setBookDetails('book-other', rendition);
+
+    // 切书后 annotations 应已被清空
+    assert.equal(annotations.length, 0, '切书后旧高亮应被清空');
+
+    // 触发旧的第 3 批回调，由于 contextSeq 已变，应被代次守卫 abort
+    const abortedFn = rafCallbacks.shift();
+    abortedFn();
+
+    // 验证旧批次未在 annotations 中新增渲染（切书清空后无新污染）
+    assert.equal(annotations.length, 0, '旧批次在代次变化后应被 abort');
+  });
 });

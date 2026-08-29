@@ -548,7 +548,7 @@ test.describe('ReaderPersistence', () => {
     assert.deepEqual(bookmarkStates, [false]);
   });
 
-  test.it('onRelocated 分页模式保存 start.cfi，并把页内恢复锚点写入 locator', async () => {
+  test.it('onRelocated 分页模式保存 start.cfi 与 locator，flush 时采样恢复锚点', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;
     global.Bookmarks = { async isBookmarked() { return false; } };
@@ -614,8 +614,6 @@ test.describe('ReaderPersistence', () => {
     });
     await Promise.resolve();
 
-    EpubStorage.savePosition = originalSavePosition;
-
     assert.equal(state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
     assert.equal(state.lastPercent, 30);
     assert.equal(state.currentStableLocator.strategy, 'epubjs-displayed-page-v1');
@@ -623,16 +621,21 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.currentStableLocator.href, 'chapter.xhtml');
     assert.equal(state.currentStableLocator.page, 5);
     assert.equal(state.currentStableLocator.sourceCfi, 'epubcfi(/6/8!/4/2)');
-    assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/10)');
-    assert.deepEqual(positionCalls, [[
+    assert.equal(state.currentStableLocator.restoreCfi, undefined);
+    assert.deepEqual(positionCalls[0], [
       'book-paginated-anchor',
       'epubcfi(/6/8!/4/2)',
       30,
       state.currentStableLocator
-    ]]);
+    ]);
+
+    await persistence.flushPositionSave();
+    EpubStorage.savePosition = originalSavePosition;
+
+    assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/10)');
   });
 
-  test.it('onRelocated 分页模式优先用当前可视区域生成恢复锚点', async () => {
+  test.it('flushPositionSave 分页模式优先用当前可视区域生成恢复锚点', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;
     global.Bookmarks = { async isBookmarked() { return false; } };
@@ -689,11 +692,15 @@ test.describe('ReaderPersistence', () => {
     persistence.onRelocated(state.rendition.currentLocation());
     await Promise.resolve();
 
+    assert.equal(state.currentStableLocator.sourceCfi, 'epubcfi(/6/22!/4/180/1:0)');
+    assert.equal(state.currentStableLocator.restoreCfi, undefined);
+
+    await persistence.flushPositionSave();
     EpubStorage.savePosition = originalSavePosition;
 
     assert.equal(state.currentStableLocator.sourceCfi, 'epubcfi(/6/22!/4/180/1:0)');
     assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/22!/4/188/1:3)');
-    assert.equal(positionCalls[0][3].restoreCfi, 'epubcfi(/6/22!/4/188/1:3)');
+    assert.equal(positionCalls[1][3].restoreCfi, 'epubcfi(/6/22!/4/188/1:3)');
   });
 
   test.it('flushPositionSave 关闭/刷新前保存 start.cfi，并重建 locator.restoreCfi', async () => {
@@ -1513,12 +1520,16 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.currentStableLocator.href, 'ch2.xhtml');
     assert.equal(state.currentStableLocator.index, 2);
     assert.equal(state.currentStableLocator.page, 6);
-    assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/10!/4/12)');
+    assert.equal(state.currentStableLocator.restoreCfi, undefined);
     assert.equal(positionCalls[0][1], 'epubcfi(/6/10!/4/2)');
     assert.equal(positionCalls[0][3].href, 'ch2.xhtml');
+
+    await persistence.flushPositionSave();
+    EpubStorage.savePosition = originalSavePosition;
+    assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/10!/4/12)');
   });
 
-  test.it('onRelocated CFI 未变但 locator 或百分比变化时仍保存最新恢复位置', async () => {
+  test.it('onRelocated CFI 未变但 locator 或百分比变化时仍保存最新位置并在 flush 时采样恢复锚点', async () => {
     const { document } = createMockDocument(['chapter-title']);
     global.document = document;
     global.Bookmarks = { async isBookmarked() { return false; } };
@@ -1588,19 +1599,22 @@ test.describe('ReaderPersistence', () => {
     persistence.onRelocated(state.rendition.currentLocation());
     await Promise.resolve();
 
-    EpubStorage.savePosition = originalSavePosition;
-
     assert.equal(state.currentStableCfi, 'epubcfi(/6/10!/4/2)');
     assert.equal(state.lastPercent, 30);
     assert.equal(state.currentStableLocator.page, 5);
     assert.equal(state.currentStableLocator.sourceCfi, 'epubcfi(/6/10!/4/2)');
+    assert.equal(state.currentStableLocator.restoreCfi, undefined);
+
+    await persistence.flushPositionSave();
+    EpubStorage.savePosition = originalSavePosition;
+
     assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/10!/4/12)');
-    assert.deepEqual(positionCalls, [[
+    assert.deepEqual(positionCalls[1], [
       'book-same-cfi-new-page',
       'epubcfi(/6/10!/4/2)',
       30,
       state.currentStableLocator
-    ]]);
+    ]);
   });
 
   test.it('CFI 未变时不触发 savePosition', async () => {
@@ -1920,5 +1934,145 @@ test.describe('ReaderPersistence', () => {
     // DOM 元素不应被直接修改
     assert.equal(document.getElementById('progress-time').textContent, '',
       'progress-time 不应被 persistence 直接修改');
+  });
+
+  test.it('onRelocated 翻页过程中不调用 caretRangeFromPoint 强制重排', async () => {
+    let caretCallCount = 0;
+    const docMock = {
+      defaultView: { innerWidth: 800, innerHeight: 600 },
+      body: {},
+      documentElement: {},
+      caretRangeFromPoint() {
+        caretCallCount++;
+        return null;
+      }
+    };
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-no-reflow',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0.1,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: { locations: { length: () => 100, percentageFromCfi() { return 0.5; } }, navigation: { toc: [] } },
+      rendition: {
+        currentLocation() { return { start: { cfi: 'epubcfi(/6/4!/4/2)' } }; },
+        getContents() {
+          return [{ document: docMock, cfiFromRange() { return null; } }];
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    persistence.onRelocated({
+      start: { index: 1, cfi: 'epubcfi(/6/4!/4/2)', href: 'ch1.xhtml', displayed: { page: 2, total: 5 } }
+    });
+    await Promise.resolve();
+
+    assert.equal(caretCallCount, 0, 'onRelocated 不应在翻页热路径上触发 caretRangeFromPoint');
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/4!/4/2)');
+    assert.equal(state.currentStableLocator.page, 2);
+  });
+
+  test.it('flushPositionSave 第二次采样命中 _anchorCfiCache 缓存', async () => {
+    let caretCallCount = 0;
+    let targetNode = { nodeType: 3, data: 'cached text' };
+    const docMock = {
+      defaultView: { innerWidth: 800, innerHeight: 600 },
+      body: {},
+      documentElement: {},
+      createRange() {
+        return { startContainer: targetNode, startOffset: 0, setStart() {}, collapse() {} };
+      },
+      caretRangeFromPoint(x, y) {
+        caretCallCount++;
+        const range = docMock.createRange();
+        return range;
+      }
+    };
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-cache-test',
+      currentStableCfi: 'epubcfi(/6/4!/4/2)',
+      currentStableLocator: {
+        strategy: 'epubjs-displayed-page-v1',
+        layout: 'paginated',
+        sourceCfi: 'epubcfi(/6/4!/4/2)',
+        href: 'ch1.xhtml',
+        page: 2,
+        total: 5
+      },
+      lastPercent: 50,
+      prefs: { layout: 'paginated' },
+      book: { locations: { length: () => 100, percentageFromCfi() { return 0.5; } } },
+      rendition: {
+        getContents() {
+          return [{
+            document: docMock,
+            cfiFromRange() { return 'epubcfi(/6/4!/4/10)'; }
+          }];
+        },
+        currentLocation() {
+          return {
+            start: { index: 1, cfi: 'epubcfi(/6/4!/4/2)', href: 'ch1.xhtml', displayed: { page: 2, total: 5 } }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    // 首次 flush：触发采样
+    await persistence.flushPositionSave();
+    assert.equal(state.currentStableLocator.restoreCfi, 'epubcfi(/6/4!/4/10)');
+    const firstCaretCalls = caretCallCount;
+    assert.ok(firstCaretCalls > 0, '首次采样应调用 caretRangeFromPoint');
+
+    // 同一位置第二次 flush：命中缓存
+    await persistence.flushPositionSave();
+    assert.equal(caretCallCount, firstCaretCalls, '第二次采样应直接命中缓存，不增加 caretRangeFromPoint 调用');
+  });
+
+  test.it('onRelocated 当 eventPosition.cfi 存在时优先采用 eventPosition.cfi', async () => {
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-lazy-loc',
+      currentStableCfi: null,
+      lastPercent: null,
+      lastProgress: 0.1,
+      sessionStart: null,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' },
+      book: { locations: { length: () => 100, percentageFromCfi() { return 0.5; } }, navigation: { toc: [] } },
+      rendition: {
+        currentLocation() {
+          return { start: { cfi: 'epubcfi(/6/99-stale)' } };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    persistence.onRelocated({
+      start: { index: 1, cfi: 'epubcfi(/6/4!/4/2)', href: 'ch1.xhtml', displayed: { page: 2, total: 5 } }
+    });
+    await Promise.resolve();
+
+    assert.equal(state.currentStableCfi, 'epubcfi(/6/4!/4/2)', '应优先采用 eventPosition.cfi 而非 currentLocation 读出的旧 CFI');
   });
 });

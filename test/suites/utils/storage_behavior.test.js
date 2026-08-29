@@ -1317,6 +1317,24 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.ok(stored, 'IndexedDB 中应存在该文件');
     assert.equal(stored.filename, 'test-import.epub');
   });
+
+  test.it('_updateBookRecordList 使用 slice() 浅拷贝数组，未修改记录保留原对象引用', async () => {
+    resetAll();
+    const bookId = 'book_cow_test';
+    const originalRecord = { cfi: 'cfi_keep', text: 'kept', color: '#ff0' };
+    await EpubStorage.saveHighlights(bookId, [originalRecord]);
+
+    let capturedFirstItem = null;
+    await EpubStorage.updateHighlights(bookId, (records) => {
+      capturedFirstItem = records[0];
+      records.push({ cfi: 'cfi_new', text: 'new', color: '#0f0' });
+      return records;
+    });
+
+    // 验证 records[0] 并没有被 map({ ...r }) 重新分配，而是保留了原引用
+    assert.equal(capturedFirstItem.cfi, originalRecord.cfi);
+    assert.equal(capturedFirstItem.text, originalRecord.text);
+  });
 });
 
 

@@ -8,6 +8,26 @@
 
 ---
 
+## [2.5.43] - 2026-08-30
+
+### perf
+- **翻页热路径脱敏与强制重排消除 (P0-1)**：
+  - `reader-persistence.js` 彻底将 `_buildRestoreAnchorCfi`（含 `caretRangeFromPoint` 采样）从每次翻页的 `onRelocated` 热路径剥离，转由 `flushPositionSave` 与 `_refreshStablePositionFromRendition` 在退出/休眠写盘前按需延迟采集，每次翻页重排次数由 25~50 次降低至 0 次。
+  - 采样网格优化为中心优先的螺旋序列 `ANCHOR_PROBE_SEQUENCE`（中心点 `[0.50, 0.45]` 为首），并增加 `_anchorCfiCache` 内存缓存与生命周期自动释放。
+  - `onRelocated` 实施惰性求值：仅当 `!eventPosition.cfi` 时才调用 `_buildPositionFromLocation(currentLoc)`，消除重复计算。
+- **渲染稳定检测可选跳过字体等待 (P0-2)**：
+  - `reader-runtime.js` 为 `_waitForRenditionStable` 增加 `skipFontWait` 选项；在 `_readCurrentDisplayedPage`（页码校正读取）与 `_displayLayoutRendition`（布局切换恢复）中显式跳过 `document.fonts.ready` 的 300ms 竞态等待，消除了 200~600ms 的无谓开销。
+- **高亮分批调度与代次守卫 (P1-1)**：
+  - `highlights.js` 引入 `_HIGHLIGHT_RENDER_BATCH_SIZE = 20` 分批异步挂载机制；数量 `<= 20` 时同步渲染，超过 20 条时首批立即同步渲染，后续批次利用 `requestAnimationFrame` 分批异步执行，并严格校验 `isCurrentContext` 代次守卫，防止快速切书/重渲染导致的内存泄漏与高亮错位。
+- **正文统计 TreeWalker 零拷贝提取 (P1-2)**：
+  - `reader-runtime.js` 重构 `_getSectionReadingText`，使用原生 `TreeWalker` 进行单次线性遍历，直接过滤排除标签（`SCRIPT`、`STYLE`、`NOSCRIPT`、`TEMPLATE`、`RT`、`RP`）与 `hidden`/`aria-hidden="true"` 隐藏祖先，彻底消除了全 DOM 深拷贝（`cloneNode(true)`）及选择器元素删除的内存和 GC 压力。
+- **存储读改写数组浅拷贝优化 (P2-1)**：
+  - `storage.js` 的 `_updateBookRecordList` 由全量深对象浅拷贝 `stored.map((record) => ({ ...record }))` 改为数组浅拷贝 `stored.slice()`，在未修改项上复用引用，实现 O(1) 拷贝。
+- **脚注目标定位索引缓存 (P2-2)**：
+  - `annotations.js` 引入 `_targetIdIndex` 映射索引，在首次命中（含 Method 4 全书线性扫描）后缓存 `targetId -> sectionHref`；后续相同脚注查询直接 O(1) 定位目标章节，并在切书与 `unmount` 时自动清空。
+
+---
+
 ## [2.5.42] - 2026-08-27
 
 ### refactor

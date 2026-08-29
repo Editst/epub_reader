@@ -3071,6 +3071,58 @@ test.describe('Reader 模块基础行为', () => {
     const resReject = await ReaderState.safeNavigate(mockRejectNav, null, 'bad-cfi', 'TestTag');
     assert.equal(resReject, null);
   });
+
+  test.it('Annotations._targetIdIndex 缓存 targetId 对应 sectionHref 并在切书/卸载时清空', async () => {
+    const { document } = createMockDocument(['annotation-overlay', 'annotation-popup', 'annotation-body', 'annotation-title', 'annotation-close']);
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations', {
+      document,
+      window: { document }
+    });
+    Annotations.init();
+
+    const mockSpineSection = {
+      href: 'chapter_fn.xhtml',
+      async load() {
+        return {
+          nodeType: 9,
+          getElementById(id) {
+            if (id === 'fn1') return { tagName: 'DIV', textContent: 'Footnote content 1', innerHTML: '<p>Footnote content 1</p>' };
+            return null;
+          },
+          querySelector(sel) {
+            if (sel === '#fn1' || sel === '[id="fn1"]') return { tagName: 'DIV', textContent: 'Footnote content 1', innerHTML: '<p>Footnote content 1</p>' };
+            return null;
+          }
+        };
+      },
+      unload() {}
+    };
+
+    const mockBook = {
+      spine: {
+        length: 1,
+        get(key) {
+          if (key === 0 || key === 'chapter_fn.xhtml') return mockSpineSection;
+          return null;
+        }
+      }
+    };
+
+    Annotations.setBook(mockBook);
+    // 模拟命中 targetId
+    const res = await Annotations._loadFromBook('nonexistent_ref.xhtml', 'fn1');
+    assert.ok(res, '应通过 brute-force 或定位成功找到目标');
+    assert.equal(Annotations._targetIdIndex.get('fn1'), 'chapter_fn.xhtml', '命中后应缓存 targetId 对应的 sectionHref');
+
+    // 切书时清空
+    Annotations.setBook({ spine: { length: 0, get() { return null; } } });
+    assert.equal(Annotations._targetIdIndex.size, 0, 'setBook 应清空 _targetIdIndex');
+
+    // 再次放入缓存并测试 unmount 清空
+    Annotations._targetIdIndex.set('fn2', 'chap2.xhtml');
+    Annotations.unmount();
+    assert.equal(Annotations._targetIdIndex.size, 0, 'unmount 应清空 _targetIdIndex');
+  });
 });
 
 

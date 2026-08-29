@@ -29,11 +29,27 @@
   const START_CFI_NUDGE_CHARS          = 1;
   const NODE_TYPE_TEXT                 = 3;
   const NODE_FILTER_SHOW_TEXT          = 4;
-  const VISIBLE_ANCHOR_X_RATIOS        = [0.5, 0.42, 0.58, 0.35, 0.65];
-  const VISIBLE_ANCHOR_Y_RATIOS        = [0.45, 0.35, 0.55, 0.25, 0.70];
+  const ANCHOR_PROBE_SEQUENCE          = Object.freeze([
+    // 中心点（90%+ 页面首点命中）
+    [0.50, 0.45],
+    // 中心十字扩展
+    [0.42, 0.45], [0.58, 0.45], [0.50, 0.35], [0.50, 0.55],
+    // 次外围
+    [0.35, 0.45], [0.65, 0.45], [0.42, 0.35], [0.58, 0.35],
+    [0.42, 0.55], [0.58, 0.55],
+    // 外围（仅在中心区域全部失败时才探测）
+    [0.35, 0.25], [0.50, 0.25], [0.65, 0.25],
+    [0.35, 0.70], [0.50, 0.70], [0.65, 0.70]
+  ]);
 
   function createReaderPersistence({ state, ui }) {
     let _bookmarkStateSeq = 0;
+    let _anchorCfiCache = { key: null, cfi: null };
+
+    function _clearAnchorCfiCache() {
+      _anchorCfiCache.key = null;
+      _anchorCfiCache.cfi = null;
+    }
 
     // ── Position ─────────────────────────────────────────────────────────────
 
@@ -287,18 +303,6 @@
       return null;
     }
 
-    function _getVisibleAnchorXs(viewport, location) {
-      const displayed = location && location.start && location.start.displayed;
-      const page = displayed && typeof displayed.page === 'number' ? displayed.page : null;
-      const total = displayed && typeof displayed.total === 'number' ? displayed.total : null;
-      if (page && total && total > 1 && page >= 1 && page <= total) {
-        const columnWidth = viewport.width / total;
-        const columnLeft = columnWidth * (page - 1);
-        return VISIBLE_ANCHOR_X_RATIOS.map((ratio) => columnLeft + columnWidth * ratio);
-      }
-      return VISIBLE_ANCHOR_X_RATIOS.map((ratio) => viewport.width * ratio);
-    }
-
     function _buildVisiblePageAnchorCfi(location) {
       if (!_isPaginatedLayout()) return null;
       if (!state.rendition || typeof state.rendition.getContents !== 'function') return null;
@@ -314,17 +318,30 @@
         const doc = contents && contents.document;
         const viewport = _getContentViewport(contents);
         if (!doc || !viewport) continue;
-        const anchorXs = _getVisibleAnchorXs(viewport, location);
 
-        for (const yRatio of VISIBLE_ANCHOR_Y_RATIOS) {
-          for (const x of anchorXs) {
-            const range = _rangeFromPoint(
-              doc,
-              Math.round(x),
-              Math.round(viewport.height * yRatio)
-            );
-            const cfi = _cfiFromRange(contents, range);
-            if (cfi) return cfi;
+        const displayed = location && location.start && location.start.displayed;
+        const page = displayed && typeof displayed.page === 'number' ? displayed.page : 1;
+        const total = displayed && typeof displayed.total === 'number' ? displayed.total : 1;
+        const href = (location && location.start && location.start.href) || '';
+        const cacheKey = `${href}:${page}:${total}:${viewport.width}:${viewport.height}`;
+
+        if (_anchorCfiCache.key === cacheKey && _anchorCfiCache.cfi) {
+          return _anchorCfiCache.cfi;
+        }
+
+        const isMultiColumn = total > 1 && page >= 1 && page <= total;
+        const columnWidth = isMultiColumn ? (viewport.width / total) : viewport.width;
+        const columnLeft = isMultiColumn ? (columnWidth * (page - 1)) : 0;
+
+        for (const [xRatio, yRatio] of ANCHOR_PROBE_SEQUENCE) {
+          const probeX = Math.round(columnLeft + columnWidth * xRatio);
+          const probeY = Math.round(viewport.height * yRatio);
+          const range = _rangeFromPoint(doc, probeX, probeY);
+          const cfi = _cfiFromRange(contents, range);
+          if (cfi) {
+            _anchorCfiCache.key = cacheKey;
+            _anchorCfiCache.cfi = cfi;
+            return cfi;
           }
         }
       }
@@ -358,12 +375,12 @@
       return _buildVisiblePageAnchorCfi(location) || _buildStartInnerAnchorCfi(sourceCfi) || sourceCfi;
     }
 
-    function _buildPositionFromLocation(location) {
+    function _buildPositionFromLocation(location, options = {}) {
       if (!location || !location.start || !location.start.cfi) {
         return { cfi: null, percent: null, locator: null };
       }
       const sourceCfi = location.start.cfi;
-      const restoreCfi = _buildRestoreAnchorCfi(sourceCfi, location);
+      const restoreCfi = options.resolveAnchor ? _buildRestoreAnchorCfi(sourceCfi, location) : sourceCfi;
       let percent = null;
       const progress = ReaderState.getLocationProgress(
         state.book && state.book.locations,
@@ -382,7 +399,8 @@
       if (state.isRestoringPosition || state.isResizing) return;
       if (state.isRestoreAnchorProtected) return;
       if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return;
-      const position = _buildPositionFromLocation(state.rendition.currentLocation());
+      const location = state.rendition.currentLocation();
+      const position = _buildPositionFromLocation(location, { resolveAnchor: true });
       if (!position.cfi) return;
       state.currentStableCfi = position.cfi;
       state.currentStableLocator = position.locator;
@@ -393,7 +411,17 @@
       const hasPendingPositionSave = !!state.posTimer;
       clearTimeout(state.posTimer);
       state.posTimer = null;
-      if (!hasPendingPositionSave) _refreshStablePositionFromRendition();
+      if (!hasPendingPositionSave) {
+        _refreshStablePositionFromRendition();
+      } else if (state.currentStableLocator && state.rendition && typeof state.rendition.currentLocation === 'function') {
+        try {
+          const currentLoc = state.rendition.currentLocation();
+          const restoreCfi = _buildRestoreAnchorCfi(state.currentStableCfi, currentLoc);
+          if (restoreCfi && restoreCfi !== state.currentStableCfi) {
+            state.currentStableLocator.restoreCfi = restoreCfi;
+          }
+        } catch (_) {}
+      }
       if (state.currentBookId && state.currentStableCfi) {
         return _savePositionSafely(
           state.currentBookId,
@@ -516,11 +544,11 @@
       // relocated 事件是 epub.js 对本次导航给出的最新位置；currentLocation()
       // 在同一 tick 内可能仍是上一页，只在事件缺失 CFI 时作为兜底。
       if (!state.isRestoringPosition && !state.isRestoreAnchorProtected) {
-        const currentLoc = state.rendition && typeof state.rendition.currentLocation === 'function'
+        const currentLoc = (!eventPosition.cfi && state.rendition && typeof state.rendition.currentLocation === 'function')
           ? state.rendition.currentLocation()
           : null;
-        const currentPosition = _buildPositionFromLocation(currentLoc);
-        const position = eventPosition.cfi ? eventPosition : currentPosition;
+        const currentPosition = currentLoc ? _buildPositionFromLocation(currentLoc) : null;
+        const position = eventPosition.cfi ? eventPosition : (currentPosition || eventPosition);
         const cfi = position.cfi || location.start.cfi;
         const nextPercent = position.percent !== null ? position.percent : percent;
         const cfiChanged = _isPositionMeaningfullyChanged(cfi, state.currentStableCfi);
@@ -685,6 +713,7 @@
 
     function unmount() {
       _bookmarkStateSeq++;
+      _clearAnchorCfiCache();
       if (state.readingTimer) {
         clearInterval(state.readingTimer);
         state.readingTimer = null;

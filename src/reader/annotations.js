@@ -482,6 +482,7 @@ const Annotations = {
   _boundDocument: null,
   _contextSeq: 0,
   _sectionDocCache: new Map(),
+  _targetIdIndex: new Map(),
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -522,6 +523,7 @@ const Annotations = {
     this.navigate = null;
     this.close();
     this._clearSectionCache();
+    this._targetIdIndex.clear();
     if (this._onKeyDown) {
       document.removeEventListener('keydown', this._onKeyDown);
       this._isKeyDownBound = false;
@@ -533,6 +535,7 @@ const Annotations = {
       this._contextSeq++;
       this.close();
       this._clearSectionCache();
+      this._targetIdIndex.clear();
     }
     this.book = book;
   },
@@ -906,10 +909,21 @@ const Annotations = {
       try { d = new DOMParser().parseFromString(d, 'application/xhtml+xml'); }
       catch (_) { return null; }
     }
-    try { const el = d.getElementById(targetId); if (el) return el; } catch (_) {}
     try {
-      return d.querySelector(`[id="${CSS.escape(targetId)}"]`) ||
-             d.querySelector(`[name="${CSS.escape(targetId)}"]`);
+      if (typeof d.getElementById === 'function') {
+        const el = d.getElementById(targetId);
+        if (el) return el;
+      }
+    } catch (_) {}
+    try {
+      const escapeFn = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+        ? CSS.escape
+        : (s) => String(s).replace(/["\\]/g, '\\$&');
+      const escaped = escapeFn(targetId);
+      if (typeof d.querySelector === 'function') {
+        return d.querySelector(`[id="${escaped}"]`) ||
+               d.querySelector(`[name="${escaped}"]`);
+      }
     } catch (_) {}
     return null;
   },
@@ -1023,6 +1037,7 @@ const Annotations = {
           if (targetId) {
             const el = this._findTarget(loaded, targetId);
             if (el) {
+              if (this._targetIdIndex) this._targetIdIndex.set(targetId, section.href || sectionHref);
               const html = this._extractContent(el);
               return { html, href: section.href };
             }
@@ -1040,6 +1055,36 @@ const Annotations = {
           if (loadedResult.shouldUnload) {
             try { section.unload(); } catch (_) {}
           }
+        }
+      }
+
+      // Method 3.5: targetId index lookup
+      if (targetId && this._targetIdIndex && this._targetIdIndex.has(targetId)) {
+        const indexedHref = this._targetIdIndex.get(targetId);
+        const indexedSection = activeBook.spine.get(indexedHref);
+        if (indexedSection) {
+          const loadedResult = await this._loadSectionDocument(
+            indexedSection,
+            activeLoad,
+            indexedSection.href || indexedHref,
+            cancelToken,
+            context
+          );
+          if (loadedResult) {
+            try {
+              const el = this._findTarget(loadedResult.loaded, targetId);
+              if (el) {
+                return { html: this._extractContent(el), href: indexedSection.href || indexedHref };
+              }
+              this._targetIdIndex.delete(targetId);
+            } finally {
+              if (loadedResult.shouldUnload) {
+                try { indexedSection.unload(); } catch (_) {}
+              }
+            }
+          }
+        } else {
+          this._targetIdIndex.delete(targetId);
         }
       }
 
@@ -1063,6 +1108,7 @@ const Annotations = {
             const loaded = loadedResult.loaded;
             const el = this._findTarget(loaded, targetId);
             if (el) {
+              if (this._targetIdIndex) this._targetIdIndex.set(targetId, s.href || String(i));
               const html = this._extractContent(el);
               return { html, href: s.href };
             }

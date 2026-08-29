@@ -3493,5 +3493,48 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.isBookLoaded, true);
     assert.equal(setBookTitleCalledWith, 'nonstandard.epub', 'metadata 为 null 时应降级使用文件名');
   });
+
+  test.it('_waitForRenditionStable 配合 skipFontWait 选项不等待 document.fonts.ready', async () => {
+    let fontReadyPolled = false;
+    const contents = [{
+      document: {
+        fonts: {
+          get ready() {
+            fontReadyPolled = true;
+            return Promise.resolve();
+          }
+        }
+      }
+    }];
+    const mockRendition = {
+      display: async () => {},
+      destroy() {},
+      themes: { default() {}, fontSize() {} },
+      hooks: { content: { register() {} } },
+      on() {},
+      off() {},
+      getContents: () => contents,
+      currentLocation: () => ({ start: { cfi: 'cfi_1' } })
+    };
+    const state = {
+      book: {
+        renderTo() { return mockRendition; }
+      },
+      rendition: mockRendition,
+      prefs: { layout: 'paginated', theme: 'light' },
+      isBookLoaded: true,
+      currentBookId: 'book-font-test'
+    };
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: { setReaderVisible() {}, clearReaderError() {}, setBookTitle() {}, syncPrefsToControls() {}, showLoading() {}, applyThemeToRendition() {}, setupRenditionKeyEvents() {} },
+      persistence: { startReadingTimer() {}, onRelocated() {} },
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    fontReadyPolled = false;
+    await runtime.setLayout('scrolled');
+    assert.equal(fontReadyPolled, false, '布局切换时传入 skipFontWait: true 不应等待 fonts.ready');
+  });
 });
 

@@ -25,6 +25,7 @@
   const CONTENT_UNIT_VERSION            = 1;
   const CONTENT_UNIT_COUNT_BATCH_SIZE   = 8;
   const CONTENT_UNIT_EXCLUDED_SELECTOR  = 'script,style,noscript,template,[hidden],[aria-hidden="true"],rt,rp';
+  const CONTENT_UNIT_EXCLUDED_TAGS      = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'RT', 'RP']);
   const FONT_READY_TIMEOUT_MS           = 300;
   const GAP_SCROLLED_PX                 = 48;
   const GAP_PAGINATED_PX                = 80;
@@ -170,15 +171,39 @@
         : (loadedContent && loadedContent.nodeType ? loadedContent : null);
       if (!root) throw new Error('Section document is unavailable');
 
-      if (typeof root.cloneNode !== 'function') return root.textContent || '';
-      const clone = root.cloneNode(true);
-      if (typeof clone.querySelectorAll === 'function') {
-        clone.querySelectorAll(CONTENT_UNIT_EXCLUDED_SELECTOR).forEach((node) => {
-          if (typeof node.remove === 'function') node.remove();
-          else if (node.parentNode) node.parentNode.removeChild(node);
-        });
+      if (!doc || typeof doc.createTreeWalker !== 'function') {
+        if (typeof root.cloneNode !== 'function') return root.textContent || '';
+        const clone = root.cloneNode(true);
+        if (typeof clone.querySelectorAll === 'function') {
+          clone.querySelectorAll(CONTENT_UNIT_EXCLUDED_SELECTOR).forEach((node) => {
+            if (typeof node.remove === 'function') node.remove();
+            else if (node.parentNode) node.parentNode.removeChild(node);
+          });
+        }
+        return clone.textContent || '';
       }
-      return clone.textContent || '';
+
+      const parts = [];
+      const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */, {
+        acceptNode(node) {
+          let el = node.parentElement;
+          while (el && el !== root) {
+            const tagName = el.tagName ? el.tagName.toUpperCase() : '';
+            if (CONTENT_UNIT_EXCLUDED_TAGS.has(tagName)) return 2 /* NodeFilter.FILTER_REJECT */;
+            if (el.hidden || (typeof el.getAttribute === 'function' && el.getAttribute('aria-hidden') === 'true')) {
+              return 2 /* NodeFilter.FILTER_REJECT */;
+            }
+            el = el.parentElement;
+          }
+          return 1 /* NodeFilter.FILTER_ACCEPT */;
+        }
+      });
+      while (walker.nextNode()) {
+        if (walker.currentNode && walker.currentNode.data) {
+          parts.push(walker.currentNode.data);
+        }
+      }
+      return parts.join('');
     }
 
     async function _countBookContentUnits(bookId, activeBook) {
@@ -353,21 +378,23 @@
       rendition.__readerDisplayGuarded = true;
     }
 
-    async function _waitForRenditionStable(rendition = state.rendition) {
+    async function _waitForRenditionStable(rendition = state.rendition, opts = {}) {
       await _nextFrame();
       await _nextFrame();
 
-      const contents = rendition && typeof rendition.getContents === 'function'
-        ? rendition.getContents()
-        : [];
-      const fontPromises = contents
-        .map((contentsItem) => contentsItem && contentsItem.document && contentsItem.document.fonts && contentsItem.document.fonts.ready)
-        .filter(Boolean);
-      if (fontPromises.length) {
-        await Promise.race([
-          Promise.all(fontPromises).catch(() => {}),
-          _delay(FONT_READY_TIMEOUT_MS)
-        ]);
+      if (!opts.skipFontWait) {
+        const contents = rendition && typeof rendition.getContents === 'function'
+          ? rendition.getContents()
+          : [];
+        const fontPromises = contents
+          .map((contentsItem) => contentsItem && contentsItem.document && contentsItem.document.fonts && contentsItem.document.fonts.ready)
+          .filter(Boolean);
+        if (fontPromises.length) {
+          await Promise.race([
+            Promise.all(fontPromises).catch(() => {}),
+            _delay(FONT_READY_TIMEOUT_MS)
+          ]);
+        }
       }
 
       // 不在此处调用 reportLocation()——display() 已触发，
@@ -395,7 +422,7 @@
     }
 
     async function _readCurrentDisplayedPage() {
-      await _waitForRenditionStable();
+      await _waitForRenditionStable(state.rendition, { skipFontWait: true });
       if (!state.rendition || typeof state.rendition.currentLocation !== 'function') return null;
       return _getDisplayedPage(state.rendition.currentLocation());
     }
@@ -975,13 +1002,13 @@
     async function _displayLayoutRendition(rendition, cfi, isActive) {
       if (cfi) await rendition.display(cfi);
       else await rendition.display();
-      await _waitForRenditionStable(rendition);
+      await _waitForRenditionStable(rendition, { skipFontWait: true });
       if (isActive && !isActive()) return false;
       // 新 rendition 首次 display 时，字体与自定义行距可能尚未完成重排。
       // 稳定后只重放同一个 CFI 一次，避免落在重排前分页对应的错误列。
       if (cfi) {
         await rendition.display(cfi);
-        await _waitForRenditionStable(rendition);
+        await _waitForRenditionStable(rendition, { skipFontWait: true });
       }
       return !isActive || isActive();
     }

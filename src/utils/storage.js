@@ -780,7 +780,7 @@ const EpubStorage = {
     if (!bookId || typeof mutator !== 'function') return undefined;
     return this._runBookResourceWrite(bookId, resourceName, async () => {
       const stored = this._normalizeRecordList(await this._get(key), requiredField);
-      const mutableRecords = stored.map((record) => ({ ...record }));
+      const mutableRecords = stored.slice();
       const mutated = await mutator(mutableRecords);
       if (mutated === false) return stored;
       const updated = this._normalizeRecordList(
