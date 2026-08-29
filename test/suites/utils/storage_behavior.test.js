@@ -1335,6 +1335,81 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(capturedFirstItem.cfi, originalRecord.cfi);
     assert.equal(capturedFirstItem.text, originalRecord.text);
   });
+
+  test.it('generateBookId 支持通过 Blob 切片只读取首 64KB 计算哈希', async () => {
+    resetAll();
+    let sliceCalled = false;
+    let arrayBufferCalls = 0;
+
+    const fakeBlob = {
+      size: 1024 * 1024 * 100, // 100MB
+      slice(start, end) {
+        sliceCalled = true;
+        assert.equal(start, 0);
+        assert.equal(end, 65536);
+        return {
+          async arrayBuffer() {
+            arrayBufferCalls++;
+            return new Uint8Array(65536).buffer;
+          }
+        };
+      },
+      async arrayBuffer() {
+        assert.fail('不得对完整 100MB Blob 调用 arrayBuffer()');
+      }
+    };
+
+    const bookId = await EpubStorage.generateBookId('big_book.epub', fakeBlob);
+    assert.ok(sliceCalled, '应调用 slice(0, 65536)');
+    assert.equal(arrayBufferCalls, 1, '应仅对 64KB 切片调用一次 arrayBuffer()');
+    assert.ok(bookId.startsWith('book_'), '生成的 ID 应以 book_ 开头');
+  });
+
+  test.it('flushSessionBundle 单次事务原子写入位置、阅读时长与速度样本', async () => {
+    resetAll();
+    const bookId = 'book_bundle_test';
+
+    const bundle = {
+      pos: {
+        cfi: 'epubcfi(/6/4[chap01]!/4/2/1:0)',
+        percentage: 42.5,
+        locator: { version: 'epubjs-displayed-page-v1', displayedPage: 3 }
+      },
+      readingSeconds: 45,
+      speedSample: {
+        sampledSeconds: 45,
+        sampledProgress: 0.05
+      }
+    };
+
+    const updated = await EpubStorage.flushSessionBundle(bookId, bundle);
+    assert.ok(updated, 'flushSessionBundle 应返回更新后的 meta');
+    assert.equal(updated.pos.cfi, 'epubcfi(/6/4[chap01]!/4/2/1:0)');
+    assert.equal(updated.pos.percentage, 42.5);
+    assert.equal(updated.pos.locator.displayedPage, 3);
+    assert.equal(updated.time, 45);
+    assert.equal(updated.speed.sampledSeconds, 45);
+    assert.equal(updated.speed.sampledProgress, 0.05);
+
+    // 二次累加测试
+    const bundle2 = {
+      pos: {
+        cfi: 'epubcfi(/6/4[chap01]!/4/2/5:0)',
+        percentage: 50.0
+      },
+      readingSeconds: 30,
+      speedSample: {
+        sampledSeconds: 30,
+        sampledProgress: 0.03
+      }
+    };
+    const updated2 = await EpubStorage.flushSessionBundle(bookId, bundle2);
+    assert.equal(updated2.pos.cfi, 'epubcfi(/6/4[chap01]!/4/2/5:0)');
+    assert.equal(updated2.pos.percentage, 50.0);
+    assert.equal(updated2.time, 75, '时长应累加为 45 + 30 = 75');
+    assert.equal(updated2.speed.sampledSeconds, 75, '速度采样秒数应累加为 45 + 30 = 75');
+    assert.equal(Math.round(updated2.speed.sampledProgress * 100) / 100, 0.08, '速度采样进度应累加为 0.05 + 0.03 = 0.08');
+  });
 });
 
 

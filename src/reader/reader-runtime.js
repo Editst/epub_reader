@@ -561,29 +561,32 @@
       const shouldFlushSession = !!(oldBookId && state.isBookLoaded);
 
       if (shouldFlushSession) {
-        const flushTasks = [
-          () => typeof persistence.flushPositionSave === 'function'
-            ? persistence.flushPositionSave()
-            : undefined,
-          () => typeof persistence.flushReadingTime === 'function'
-            ? persistence.flushReadingTime(oldBookId)
-            : undefined,
-          () => typeof persistence.flushSpeedSession === 'function'
-            ? persistence.flushSpeedSession(null)
-            : undefined
-        ].map((task) => {
-          try {
-            return Promise.resolve(task());
-          } catch (e) {
-            return Promise.reject(e);
+        try {
+          if (typeof persistence.flushSessionBundle === 'function') {
+            await persistence.flushSessionBundle(oldBookId);
+          } else {
+            const flushTasks = [
+              () => typeof persistence.flushPositionSave === 'function'
+                ? persistence.flushPositionSave()
+                : undefined,
+              () => typeof persistence.flushReadingTime === 'function'
+                ? persistence.flushReadingTime(oldBookId)
+                : undefined,
+              () => typeof persistence.flushSpeedSession === 'function'
+                ? persistence.flushSpeedSession(null)
+                : undefined
+            ].map((task) => {
+              try {
+                return Promise.resolve(task());
+              } catch (e) {
+                return Promise.reject(e);
+              }
+            });
+            await Promise.allSettled(flushTasks);
           }
-        });
-        const flushResults = await Promise.allSettled(flushTasks);
-        flushResults.forEach((result) => {
-          if (result.status === 'rejected') {
-            console.warn('[Runtime] teardown flush failed:', result.reason);
-          }
-        });
+        } catch (e) {
+          console.warn('[Runtime] teardown flush failed:', e);
+        }
       }
 
       _destroyActiveBookResources();

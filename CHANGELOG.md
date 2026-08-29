@@ -8,6 +8,20 @@
 
 ---
 
+## [2.5.45] - 2026-08-30
+
+### perf
+- **EPUB 导入 Blob 零拷贝直通 (P0-1)**：
+  - `storage.js` 的 `generateBookId` 升级为支持直接对 `Blob` / `File` 对象执行 `file.slice(0, 65536)` 切片，仅读取首 64KB 计算 SHA-256 哈希，彻底消除导入 100MB~500MB 大文件时加载全量 ArrayBuffer 引发的 V8 内存爆破与 OOM 崩溃。
+  - `importBookFile` 与 `storeFile` 实现 Blob 零拷贝透传，直接将 `File`/`Blob` 存入 IndexedDB 并返回可直供阅读器消费的 `fileData`。
+  - `reader-ui.js` 本地导入管道适配 `fileData` 透传直连 `runtime.openBook`。
+- **退出/休眠聚合刷盘事务 (P0-2)**：
+  - `storage.js` 新增 `flushSessionBundle(bookId, bundle)`，在单次独占 Web Lock 事务内原子合并 `pos`、`readingSeconds` 与 `speedSample` 写入，将退出生命周期的跨进程 IPC 往返由 3 次削减为 1 次，彻底消除多事务排队导致的锁竞争与数据丢失风险。
+  - `reader-persistence.js` 在 `visibilitychange(hidden)`、`beforeunload` 中接入 `flushSessionBundle` 聚合刷盘。
+  - `reader-runtime.js` 在切书销毁 `_teardownActiveBookForReplacement` 流程中统一接入 `flushSessionBundle`。
+
+---
+
 ## [2.5.44] - 2026-08-30
 
 ### fix

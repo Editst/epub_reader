@@ -69,14 +69,22 @@
         : 0;
     }
 
-    function flushReadingTime(bookId = state.currentBookId) {
+    function _extractFlushReadingTimePayload() {
       const pendingSeconds = _getPendingReadingSeconds();
+      if (pendingSeconds > 0) {
+        state.pendingReadingSeconds = 0;
+        return pendingSeconds;
+      }
+      return 0;
+    }
+
+    function flushReadingTime(bookId = state.currentBookId) {
+      const pendingSeconds = _extractFlushReadingTimePayload();
       if (!bookId || pendingSeconds <= 0) {
         return state.lastReadingTimeSave || Promise.resolve();
       }
 
       // 在 await 前转移本批次所有权；写入期间新产生的秒数留给下一批。
-      state.pendingReadingSeconds = 0;
       const write = Promise.resolve()
         .then(() => EpubStorage.addReadingTime(bookId, pendingSeconds))
         .then((storedSeconds) => {
@@ -407,7 +415,7 @@
       if (position.percent !== null) state.lastPercent = position.percent;
     }
 
-    function flushPositionSave() {
+    function _extractFlushPositionPayload() {
       const hasPendingPositionSave = !!state.posTimer;
       clearTimeout(state.posTimer);
       state.posTimer = null;
@@ -422,18 +430,53 @@
           }
         } catch (_) {}
       }
-      if (state.currentBookId && state.currentStableCfi) {
+      if (state.currentStableCfi) {
+        return {
+          cfi: state.currentStableCfi,
+          percentage: state.lastPercent,
+          locator: state.currentStableLocator
+        };
+      }
+      return null;
+    }
+
+    function flushPositionSave() {
+      const pos = _extractFlushPositionPayload();
+      if (state.currentBookId && pos) {
         return _savePositionSafely(
           state.currentBookId,
-          state.currentStableCfi,
-          state.lastPercent,
-          state.currentStableLocator
+          pos.cfi,
+          pos.percentage,
+          pos.locator
         );
       }
       return state.lastPositionSave || Promise.resolve();
     }
 
     // ── Speed Session ─────────────────────────────────────────────────────────
+
+    function _extractFlushSpeedPayload(newStartProgress = null) {
+      if (!state.sessionStart || !state.currentBookId || !state.isBookLoaded) return null;
+
+      const sessionStart = state.sessionStart;
+      const now = Date.now();
+      const deltaProgress = state.lastProgress - sessionStart.progress;
+      const deltaSeconds  = (now - sessionStart.timestamp) / 1000;
+
+      // 在任何 await 前转移会话所有权；迟到的旧写入不得清除后来建立的新会话。
+      state.sessionStart = (newStartProgress !== null)
+        ? { progress: newStartProgress, timestamp: now }
+        : null;
+
+      if (deltaProgress > SPEED_MIN_PROGRESS_DELTA && deltaProgress < SPEED_MAX_PROGRESS_DELTA && deltaSeconds > SPEED_MIN_SESSION_SECONDS) {
+        const weight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
+        return {
+          sampledSeconds: deltaSeconds * weight,
+          sampledProgress: deltaProgress * weight
+        };
+      }
+      return null;
+    }
 
     /**
      * 结束当前 speed session，有效样本累加到 cachedSpeed 并写入 storage。
@@ -447,29 +490,18 @@
      * @param {number|null} newStartProgress  null=session 结束；数字=跳跃后续期
      */
     async function flushSpeedSession(newStartProgress = null) {
-      if (!state.sessionStart || !state.currentBookId || !state.isBookLoaded) return;
-
-      const sessionStart = state.sessionStart;
       const bookId = state.currentBookId;
-      const now = Date.now();
-      const deltaProgress = state.lastProgress - sessionStart.progress;
-      const deltaSeconds  = (now - sessionStart.timestamp) / 1000;
-
-      // 在任何 await 前转移会话所有权；迟到的旧写入不得清除后来建立的新会话。
-      state.sessionStart = (newStartProgress !== null)
-        ? { progress: newStartProgress, timestamp: now }
-        : null;
-
-      if (deltaProgress > SPEED_MIN_PROGRESS_DELTA && deltaProgress < SPEED_MAX_PROGRESS_DELTA && deltaSeconds > SPEED_MIN_SESSION_SECONDS) {
+      if (!bookId || !state.isBookLoaded) return;
+      const sample = _extractFlushSpeedPayload(newStartProgress);
+      if (sample) {
         try {
           if (!state.cachedSpeed) {
             state.cachedSpeed = { sampledSeconds: 0, sampledProgress: 0 };
           }
-          const weight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
           const storedSpeed = await EpubStorage.addReadingSpeedSample(
             bookId,
-            deltaSeconds * weight,
-            deltaProgress * weight
+            sample.sampledSeconds,
+            sample.sampledProgress
           );
           if (bookId === state.currentBookId && storedSpeed) {
             state.cachedSpeed = { ...state.cachedSpeed, ...storedSpeed };
@@ -478,7 +510,6 @@
           console.warn('[Persistence] Failed to save speed sample:', e);
         }
       }
-
     }
 
     // ── Location / Progress ───────────────────────────────────────────────────
@@ -671,15 +702,51 @@
       }, READING_TIMER_INTERVAL_MS);
     }
 
+    function flushSessionBundle(bookId = state.currentBookId) {
+      if (!bookId) return state.lastPositionSave || Promise.resolve();
+      const pos = _extractFlushPositionPayload();
+      const readingSeconds = _extractFlushReadingTimePayload();
+      const speedSample = _extractFlushSpeedPayload(null);
+
+      if (!pos && readingSeconds <= 0 && !speedSample) {
+        return state.lastPositionSave || Promise.resolve();
+      }
+
+      const write = Promise.resolve()
+        .then(() => EpubStorage.flushSessionBundle(bookId, { pos, readingSeconds, speedSample }))
+        .then((meta) => {
+          if (bookId === state.currentBookId && meta) {
+            if (Number.isFinite(meta.time)) {
+              state.activeReadingSeconds = Math.max(
+                Number.isFinite(state.activeReadingSeconds) ? state.activeReadingSeconds : 0,
+                meta.time + _getPendingReadingSeconds()
+              );
+            }
+            if (meta.speed) {
+              state.cachedSpeed = { ...(state.cachedSpeed || {}), ...meta.speed };
+            }
+          }
+          return meta;
+        })
+        .catch((e) => {
+          if (bookId === state.currentBookId && readingSeconds > 0) {
+            state.pendingReadingSeconds = _getPendingReadingSeconds() + readingSeconds;
+          }
+          console.warn('[Persistence] flush session bundle failed:', e);
+        });
+
+      state.lastPositionSave = write;
+      state.lastReadingTimeSave = write;
+      return write;
+    }
+
     // ── Visibility ────────────────────────────────────────────────────────────
 
     // 页面重新可见时重置 session 起点，排除后台挂机时间。
     function _onVisibilityChange() {
       if (document.hidden) {
         if (state.currentBookId && state.isBookLoaded) {
-          flushPositionSave();
-          flushReadingTime();
-          flushSpeedSession(null);  // session 结束，不续期
+          flushSessionBundle();
         }
       } else {
         // 页面重新激活：以当前位置为新 session 起点
@@ -698,9 +765,7 @@
 
     function _onBeforeUnload() {
       if (state.currentBookId && state.isBookLoaded) {
-        flushPositionSave();
-        flushReadingTime();
-        flushSpeedSession(null);
+        flushSessionBundle();
       }
     }
 
@@ -733,6 +798,7 @@
       flushPositionSave,
       flushReadingTime,
       flushSpeedSession,
+      flushSessionBundle,
       updateReadingStats,
       startReadingTimer
     };

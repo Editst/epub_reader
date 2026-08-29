@@ -286,7 +286,15 @@ test.describe('Reader 功能模块公开契约', () => {
 
   test.it('ReaderUi 本地导入复用 EpubStorage.importBookFile 单一事实来源', () => {
     const src = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
-    assert.match(src, /const\s*\{\s*bookId,\s*arrayBuffer\s*\}\s*=\s*await\s+EpubStorage\.importBookFile\(file\)/,
+    assert.match(src, /const\s*\{\s*bookId,\s*fileData\s*\}\s*=\s*await\s+EpubStorage\.importBookFile\(file\)/,
       'ReaderUi._openLocalFile 必须统一复用 EpubStorage.importBookFile 进行导入');
+  });
+
+  test.it('ReaderPersistence 提供并使用 flushSessionBundle 聚合原子刷盘', () => {
+    const src = fs.readFileSync('src/reader/reader-persistence.js', 'utf8');
+    assert.match(src, /function flushSessionBundle\(bookId = state\.currentBookId\)/,
+      'ReaderPersistence 必须实现 flushSessionBundle 方法');
+    assert.match(src, /flushSessionBundle,\s*updateReadingStats/,
+      'ReaderPersistence 必须导出 flushSessionBundle');
   });
 });

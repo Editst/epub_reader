@@ -1210,22 +1210,16 @@ test.describe('ReaderPersistence', () => {
     const { document } = createMockDocument();
     global.document = document;
 
+    const bundleCalls = [];
     const positionCalls = [];
-    const saveTimeCalls = [];
-    const speedCalls = [];
+    const originalFlushSessionBundle = EpubStorage.flushSessionBundle;
     const originalSavePosition = EpubStorage.savePosition;
-    const originalAddReadingTime = EpubStorage.addReadingTime;
-    const originalAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
+    EpubStorage.flushSessionBundle = async (bId, bundle) => {
+      bundleCalls.push([bId, bundle]);
+      return { time: 120, speed: { sampledSeconds: 160, sampledProgress: 0.15 } };
+    };
     EpubStorage.savePosition = async (...args) => {
       positionCalls.push(args);
-    };
-    EpubStorage.addReadingTime = async (...args) => {
-      saveTimeCalls.push(args);
-      return 120;
-    };
-    EpubStorage.addReadingSpeedSample = async (...args) => {
-      speedCalls.push(args);
-      return { sampledSeconds: 160, sampledProgress: 0.15 };
     };
 
     const state = {
@@ -1257,17 +1251,15 @@ test.describe('ReaderPersistence', () => {
     document.dispatchEvent('visibilitychange');
     persistence.unmount();
 
+    EpubStorage.flushSessionBundle = originalFlushSessionBundle;
     EpubStorage.savePosition = originalSavePosition;
-    EpubStorage.addReadingTime = originalAddReadingTime;
-    EpubStorage.addReadingSpeedSample = originalAddReadingSpeedSample;
 
-    assert.deepEqual(positionCalls, [
-      ['book-4', 'epubcfi(/6/8)', 88.8],
-      ['book-4', 'epubcfi(/6/8)', 88.8]
-    ]);
-    assert.deepEqual(saveTimeCalls, [['book-4', 20]]);
+    assert.equal(bundleCalls.length, 1, '隐藏时应触发一次 flushSessionBundle');
+    assert.equal(bundleCalls[0][0], 'book-4');
+    assert.equal(bundleCalls[0][1].pos.cfi, 'epubcfi(/6/8)');
+    assert.equal(bundleCalls[0][1].readingSeconds, 20);
+    assert.ok(bundleCalls[0][1].speedSample.sampledSeconds > 0);
     assert.equal(state.pendingReadingSeconds, 0);
-    assert.equal(speedCalls.length, 1);
     assert.equal(state.sessionStart.progress, 0.5);
   });
 
@@ -1341,13 +1333,11 @@ test.describe('ReaderPersistence', () => {
     const { document } = createMockDocument();
     global.document = document;
 
-    const originalSavePosition = EpubStorage.savePosition;
-    const originalAddReadingTime = EpubStorage.addReadingTime;
+    const originalFlushSessionBundle = EpubStorage.flushSessionBundle;
     const originalWarn = console.warn;
     const warnings = [];
 
-    EpubStorage.savePosition = async () => {};
-    EpubStorage.addReadingTime = async () => {
+    EpubStorage.flushSessionBundle = async () => {
       throw new Error('time failed');
     };
     console.warn = (...args) => warnings.push(args);
@@ -1377,12 +1367,11 @@ test.describe('ReaderPersistence', () => {
       await state.lastReadingTimeSave;
       persistence.unmount();
     } finally {
-      EpubStorage.savePosition = originalSavePosition;
-      EpubStorage.addReadingTime = originalAddReadingTime;
+      EpubStorage.flushSessionBundle = originalFlushSessionBundle;
       console.warn = originalWarn;
     }
 
-    assert.match(String(warnings[0]?.[0] || ''), /save reading time failed/);
+    assert.match(String(warnings[0]?.[0] || ''), /flush session bundle failed/);
     assert.equal(state.pendingReadingSeconds, 10, '失败批次应退回待提交秒数');
   });
 
@@ -1710,21 +1699,14 @@ test.describe('ReaderPersistence', () => {
     };
 
     // Mock EpubStorage writes to detect lifecycle flush calls
-    const saves = [];
-    const timeSaves = [];
-    const speedSaves = [];
+    const bundleCalls = [];
+    const origFlushSessionBundle = EpubStorage.flushSessionBundle;
     const origSavePosition = EpubStorage.savePosition;
-    const origAddReadingTime = EpubStorage.addReadingTime;
-    const origAddReadingSpeedSample = EpubStorage.addReadingSpeedSample;
-    EpubStorage.savePosition = async (...args) => { saves.push(args); };
-    EpubStorage.addReadingTime = async (...args) => {
-      timeSaves.push(args);
-      return 90;
+    EpubStorage.flushSessionBundle = async (bId, bundle) => {
+      bundleCalls.push([bId, bundle]);
+      return { time: 90, speed: { sampledSeconds: 60, sampledProgress: 0.1 } };
     };
-    EpubStorage.addReadingSpeedSample = async (...args) => {
-      speedSaves.push(args);
-      return { sampledSeconds: 60, sampledProgress: 0.1 };
-    };
+    EpubStorage.savePosition = async () => {};
 
     const state = {
       isBookLoaded: true,
@@ -1754,13 +1736,14 @@ test.describe('ReaderPersistence', () => {
     global.document = origDoc;
     if (origWindowAddEventListener) global.window.addEventListener = origWindowAddEventListener;
     if (origWindowRemoveEventListener) global.window.removeEventListener = origWindowRemoveEventListener;
+    EpubStorage.flushSessionBundle = origFlushSessionBundle;
     EpubStorage.savePosition = origSavePosition;
-    EpubStorage.addReadingTime = origAddReadingTime;
-    EpubStorage.addReadingSpeedSample = origAddReadingSpeedSample;
 
-    assert.ok(saves.length > 0, 'beforeunload/unmount 应触发 flushPositionSave → savePosition');
-    assert.deepEqual(timeSaves, [['book-beforeunload', 15]]);
-    assert.equal(speedSaves.length, 1);
+    assert.equal(bundleCalls.length, 1, 'beforeunload 应触发 flushSessionBundle');
+    assert.equal(bundleCalls[0][0], 'book-beforeunload');
+    assert.equal(bundleCalls[0][1].pos.cfi, 'epubcfi(/6/5)');
+    assert.equal(bundleCalls[0][1].readingSeconds, 15);
+    assert.ok(bundleCalls[0][1].speedSample.sampledSeconds > 0);
   });
 
   test.it('mount 只注册生命周期监听，不提前启动阅读计时器', () => {
@@ -2075,4 +2058,56 @@ test.describe('ReaderPersistence', () => {
 
     assert.equal(state.currentStableCfi, 'epubcfi(/6/4!/4/2)', '应优先采用 eventPosition.cfi 而非 currentLocation 读出的旧 CFI');
   });
+
+  test.it('flushSessionBundle 聚合原子写入位置、阅读秒数与速度样本', async () => {
+    const bookId = 'book-bundle-persist-test';
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: bookId,
+      currentStableCfi: 'epubcfi(/6/10!/4/2)',
+      currentStableLocator: { version: 'epubjs-displayed-page-v1', displayedPage: 1 },
+      lastPercent: 25.5,
+      lastProgress: 0.255,
+      sessionStart: { progress: 0.1, timestamp: Date.now() - 60000 }, // 60s ago, delta=0.155
+      isBookLoaded: true,
+      pendingReadingSeconds: 40,
+      activeReadingSeconds: 100,
+      cachedSpeed: { sampledSeconds: 50, sampledProgress: 0.1 },
+      prefs: { layout: 'paginated' },
+      book: { locations: { length: () => 100 }, navigation: { toc: [] } },
+      rendition: { currentLocation() { return { start: { cfi: 'epubcfi(/6/10!/4/2)' } }; } }
+    };
+
+    let bundlePayload = null;
+    const originalFlush = EpubStorage.flushSessionBundle;
+    EpubStorage.flushSessionBundle = async (bId, bundle) => {
+      bundlePayload = { bookId: bId, bundle };
+      return {
+        pos: bundle.pos,
+        time: 140,
+        speed: { sampledSeconds: 110, sampledProgress: 0.255 }
+      };
+    };
+
+    try {
+      const persistence = ReaderPersistence.createReaderPersistence({
+        state,
+        ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+      });
+
+      await persistence.flushSessionBundle();
+
+      assert.ok(bundlePayload, 'EpubStorage.flushSessionBundle 应被调用');
+      assert.equal(bundlePayload.bookId, bookId);
+      assert.equal(bundlePayload.bundle.pos.cfi, 'epubcfi(/6/10!/4/2)');
+      assert.equal(bundlePayload.bundle.readingSeconds, 40);
+      assert.ok(bundlePayload.bundle.speedSample.sampledSeconds > 0);
+      assert.equal(state.pendingReadingSeconds, 0, '未提交秒数应重置为 0');
+      assert.equal(state.activeReadingSeconds, 140, 'activeReadingSeconds 应同步自 storage 返回值');
+    } finally {
+      EpubStorage.flushSessionBundle = originalFlush;
+    }
+  });
 });
+

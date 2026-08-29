@@ -323,6 +323,61 @@ const EpubStorage = {
     };
   },
 
+  /**
+   * 聚合生命周期刷盘事务（退出/休眠/切书）。
+   * 一次性原子写入位置、累计阅读秒数与速度样本，消除多次 IPC 与锁竞争。
+   *
+   * @param {string} bookId
+   * @param {object} bundle - { pos?, readingSeconds?, speedSample?, speedPatch? }
+   */
+  async flushSessionBundle(bookId, bundle = {}) {
+    if (!bookId || !this._isRecord(bundle)) return undefined;
+    const { pos, readingSeconds, speedSample, speedPatch } = bundle;
+    return this._enqueueBookMetaWrite(bookId, (current) => {
+      // 1. 位置更新
+      if (pos && typeof pos.cfi === 'string' && pos.cfi) {
+        current.pos = {
+          cfi: pos.cfi,
+          percentage: Number.isFinite(pos.percentage) ? pos.percentage : null,
+          timestamp: Date.now()
+        };
+        if (pos.locator !== undefined) {
+          current.pos.locator = pos.locator;
+        }
+      }
+
+      // 2. 时长累加
+      if (Number.isFinite(readingSeconds) && readingSeconds > 0) {
+        const delta = Math.floor(readingSeconds);
+        if (delta > 0) {
+          current.time = (Number.isFinite(current.time) ? current.time : 0) + delta;
+        }
+      }
+
+      // 3. 速度合并
+      const currentSpeed = current.speed || this._createDefaultSpeed();
+      if (
+        speedSample &&
+        Number.isFinite(speedSample.sampledSeconds) && speedSample.sampledSeconds > 0 &&
+        Number.isFinite(speedSample.sampledProgress) && speedSample.sampledProgress > 0
+      ) {
+        current.speed = {
+          ...currentSpeed,
+          sampledSeconds: currentSpeed.sampledSeconds + speedSample.sampledSeconds,
+          sampledProgress: currentSpeed.sampledProgress + speedSample.sampledProgress
+        };
+      } else if (speedPatch && this._isRecord(speedPatch)) {
+        current.speed = {
+          sampledSeconds:   speedPatch.sampledSeconds   ?? currentSpeed.sampledSeconds,
+          sampledProgress:  speedPatch.sampledProgress  ?? currentSpeed.sampledProgress,
+          contentUnitCount: speedPatch.contentUnitCount ?? currentSpeed.contentUnitCount,
+          contentUnitVersion: speedPatch.contentUnitVersion ?? currentSpeed.contentUnitVersion
+        };
+      }
+      return current;
+    });
+  },
+
   async removeBookMeta(bookId) {
     if (!bookId) return;
     const hadDeleteGuard = this._deletingBookIds.has(bookId);
@@ -486,10 +541,9 @@ const EpubStorage = {
 
   async importBookFile(file) {
     if (!file) throw new Error('No file provided');
-    const arrayBuffer = await file.arrayBuffer();
-    const bookId = await this.generateBookId(file.name, arrayBuffer);
-    await this.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
-    return { bookId, filename: file.name };
+    const bookId = await this.generateBookId(file.name, file);
+    await this.storeFile(file.name, file, bookId);
+    return { bookId, filename: file.name, fileData: file };
   },
 
   async storeFile(filename, data, bookId) {
@@ -673,12 +727,33 @@ const EpubStorage = {
     return () => chrome.storage.onChanged.removeListener(listener);
   },
 
-  // ── BookId Generation ─────────────────────────────────────────────────────
+  async generateBookId(filename, data) {
+    if (!data) throw new Error('No data provided for bookId generation');
+    let chunk;
+    if (typeof data.slice === 'function') {
+      const sliced = data.slice(0, 65536);
+      if (typeof sliced.arrayBuffer === 'function') {
+        chunk = await sliced.arrayBuffer();
+      } else if (sliced instanceof ArrayBuffer) {
+        chunk = sliced;
+      } else if (ArrayBuffer.isView(sliced)) {
+        chunk = sliced.buffer.slice(sliced.byteOffset, sliced.byteOffset + sliced.byteLength);
+      }
+    }
+    if (!chunk && typeof data.arrayBuffer === 'function') {
+      const fullBuffer = await data.arrayBuffer();
+      chunk = fullBuffer.slice(0, 65536);
+    } else if (!chunk && data instanceof ArrayBuffer) {
+      chunk = data.slice(0, 65536);
+    } else if (!chunk && ArrayBuffer.isView(data)) {
+      chunk = data.buffer.slice(data.byteOffset, data.byteOffset + Math.min(data.byteLength, 65536));
+    }
+    if (!chunk) {
+      throw new Error('Unsupported data format for generateBookId');
+    }
 
-  async generateBookId(filename, arrayBuffer) {
-    const chunk     = arrayBuffer.slice(0, 65536);
     const enc       = new TextEncoder();
-    const nameBytes = enc.encode(filename);
+    const nameBytes = enc.encode(filename || '');
     const combined  = new Uint8Array(nameBytes.length + chunk.byteLength);
     combined.set(nameBytes, 0);
     combined.set(new Uint8Array(chunk), nameBytes.length);

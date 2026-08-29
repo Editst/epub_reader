@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.44
+版本：v2.5.45
 更新：2026-08-30
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -284,6 +284,9 @@ saveReadingSpeed(bookId: string, speedPatch: Partial<Speed>): Promise<void>
 addReadingSpeedSample(bookId: string, sampledSeconds: number, sampledProgress: number): Promise<Speed | undefined>
 // 在同书 bookMeta 锁内累加速度增量并返回权威 speed；多个 Reader 不得用各自旧总数互相覆盖
 getReadingSpeed(bookId: string): Promise<Speed>
+
+flushSessionBundle(bookId: string, bundle: { pos?: Position, readingSeconds?: number, speedSample?: Partial<Speed>, speedPatch?: Partial<Speed> }): Promise<BookMeta | undefined>
+// v2.5.45：聚合生命周期刷盘事务，单次独占 Web Lock 事务内原子合并写入位置、时长与速度样本
 
 removeBookMeta(bookId: string): Promise<void>
 // 同时删除 bookMeta_/pos_/time_ 三个 key（v1.6.0 兼容清理）
