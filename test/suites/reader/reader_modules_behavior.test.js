@@ -55,6 +55,19 @@ function loadIsolatedWindowExport(filePath, exportName, context = {}) {
       return updated;
     };
   }
+  if (
+    sandbox.EpubStorage &&
+    typeof sandbox.EpubStorage.importBookFile !== 'function' &&
+    typeof sandbox.EpubStorage.generateBookId === 'function' &&
+    typeof sandbox.EpubStorage.storeFile === 'function'
+  ) {
+    sandbox.EpubStorage.importBookFile = async (file) => {
+      const arrayBuffer = await file.arrayBuffer();
+      const bookId = await sandbox.EpubStorage.generateBookId(file.name, arrayBuffer);
+      await sandbox.EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+      return { bookId, filename: file.name, arrayBuffer };
+    };
+  }
   sandbox.window = sandbox.window || sandbox;
   vm.createContext(sandbox);
   vm.runInContext(`${code}; result = window.${exportName};`, sandbox, { filename: filePath });

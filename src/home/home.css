@@ -673,3 +673,33 @@ body {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* --- Drag & Drop Overlay --- */
+.drag-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(233, 69, 96, 0.1);
+  border: 3px dashed var(--accent-color, #e94560);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+.drag-overlay-content {
+  text-align: center;
+  color: var(--accent-color, #e94560);
+}
+
+.drag-overlay-content svg {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 12px;
+}
+
+.drag-overlay-content p {
+  font-size: 18px;
+  font-weight: 600;
+}
+

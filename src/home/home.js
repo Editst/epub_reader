@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const annotationsContainer = document.getElementById('annotations-container');
   const annotationsEmpty     = document.getElementById('annotations-empty');
+  const dragOverlay          = document.getElementById('drag-overlay');
 
   let currentPrefs = {};
   try {
@@ -169,6 +170,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  document.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragOverlay?.classList.remove('is-hidden');
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget === null || e.relatedTarget === document.documentElement) {
+      dragOverlay?.classList.add('is-hidden');
+    }
+  });
+
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragOverlay?.classList.add('is-hidden');
+    const files = e.dataTransfer?.files;
+    const file = files && files[0];
+    if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
+    try {
+      const { bookId } = await EpubStorage.importBookFile(file);
+      window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
+    } catch (err) {
+      console.error('[Home] Failed to open dropped file:', err);
+      alert('无法导入文件: ' + (err.message || '未知错误'));
+    }
+  });
+
   // --- Bookshelf ---
   async function loadBookshelf() {
     const renderSeq = ++bookshelfRenderSeq;
@@ -221,11 +250,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function streamRenderBookCard(book, index, renderSeq) {
+    let card = null;
     try {
       const { coverBlob, meta } = await loadBookCardData(book);
       if (renderSeq !== bookshelfRenderSeq) return;
 
-      const card = document.createElement('div');
+      card = document.createElement('div');
       card.className = 'book-card';
 
       // 保存 ObjectURL 引用到 dataset，供删除时显式 revoke。

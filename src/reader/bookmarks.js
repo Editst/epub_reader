@@ -155,7 +155,11 @@
           if (this.rendition && typeof this.rendition.currentLocation === 'function') {
             const loc = this.rendition.currentLocation();
             if (loc && loc.start && bm.cfi === loc.start.cfi) {
-              document.getElementById('btn-bookmark')?.classList.remove('active');
+              if (this.panelController && typeof this.panelController.updateBookmarkButtonState === 'function') {
+                this.panelController.updateBookmarkButtonState(false);
+              } else {
+                document.getElementById('btn-bookmark')?.classList.remove('active');
+              }
             }
           }
         } catch (err) {

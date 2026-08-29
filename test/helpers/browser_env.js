@@ -72,6 +72,13 @@ function createMockElement(id = '', tagName = 'DIV') {
         this.children.push(child);
       });
     },
+    replaceChildren(...children) {
+      this.children = [];
+      children.forEach((child) => {
+        child.parentNode = this;
+        this.children.push(child);
+      });
+    },
     remove() {
       if (!this.parentNode || !this.parentNode.children) return;
       this.parentNode.children = this.parentNode.children.filter((child) => child !== this);

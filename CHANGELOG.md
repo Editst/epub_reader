@@ -8,6 +8,25 @@
 
 ---
 
+## [2.5.44] - 2026-08-30
+
+### fix
+- **书架流式渲染 TDZ 作用域与僵尸骨架屏修复 (P1-1)**：
+  - `home.js` 中 `streamRenderBookCard` 将 `let card = null;` 提取至 `try` 块外声明；消除单本封面或元数据读取异常时 `catch` 块访问 `if (card)` 触发的 `ReferenceError: card is not defined`，确保异常分支中 `skeleton.remove()` 100% 正常执行，杜绝书架残留无法点击消除的僵尸骨架屏。
+- **模块书签按钮状态更新委托收口 (P1-4)**：
+  - `bookmarks.js` 中移除当前位置书签时的状态更新改为优先通过 `this.panelController?.updateBookmarkButtonState(false)` 统一委托调用，消除功能模块绕过 UI 委托层直接操作 `btn-bookmark` DOM 类名的架构违规。
+
+### feat
+- **主书架拖拽导入支持 (P1-2)**：
+  - `home.html`、`home.css` 与 `home.js` 增加全局拖放遮罩与 `dragover` / `dragleave` / `drop` 事件处理，将外部拖入的 `.epub` 接入 `EpubStorage.importBookFile` 并自动完成导入与打开，杜绝用户误触浏览器原生文件跳转与下载。
+
+### refactor
+- **阅读器本地导入管道统一收拢 (P1-3)**：
+  - `storage.js` 的 `EpubStorage.importBookFile` 扩展返回 `{ bookId, filename, arrayBuffer }`。
+  - `reader-ui.js` 的 `_openLocalFile` 重构为复用 `EpubStorage.importBookFile(file)`，与 `home.js` / `popup.js` 保持一致，收拢全工程本地文件解析、哈希生成与 IDB 落盘单一事实来源（SSOT）。
+
+---
+
 ## [2.5.43] - 2026-08-30
 
 ### perf

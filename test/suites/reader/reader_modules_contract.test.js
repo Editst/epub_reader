@@ -275,4 +275,18 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.match(src, /function setBook\(b, r\) \{\s*cancelPendingFocus\(\)/, '切书不得继承上一上下文的延迟聚焦');
     assert.match(src, /function closePanel\(\) \{\s*cancelPendingFocus\(\)/, '关闭面板必须先取消延迟聚焦');
   });
+
+  test.it('Bookmarks 移除当前位置书签时通过 panelController 统一更新按钮状态', () => {
+    const src = fs.readFileSync('src/reader/bookmarks.js', 'utf8');
+    assert.match(src, /this\.panelController\s*&&\s*typeof\s+this\.panelController\.updateBookmarkButtonState\s*===\s*'function'/,
+      'Bookmarks 必须优先通过 panelController 委托更新书签按钮状态');
+    assert.match(src, /this\.panelController\.updateBookmarkButtonState\(false\)/,
+      '移除当前位置书签时应通知 panelController 设置为未激活');
+  });
+
+  test.it('ReaderUi 本地导入复用 EpubStorage.importBookFile 单一事实来源', () => {
+    const src = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    assert.match(src, /const\s*\{\s*bookId,\s*arrayBuffer\s*\}\s*=\s*await\s+EpubStorage\.importBookFile\(file\)/,
+      'ReaderUi._openLocalFile 必须统一复用 EpubStorage.importBookFile 进行导入');
+  });
 });

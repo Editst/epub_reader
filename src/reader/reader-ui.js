@@ -874,9 +874,7 @@
     async function _openLocalFile(file, runtime) {
       try {
         showLoading(true);
-        const arrayBuffer = await file.arrayBuffer();
-        const bookId = await EpubStorage.generateBookId(file.name, arrayBuffer);
-        await EpubStorage.storeFile(file.name, new Uint8Array(arrayBuffer), bookId);
+        const { bookId, arrayBuffer } = await EpubStorage.importBookFile(file);
         await runtime.openBook(arrayBuffer, bookId, file.name);
         const readerUrl = chrome.runtime.getURL('reader/reader.html') +
           '?bookId=' + encodeURIComponent(bookId);

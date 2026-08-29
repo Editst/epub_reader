@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.43
+版本：v2.5.44
 更新：2026-08-30
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -347,6 +347,9 @@ removeLocations(bookId: string): Promise<void>
 ### 文件（IndexedDB）
 
 ```typescript
+importBookFile(file: File): Promise<{ bookId: string, filename: string, arrayBuffer: ArrayBuffer }>
+// v2.5.42 引入 / v2.5.44 增强：一站式完成 File 对象的 ArrayBuffer 读取、哈希生成与 storeFile 入库，返回 bookId 与可供直接渲染的 arrayBuffer
+
 storeFile(filename: string, data: Uint8Array, bookId: string): Promise<void>
 // 写入后自动调用 enforceFileLRU(10)
 

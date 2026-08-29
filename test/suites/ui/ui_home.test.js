@@ -203,4 +203,28 @@ test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
       'Markdown download must revoke its Object URL even when click/append fails');
   });
 
+  test.it('streamRenderBookCard 在 try 块外声明 card 变量以防止 TDZ ReferenceError', () => {
+    const src = fs.readFileSync('src/home/home.js', 'utf8');
+    const fnStart = src.indexOf('async function streamRenderBookCard');
+    assert.ok(fnStart !== -1, 'streamRenderBookCard must exist');
+
+    const fnBlock = src.slice(fnStart, fnStart + 300);
+    assert.match(fnBlock, /async function streamRenderBookCard\([^)]*\)\s*\{\s*let card\s*=\s*null;\s*try\s*\{/,
+      'card 必须在 try 块外部声明为 null，确保 catch (err) 中的 if (card) 不会产生 ReferenceError');
+  });
+
+  test.it('home.html 与 home.js 支持拖放遮罩与 dragover/dragleave/drop 导入', () => {
+    const html = fs.readFileSync('src/home/home.html', 'utf8');
+    const js = fs.readFileSync('src/home/home.js', 'utf8');
+    const css = fs.readFileSync('src/home/home.css', 'utf8');
+
+    assert.ok(html.includes('id="drag-overlay"'), 'home.html 必须包含 drag-overlay 元素');
+    assert.ok(html.includes('drag-overlay is-hidden'), 'drag-overlay 初始状态必须包含 is-hidden 类');
+    assert.ok(css.includes('.drag-overlay'), 'home.css 必须包含 drag-overlay 样式');
+    assert.ok(js.includes("document.addEventListener('dragover'"), 'home.js 必须监听 dragover');
+    assert.ok(js.includes("document.addEventListener('dragleave'"), 'home.js 必须监听 dragleave');
+    assert.ok(js.includes("document.addEventListener('drop'"), 'home.js 必须监听 drop');
+    assert.ok(js.includes('EpubStorage.importBookFile(file)'), 'drop 事件必须接入 EpubStorage.importBookFile');
+  });
+
 });
