@@ -654,6 +654,12 @@ html, body {
   opacity: 0;
 }
 
+.reader-reflowing {
+  opacity: 0.15;
+  pointer-events: none;
+  transition: opacity 0.15s ease-out;
+}
+
 /* JS-controlled visibility helpers */
 .welcome-screen.is-hidden  { display: none !important; }
 .reader-main.is-visible    { display: flex !important; }

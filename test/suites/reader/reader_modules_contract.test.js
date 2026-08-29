@@ -211,7 +211,7 @@ test.describe('Reader 功能模块公开契约', () => {
     assert.match(src, /const _PAGINATION_SETTLE_MS = 100/, '分页补偿等待时间应提取为具名常量');
     assert.match(src, /const _MAX_FOOTNOTE_TEXT = 2000/, '注释内容安全阀应保持模块级常量');
     assert.match(src, /const _EMPTY_ANCHOR_BOUNDARY_TAGS = new Set/, '空锚点收集边界应保持模块级 Set');
-    assert.match(src, /const _FOOTNOTE_SECTION_CACHE_LIMIT = 50/, '跨文档注释缓存容量应保持显式上限');
+    assert.match(src, /const _FOOTNOTE_SECTION_CACHE_LIMIT = 5;/, '跨文档注释缓存容量应保持轻量上限 (5)');
     assert.match(src, /const _DOCUMENT_POSITION_PRECEDING = 2/, '同文档目标顺序判断应使用具名 DOM bit 常量');
     assert.ok(src.includes('body[name="notes"]'), 'FB2 notes body 应纳入注释容器识别');
     assert.ok(src.includes('body[name="comments"]'), 'FB2 comments body 应纳入注释容器识别');
@@ -296,5 +296,16 @@ test.describe('Reader 功能模块公开契约', () => {
       'ReaderPersistence 必须实现 flushSessionBundle 方法');
     assert.match(src, /flushSessionBundle,\s*updateReadingStats/,
       'ReaderPersistence 必须导出 flushSessionBundle');
+  });
+
+  test.it('ReaderUi 与 reader.css 支持重排平滑过渡类 .reader-reflowing', () => {
+    const ui = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
+    const css = fs.readFileSync('src/reader/reader.css', 'utf8');
+
+    assert.match(ui, /dom\.readerMain\?\.classList\.add\('reader-reflowing'\)/,
+      '进入重排时必须为 readerMain 添加 reader-reflowing 类');
+    assert.match(ui, /dom\.readerMain\?\.classList\.remove\('reader-reflowing'\)/,
+      '重排结束与失败时必须清理 reader-reflowing 类');
+    assert.ok(css.includes('.reader-reflowing'), 'reader.css 必须声明 .reader-reflowing 样式');
   });
 });

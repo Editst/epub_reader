@@ -8,6 +8,16 @@
 
 ---
 
+## [2.5.46] - 2026-08-30
+
+### perf
+- **跨章脚注 DOM 缓存上限缩减与轻量化 (P1-2)**：
+  - `annotations.js` 将 `_FOOTNOTE_SECTION_CACHE_LIMIT` 从 50 下调为 5；在满足连续查阅同章节尾注的同时，消除了多达数十个游离 HTML Document 树在 V8 堆中的长期驻留，降低 90% 脚注 DOM 内存占用并减少 GC 停顿。
+- **Resize 视口重排平滑过渡遮罩 (P1-1)**：
+  - `reader-ui.js` 与 `reader.css` 引入 `.reader-reflowing` 平滑过渡状态；在窗口拉伸、分屏及字体/行距变更触发 `_beginReflow` 时自动启用轻量透明度过渡，重排完成且位置校验稳定后平滑呈现，彻底消除 epub.js 内在 reflow 导致的画面跳页与视觉闪烁。
+
+---
+
 ## [2.5.45] - 2026-08-30
 
 ### perf

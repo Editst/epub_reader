@@ -404,6 +404,7 @@
       const operationId = ++_reflowSeq;
       state.isResizing = true;
       state.isRestoringPosition = true;
+      dom.readerMain?.classList.add('reader-reflowing');
       return { operationId, rendition };
     }
 
@@ -414,9 +415,21 @@
     }
 
     function _releaseReflow(context) {
-      if (!_isCurrentReflow(context)) return false;
+      if (!_isCurrentReflow(context)) {
+        dom.readerMain?.classList.remove('reader-reflowing');
+        return false;
+      }
       state.isResizing = false;
       state.isRestoringPosition = false;
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+          if (!state.isResizing) {
+            dom.readerMain?.classList.remove('reader-reflowing');
+          }
+        });
+      } else {
+        dom.readerMain?.classList.remove('reader-reflowing');
+      }
       return true;
     }
 

@@ -1,6 +1,6 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.45
+版本：v2.5.46
 更新：2026-08-30
 
 本文档包含项目架构总览与每个模块的完整公开接口、参数类型、返回值和调用约束。
@@ -988,9 +988,9 @@ Annotations.unmount(): void
 - 同文档 target analysis 必须把目标位于 `body[name="notes"]` / `body[name="comments"]` 内视为明确 footnote 容器信号。
 - FB2 容器识别只能增强注释区/目标容器判断，不得绕过现有全局 TOC、孤立长链接、四位年份和上下文生命周期守卫。
 
-**v2.4.15 / v2.5.43 性能约束**：
+**v2.4.15 / v2.5.43 / v2.5.46 性能约束**：
 - 跨文档注释加载必须经过 `_loadSectionDocument()`，优先命中 `_sectionDocCache`，未命中时再调用 `section.load()`。
-- `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 50` 控制；缓存读命中必须刷新 LRU 顺序。
+- `_sectionDocCache` 只缓存当前书生命周期内的已解析 section 内容树，容量由 `_FOOTNOTE_SECTION_CACHE_LIMIT = 5` 控制（轻量化防内存膨胀）；缓存读命中必须刷新 LRU 顺序。
 - **v2.5.43 目标索引缓存**：引入 `_targetIdIndex` 映射，首次查找到目标元素（含 Method 4 全书线性扫描）后缓存 `targetId -> sectionHref`。后续相同 targetId 注释点击直接定位章节，消除二次线性遍历；`setBook()` 与 `unmount()` 时自动清空。
 - `setBook()` 发现 book 实例变化以及 `unmount()` 时必须清空 `_sectionDocCache` 与 `_targetIdIndex`，避免旧书尾注内容污染新书。
 
