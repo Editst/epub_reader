@@ -421,7 +421,12 @@
       state.posTimer = null;
       if (!hasPendingPositionSave) {
         _refreshStablePositionFromRendition();
-      } else if (state.currentStableLocator && state.rendition && typeof state.rendition.currentLocation === 'function') {
+      } else if (
+        state.currentStableLocator &&
+        !state.currentStableLocator.restoreCfi &&
+        state.rendition &&
+        typeof state.rendition.currentLocation === 'function'
+      ) {
         try {
           const currentLoc = state.rendition.currentLocation();
           const restoreCfi = _buildRestoreAnchorCfi(state.currentStableCfi, currentLoc);

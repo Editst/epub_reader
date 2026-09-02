@@ -111,11 +111,6 @@
     function _hookRenditionEvents(rendition, theme) {
       ui.applyThemeToRendition(theme || 'light');
 
-      if (typeof ImageViewer !== 'undefined') ImageViewer.hookRendition(rendition);
-      if (typeof Annotations !== 'undefined') {
-        Annotations.setBook(state.book);
-        Annotations.hookRendition(rendition);
-      }
       _hookContentUserPositionIntent(rendition);
       ui.setupRenditionKeyEvents(rendition, persistence, { next, prev });
 

@@ -232,37 +232,52 @@ function _readContentsSectionHref(contents) {
   );
 }
 
+const _bookSpineCache = new WeakMap();
+
 function _indexSpineContext(ctx, book, contents) {
   ctx.currentSpineIndex = _readContentsSectionIndex(contents);
   ctx.currentSpineHref = _readContentsSectionHref(contents);
 
-  const spine = book?.spine;
-  if (!spine || typeof spine.get !== 'function') return;
+  if (!book) return;
+  let cached = _bookSpineCache.get(book);
+  if (!cached) {
+    const spine = book.spine;
+    const byHref = new Map();
+    const byFilename = new Map();
+    const hrefByIndex = new Map();
+    const length = Number(spine?.length);
+    if (spine && typeof spine.get === 'function' && Number.isFinite(length) && length > 0) {
+      for (let i = 0; i < length; i++) {
+        const section = spine.get(i);
+        const href = _normalizeSectionHref(section?.href);
+        if (!href) continue;
 
-  const length = Number(spine.length);
-  if (!Number.isFinite(length) || length <= 0) return;
+        const index = _asSpineIndex(section?.index);
+        const sectionIndex = index >= 0 ? index : i;
+        byHref.set(href, sectionIndex);
+        if (!hrefByIndex.has(sectionIndex)) {
+          hrefByIndex.set(sectionIndex, href);
+        }
 
-  for (let i = 0; i < length; i++) {
-    const section = spine.get(i);
-    const href = _normalizeSectionHref(section?.href);
-    if (!href) continue;
-
-    const index = _asSpineIndex(section?.index);
-    const sectionIndex = index >= 0 ? index : i;
-    ctx.spineIndexesByHref.set(href, sectionIndex);
-
-    const filename = _sectionFilename(href);
-    if (filename) {
-      const previous = ctx.spineIndexesByFilename.get(filename);
-      ctx.spineIndexesByFilename.set(
-        filename,
-        previous === undefined || previous === sectionIndex ? sectionIndex : -1
-      );
+        const filename = _sectionFilename(href);
+        if (filename) {
+          const previous = byFilename.get(filename);
+          byFilename.set(
+            filename,
+            previous === undefined || previous === sectionIndex ? sectionIndex : -1
+          );
+        }
+      }
     }
+    cached = { byHref, byFilename, hrefByIndex };
+    _bookSpineCache.set(book, cached);
+  }
 
-    if (sectionIndex === ctx.currentSpineIndex && !ctx.currentSpineHref) {
-      ctx.currentSpineHref = href;
-    }
+  ctx.spineIndexesByHref = cached.byHref;
+  ctx.spineIndexesByFilename = cached.byFilename;
+
+  if (ctx.currentSpineIndex >= 0 && !ctx.currentSpineHref) {
+    ctx.currentSpineHref = cached.hrefByIndex.get(ctx.currentSpineIndex) || '';
   }
 
   if (ctx.currentSpineIndex < 0 && ctx.currentSpineHref) {
@@ -337,6 +352,8 @@ function _collectAfterEmptyAnchor(anchor) {
 
 function _readVerticalAlign(el) {
   if (!el) return '';
+  const inline = el.style?.verticalAlign;
+  if (inline) return String(inline).toLowerCase();
   const view = el.ownerDocument?.defaultView;
   const getter = view?.getComputedStyle ||
     (typeof window !== 'undefined' ? window.getComputedStyle : null);

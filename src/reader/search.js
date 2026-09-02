@@ -303,7 +303,8 @@
   }
 
   function navigateTo(target) {
-    return ReaderState.safeNavigate(navigate, rendition, target, 'Search');
+    if (navigate) return navigate(target);
+    return rendition?.display(target);
   }
 
   function mount(context) {

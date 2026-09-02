@@ -4,17 +4,24 @@
 
 ---
 
-## [Unreleased]
+## [2.6.0] - 2026-09-03
 
-### docs
-- **Agent 开发规范专项重构与架构深度对齐 (`AGENTS.md`)**：
-  - 深度重构 `AGENTS.md`，对齐至 `v2.5.46` 最新架构，建立包含协作原则、常用命令、入口与加载链路、四层阅读器职责、存储并发控制（Web Locks / 读改写队列 / 聚合刷盘）、阅读位置与重排约束、子模块契约、安全底线与版本发布的系统化规范；
-  - 消除冗余描述与陈旧约束，规范化提炼常量与关键机制（`flushSessionBundle`、Blob 零拷贝导入、`fileTimestamps` 纯读 LRU、`_HIGHLIGHT_RENDER_BATCH_SIZE`、`_FOOTNOTE_SECTION_CACHE_LIMIT = 5`、`_targetIdIndex` 映射、`.reader-reflowing` 样式等）。
-- **架构文档专项深度对齐与精炼 (`docs/architecture.md`)**：
-  - 严格对照最新代码实现（`v2.5.46`），全面补齐各模块公开接口与类型声明（包含 `EpubStorage.flushSessionBundle`、`Utils` 混合语言正文计数/会话权重/速度与 ETA 估算/Blob URL 释放、`ReaderState.safeNavigate`、`ReaderRuntime` 导航与生命周期接口、`ReaderPersistence.flushSessionBundle`、`ReaderUi` 全量 DOM 与控制委托方法、`Search.doSearch` 等）；
-  - 剔除各小节中历史演进标签的流水式堆砌，合并精简冗余解释与口语化说明，突出当前系统架构事实、核心约束、命名常量与设计规范。
+### refactor
+- **子模块生命周期单轨化 (`reader-runtime.js`)**：
+  - 移除 `_hookRenditionEvents` 中对 `ImageViewer` 和 `Annotations` 的硬编码挂钩，统一由 `reader.js` 的 `moduleLifecycle.mount()` 依赖注入单轨调度，彻底消除子模块重复挂载与 `ReaderRuntime` 对全局模块的强耦合。
+- **跨模块导航链路扁平化 (`bookmarks.js`, `toc.js`, `search.js`)**：
+  - 书签、目录和搜索跳转直接调用上下文注入的 `navigate(target)` 或回退 `rendition.display`，消融跨模块的多层代理转发闭包，缩减调用栈深度。
+
+### perf
+- **消除注释角标强制同步重排 (`annotations.js`)**：
+  - `_readVerticalAlign` 增加 `link.style.verticalAlign` 内联样式短路检查，消除章节解析时对每个 `<a>` 标签调用 `getComputedStyle` 引发的浏览器强制同步布局（Layout Thrashing），消除长任务掉帧。
+- **全书 Spine 结构 WeakMap 静态缓存 (`annotations.js`)**：
+  - 引入 `_bookSpineCache` (WeakMap) 缓存整书的 spine 索引与 href/filename/index 映射字典，将翻页时每章重复扫描全书 spine 的复杂度从 O(N*M) 降为全书一次性的 O(N)，并支持根据 `sectionIndex` 的 O(1) 反查。
+- **退出刷盘定位快照复用 (`reader-persistence.js`)**：
+  - 优化 `flushPositionSave` / `flushSessionBundle` 提取逻辑，优先复用已结算的 `state.currentStableLocator.restoreCfi` 快照，避免在关闭窗口（`beforeunload`）或切书的关键时间窗口内重复执行 17 点螺旋 DOM 采样。
 
 ---
+
 
 ## [2.5.46] - 2026-08-30
 

@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.5.46  
-更新：2026-08-30  
+版本：v2.6.0  
+更新：2026-09-03  
 
 本文档包含项目系统架构、核心数据模型、模块接口契约与关键调度约束。
 
@@ -497,11 +497,11 @@ interface LifecycleContext {
 | 模块 | 公开方法签名 | 核心职责与设计约束 |
 |---|---|---|
 | **Highlights** (`highlights.js`) | `init(): void`<br/>`setBookDetails(bookId, rendition): Promise<void>`<br/>`closePanels(): void`<br/>`mount(context): Promise<void>`<br/>`unmount(): void` | • `_HIGHLIGHT_RENDER_BATCH_SIZE = 20` 分批异步挂载<br/>• 仅 `color === 'transparent'` 为纯笔记<br/>• 异步读写绑定 `isCurrentContext` 代次守卫 |
-| **Bookmarks** (`bookmarks.js`) | `init(): void`<br/>`setBook(bookId, rendition): void`<br/>`toggle(cfi, chapter, progress): Promise<void>`<br/>`isBookmarked(cfi): Promise<boolean>`<br/>`loadBookmarks(): Promise<void>`<br/>`renderList(bookmarks): void`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • UI 状态委托 `panelController` 更新<br/>• 读改写采用 Copy-on-Write 机制<br/>• 用户点击跳转通过 `ReaderState.safeNavigate` |
-| **TOC** (`toc.js`) | `init(): void`<br/>`build(navigation, rendition): void`<br/>`setActive(href): void`<br/>`open(): void`<br/>`close(): void`<br/>`toggle(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 递归解析 epub.js navigation，支持 3 级嵌套<br/>• 目录路径匹配忽略 fragment 并校验边界<br/>• 侧边栏互斥委托 `panelController` |
-| **Search** (`search.js`) | `init(): void`<br/>`setBook(book, rendition): void`<br/>`doSearch(query): Promise<void>`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_SEARCH_MAX_RESULTS = 1000` 结果上限<br/>• `_SEARCH_TIME_BUDGET_MS = 16ms` 连续帧预算让步<br/>• 搜索词正则元字符安全转义 |
-| **ImageViewer** (`image-viewer.js`) | `init(): void`<br/>`hookRendition(rendition): void`<br/>`open(src): void`<br/>`close(): void`<br/>`zoom(delta): void`<br/>`resetTransform(): void`<br/>`applyTransform(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 拖拽平移时临时移除 transition 消除橡皮筋冲突<br/>• 缩放范围 `0.2x` ~ `8.0x`<br/>• 滚轮步进 `0.15`，按钮步进 `0.3` |
-| **Annotations** (`annotations.js`) | `init(): void`<br/>`setBook(book): void`<br/>`hookRendition(rendition): void`<br/>`showFootnote(href, contents, cancelToken, context): Promise<boolean>`<br/>`isBackLink(link, ctx): boolean`<br/>`isFootnoteLink(link, ctx): boolean`<br/>`close(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_FOOTNOTE_SECTION_CACHE_LIMIT = 5` 跨章缓存<br/>• `_targetIdIndex` 映射缓存消除二次线性扫描<br/>• 展示内容经 `<template>` DOM 清洗剥离危险标签与自定义属性 |
+| **Bookmarks** (`bookmarks.js`) | `init(): void`<br/>`setBook(bookId, rendition): void`<br/>`toggle(cfi, chapter, progress): Promise<void>`<br/>`isBookmarked(cfi): Promise<boolean>`<br/>`loadBookmarks(): Promise<void>`<br/>`renderList(bookmarks): void`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • UI 状态委托 `panelController` 更新<br/>• 读改写采用 Copy-on-Write 机制<br/>• 用户点击跳转直调注入的 `navigate(target)`（扁平化调用栈） |
+| **TOC** (`toc.js`) | `init(): void`<br/>`build(navigation, rendition): void`<br/>`setActive(href): void`<br/>`open(): void`<br/>`close(): void`<br/>`toggle(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 递归解析 epub.js navigation，支持 3 级嵌套<br/>• 目录路径匹配忽略 fragment 并校验边界<br/>• 侧边栏互斥委托 `panelController`<br/>• 目录点击跳转直调注入的 `navigate(target)` |
+| **Search** (`search.js`) | `init(): void`<br/>`setBook(book, rendition): void`<br/>`doSearch(query): Promise<void>`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_SEARCH_MAX_RESULTS = 1000` 结果上限<br/>• `_SEARCH_TIME_BUDGET_MS = 16ms` 连续帧预算让步<br/>• 搜索词正则元字符安全转义<br/>• 搜索结果跳转直调注入的 `navigate(target)` |
+| **ImageViewer** (`image-viewer.js`) | `init(): void`<br/>`hookRendition(rendition): void`<br/>`open(src): void`<br/>`close(): void`<br/>`zoom(delta): void`<br/>`resetTransform(): void`<br/>`applyTransform(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 拖拽平移时临时移除 transition 消除橡皮筋冲突<br/>• 缩放范围 `0.2x` ~ `8.0x`<br/>• 滚轮步进 `0.15`，按钮步进 `0.3`<br/>• 生命周期由 `moduleLifecycle` 单轨挂载驱动 |
+| **Annotations** (`annotations.js`) | `init(): void`<br/>`setBook(book): void`<br/>`hookRendition(rendition): void`<br/>`showFootnote(href, contents, cancelToken, context): Promise<boolean>`<br/>`isBackLink(link, ctx): boolean`<br/>`isFootnoteLink(link, ctx): boolean`<br/>`close(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_FOOTNOTE_SECTION_CACHE_LIMIT = 5` 跨章缓存<br/>• `_bookSpineCache` (WeakMap) 缓存全书 spine 索引与章节映射<br/>• `_readVerticalAlign` 增加内联样式短路消除强制同步布局 (Layout Thrashing)<br/>• 展示内容经 `<template>` DOM 清洗剥离危险标签与自定义属性 |
 
 ---
 

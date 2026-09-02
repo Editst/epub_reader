@@ -162,7 +162,8 @@
   },
 
   _navigateTo(target) {
-    return ReaderState.safeNavigate(this.navigate, this.rendition, target, 'TOC');
+    if (this.navigate) return this.navigate(target);
+    return this.rendition?.display(target);
   },
 
   reset() {
