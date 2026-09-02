@@ -99,6 +99,7 @@ const EpubStorage = {
       !book.id.trim() ||
       this._deletingBookIds.has(book.id)
     ) return;
+    this._touchFileRecordTimestamp(book.id).catch(() => {});
     return this._runWritableBookTask(book.id, null, () =>
       this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
         if (this._deletingBookIds.has(book.id)) return recent;
@@ -508,38 +509,33 @@ const EpubStorage = {
     return this._dbGateway.delete(STORES.files, bookId);
   },
 
+  async _touchFileRecordTimestamp(bookId) {
+    if (!bookId || this._deletingBookIds.has(bookId)) return;
+    try {
+      const stored = await this._dbGateway.get(STORES.files, bookId);
+      if (stored && !this._deletingBookIds.has(bookId)) {
+        stored.timestamp = Date.now();
+        await this._dbGateway.put(STORES.files, stored);
+      }
+    } catch (_) {}
+  },
+
   /**
    * LRU：保留最近 maxCount 本书的文件缓存，驱逐其余。
    *
    * 设计约束：自动淘汰只删除占空间最大的 EPUB 文件缓存。
    * recentBooks、bookMeta、highlights、bookmarks、covers、locations 均保留，
    * 以便用户重新导入同一书籍后继续使用阅读进度、书签和标注。
-   * 淘汰判定优先复用 recentBooks 的活跃时序，未在 recentBooks 中的按原生 timestamp 排序；
+   * 按文件最后活跃时间戳（导入或开书更新的 timestamp）降序淘汰；
    * 淘汰串行执行并逐项隔离失败，避免单本失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
-    const [meta, recentBooks] = await Promise.all([
-      this._dbGateway.getAllMeta(STORES.files, ['timestamp']),
-      this.getRecentBooks()
-    ]);
+    const meta = await this._dbGateway.getAllMeta(STORES.files, ['timestamp']);
     if (!meta || meta.length <= maxCount) return;
 
-    const recentOrder = new Map();
-    (recentBooks || []).forEach((b, idx) => {
-      if (b && b.id) recentOrder.set(b.id, idx);
-    });
+    meta.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-    const filesWithTime = meta.map((m) => {
-      const recentIdx = recentOrder.has(m.bookId) ? recentOrder.get(m.bookId) : Infinity;
-      return { bookId: m.bookId, recentIdx, timestamp: m.timestamp || 0 };
-    });
-
-    filesWithTime.sort((a, b) => {
-      if (a.recentIdx !== b.recentIdx) return a.recentIdx - b.recentIdx;
-      return b.timestamp - a.timestamp;
-    });
-
-    const toRemove = filesWithTime.slice(maxCount);
+    const toRemove = meta.slice(maxCount);
     for (const m of toRemove) {
       try {
         await this._withBookLock(m.bookId, 'exclusive', () =>

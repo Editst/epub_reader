@@ -836,6 +836,7 @@ test.describe('EpubStorage 行为覆盖', () => {
 
     // 重新打开旧书，提升其在 recentBooks 中的优先级
     await EpubStorage.addRecentBook({ id: 'opened-old', title: 'old.epub' });
+    await new Promise(r => setImmediate(r));
     await EpubStorage.enforceFileLRU(1);
 
     assert.notEqual(await EpubStorage.getFile('opened-old'), null);
@@ -1133,6 +1134,30 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(await EpubStorage.getFile('ts-1'), null, '最早存入的 ts-1 应被淘汰');
     assert.notEqual(await EpubStorage.getFile('ts-2'), null);
     assert.notEqual(await EpubStorage.getFile('ts-3'), null);
+  });
+
+  test.it('新导入未阅读的书籍（不在 recentBooks）不会被历史旧书误淘汰', async () => {
+    const now = Date.now();
+    // 旧书已在 recentBooks，但阅读时间是较早前
+    await EpubStorage.addRecentBook({ id: 'old-book', title: 'old' });
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'old-book', filename: 'old.epub', data: new Uint8Array([1]), timestamp: now - 20000
+    });
+    // 强制将 recentBooks 中的 lastOpened 设为 10 秒前
+    await EpubStorage._set({
+      recentBooks: [{ id: 'old-book', title: 'old', lastOpened: now - 10000 }]
+    });
+
+    // 刚刚导入的新书（不在 recentBooks 中，timestamp 为当前时间）
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'brand-new-book', filename: 'new.epub', data: new Uint8Array([2]), timestamp: now
+    });
+
+    await EpubStorage.enforceFileLRU(1);
+
+    // 刚导入的书更活跃，应保留；历史旧书应被淘汰
+    assert.notEqual(await EpubStorage.getFile('brand-new-book'), null, '刚刚导入的新书必须保留');
+    assert.equal(await EpubStorage.getFile('old-book'), null, '历史旧书应被淘汰');
   });
 
   test.it('enforceFileLRU 遇异常安全降级，单本失败不中断整体流程', async () => {
