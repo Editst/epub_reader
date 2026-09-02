@@ -43,30 +43,6 @@ test.describe('Reader 入口与装配契约', () => {
     assert.ok(html.includes('drag-overlay is-hidden'), '拖放遮罩应复用 is-hidden 显隐模式');
   });
 
-  test.it('reader.html 本地脚本使用裸路径并保持加载顺序', () => {
-    const html = fs.readFileSync('src/reader/reader.html', 'utf8');
-    const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
-    const localScripts = scripts.filter((src) => !src.startsWith('../lib/'));
-
-    assert.deepEqual(localScripts, [
-      '../utils/db-gateway.js',
-      '../utils/utils.js',
-      '../utils/storage.js',
-      'image-viewer.js',
-      'annotations.js',
-      'toc.js',
-      'search.js',
-      'bookmarks.js',
-      'highlights.js',
-      'reader-state.js',
-      'reader-ui.js',
-      'reader-persistence.js',
-      'reader-runtime.js',
-      'reader.js',
-    ]);
-    assert.ok(localScripts.every((src) => !src.includes('?')), '本地脚本不应使用手动查询串刷新缓存');
-  });
-
   test.it('ReaderUi 注册 chrome.storage.onChanged 以支持多标签页偏好实时同步', () => {
     const uiSrc = fs.readFileSync('src/reader/reader-ui.js', 'utf8');
     assert.ok(uiSrc.includes('chrome.storage?.onChanged?.addListener') || uiSrc.includes('chrome.storage.onChanged.addListener'),

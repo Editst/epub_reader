@@ -10,20 +10,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-test.describe('Home 首页 UI 检查 (v2.0 迁移)', () => {
-
-  test.it('home.html 首页脚本使用裸路径并保持加载顺序', () => {
-    const html = fs.readFileSync('src/home/home.html', 'utf8');
-    const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g)).map((match) => match[1]);
-
-    assert.deepEqual(scripts, [
-      '../utils/db-gateway.js',
-      '../utils/utils.js',
-      '../utils/storage.js',
-      'home.js',
-    ]);
-    assert.ok(scripts.every((src) => !src.includes('?')), '首页本地脚本不应使用手动查询串刷新缓存');
-  });
+test.describe('Home 书架页面安全与防注入契约', () => {
 
   test.it('书架书名和作者不得插入 innerHTML 模板属性上下文 (XSS 防护)', () => {
     const js = fs.readFileSync('src/home/home.js', 'utf8');

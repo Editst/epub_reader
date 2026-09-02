@@ -72,11 +72,71 @@ test.describe('项目工程完整性检查', () => {
     for (const f of strictFiles) {
       const src = fs.readFileSync(f, 'utf8');
       for (const prop of prohibitedProps) {
-        // 部分模块可能有 style.display 豁免，但在 STRICT 列表中应尽量避免
         if (f.includes('reader.js') || f.includes('home.js')) {
             assert.ok(!src.includes(prop), `${f} 仍有禁止的 ${prop} 直写`);
         }
       }
+    }
+  });
+
+  test.it('全入口 HTML 本地脚本使用裸路径并保持依赖加载顺序', () => {
+    const expectations = {
+      'src/popup/popup.html': [
+        '../utils/db-gateway.js',
+        '../utils/utils.js',
+        '../utils/storage.js',
+        'popup.js',
+      ],
+      'src/home/home.html': [
+        '../utils/db-gateway.js',
+        '../utils/utils.js',
+        '../utils/storage.js',
+        'home.js',
+      ],
+      'src/reader/reader.html': [
+        '../utils/db-gateway.js',
+        '../utils/utils.js',
+        '../utils/storage.js',
+        'image-viewer.js',
+        'annotations.js',
+        'toc.js',
+        'search.js',
+        'bookmarks.js',
+        'highlights.js',
+        'reader-state.js',
+        'reader-ui.js',
+        'reader-persistence.js',
+        'reader-runtime.js',
+        'reader.js',
+      ]
+    };
+
+    for (const [file, expectedScripts] of Object.entries(expectations)) {
+      const html = fs.readFileSync(file, 'utf8');
+      const scripts = Array.from(html.matchAll(/<script src="([^"]+)"><\/script>/g))
+        .map((m) => m[1])
+        .filter((src) => !src.startsWith('../lib/'));
+
+      assert.deepEqual(scripts, expectedScripts, `${file} 脚本加载顺序不符`);
+      assert.ok(scripts.every((src) => !src.includes('?')), `${file} 本地脚本不应使用查询串刷新缓存`);
+    }
+  });
+
+  test.it('全入口 file-input 物理隐藏一致性 (防 .click() 拦截)', () => {
+    const entries = [
+      'src/popup/popup.html',
+      'src/reader/reader.html',
+      'src/home/home.html',
+    ];
+
+    for (const f of entries) {
+      const html = fs.readFileSync(f, 'utf8');
+      const fileInputLine = html.split('\n').find(l => l.includes('file-input'));
+      assert.ok(fileInputLine, `${f} 应包含 file-input 元素`);
+      assert.ok(!fileInputLine.includes('display:none') && !fileInputLine.includes('display: none'),
+        `${f} #file-input 不得使用 display:none`);
+      assert.ok(!fileInputLine.includes('class="is-hidden"') && !fileInputLine.includes("class='is-hidden'"),
+        `${f} #file-input 不得使用 is-hidden class`);
     }
   });
 
