@@ -45,7 +45,7 @@ node --test-name-pattern="ReaderPersistence" test/run_tests.js  # 按名称过�
 - **唯一入口**：所有持久化必须经 `EpubStorage`；禁止业务代码直接调用 `chrome.storage.local` 或 `indexedDB`。
 - **分区**：
   - IndexedDB（`DbGateway`，v4，bookId 主键）：`files`（EPUB 二进制，`by_filename` 索引）、`covers`、`locations`。
-  - `chrome.storage.local`：`preferences`、`recentBooks`（≤20）、`fileTimestamps`（纯读 LRU）、`bookMeta_<id>`（pos/time/speed）、`highlights_<id>`、`bookmarks_<id>`、`deletedBook_<id>`（删除墓碑）。
+  - `chrome.storage.local`：`preferences`、`recentBooks`（≤20）、`bookMeta_<id>`（pos/time/speed）、`highlights_<id>`、`bookmarks_<id>`、`deletedBook_<id>`（删除墓碑）。
 - **并发控制**：
   - `preferences` / `recentBooks` / 同书 `bookMeta` 的读改写通过内部队列串行化，禁止裸 `_get → mutate → _set`。
   - 跨标签页用 Web Locks：书籍读写持有 `book:<id>` 共享锁，各资源（meta/highlights/bookmarks/cover/locations/file）另持独占锁；删除与导入持有 `book:<id>` 独占锁。

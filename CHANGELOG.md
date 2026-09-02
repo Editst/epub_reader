@@ -13,12 +13,17 @@
   - `loading-overlay` 调整为跟随主题的不透光纯色背景（`var(--bg-primary)`），物理消除高对比度文本透过半透明毛玻璃的跳动穿透。
 
 ### refactor
+- **剥离过期 Legacy Migration 与远古单键 (`storage.js`)**：
+  - 移除 1.x 版本的 `pos_<id>`、`time_<id>` 与 `highlightKeys` 兼容迁移逻辑，彻底移除 `_migrateLegacyBookMeta`、`_getLegacyBookMeta` 与 `_removeLegacyBookMetaKeys`，精简存储门面代码并缩短元数据读取调用链。
 - **子模块生命周期单轨化 (`reader-runtime.js`)**：
   - 移除 `_hookRenditionEvents` 中对 `ImageViewer` 和 `Annotations` 的硬编码挂钩，统一由 `reader.js` 的 `moduleLifecycle.mount()` 依赖注入单轨调度，彻底消除子模块重复挂载与 `ReaderRuntime` 对全局模块的强耦合。
 - **跨模块导航链路扁平化 (`bookmarks.js`, `toc.js`, `search.js`)**：
   - 书签、目录和搜索跳转直接调用上下文注入的 `navigate(target)` 或回退 `rendition.display`，消融跨模块的多层代理转发闭包，缩减调用栈深度。
 
 ### perf
+- **消除 `fileTimestamps` 彻底实现零写放大 (`storage.js`)**：
+  - 废除维护在 `chrome.storage.local` 中的 `fileTimestamps` 访问时间戳字典及并发锁队列，`getFile()` 彻底回归为 100% 纯读取操作，完全消除打开书籍时的额外磁盘 IO 写入；
+  - `enforceFileLRU` 重构为直接复用 `recentBooks` 的阅读活跃倒序结合 IndexedDB 原生文件时间戳进行判定，精简代码 110 余行。
 - **消除注释角标强制同步重排 (`annotations.js`)**：
   - `_readVerticalAlign` 增加 `link.style.verticalAlign` 内联样式短路检查，消除章节解析时对每个 `<a>` 标签调用 `getComputedStyle` 引发的浏览器强制同步布局（Layout Thrashing），消除长任务掉帧。
 - **全书 Spine 结构 WeakMap 静态缓存 (`annotations.js`)**：

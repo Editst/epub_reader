@@ -35,28 +35,21 @@ test.describe('系统集成：完整阅读会话', () => {
     assert.equal(await EpubStorage.getBookMeta(id), null);
   });
 
-  test.it('v1.6→v1.7 migration 端到端', async () => {
-    const id = 'mig_test';
-    // 注入旧数据 — 模拟 v1.6.0 的存储格式 (pos_<id>, time_<id>)
-    const data = {
-        ['pos_mig_test']: { cfi: 'epubcfi(/6/10)', percentage: 10, timestamp: 123 },
-        ['time_mig_test']: 999
-    };
-    await new Promise(r => chrome.storage.local.set(data, r));
-    
-    // 触发读取 (EpubStorage.getBookMeta 内部应自动迁移)
+  test.it('bookMeta 数据持久化与生命周期端到端', async () => {
+    const id = 'meta_test';
+    await EpubStorage.saveBookMeta(id, {
+      pos: { cfi: 'epubcfi(/6/10)', percentage: 10, timestamp: 123 },
+      time: 999
+    });
+
+    // 触发读取并验证结构完整性
     const m = await EpubStorage.getBookMeta(id);
-    
-    // 验证新结构
-    assert.ok(m, '应该返回迁移后的 Meta 对象');
+
+    assert.ok(m, '应该返回有效的 Meta 对象');
     assert.ok(m.pos, 'Meta.pos 应该存在');
     assert.equal(m.pos.cfi, 'epubcfi(/6/10)');
     assert.equal(m.time, 999);
-    
-    // 验证旧数据是否已删除 (由 getBookMeta 逻辑保证)
-    const oldKeys = await new Promise(r => chrome.storage.local.get(['pos_mig_test', 'time_mig_test'], r));
-    assert.equal(oldKeys.pos_mig_test, undefined);
-    assert.equal(oldKeys.time_mig_test, undefined);
+    assert.ok(m.speed, '应该具备默认 speed 结构');
+    assert.equal(m.speed.sampledSeconds, 0);
   });
-
 });

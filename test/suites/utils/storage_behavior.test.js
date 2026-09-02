@@ -199,13 +199,15 @@ test.describe('EpubStorage 行为覆盖', () => {
     );
   });
 
-  test.it('bookMeta lazy migration 产出完整 speed 默认结构', async () => {
-    await new Promise((resolve) => chrome.storage.local.set({
-      pos_book_meta_migrate: { cfi: 'epubcfi(/6/2)', percentage: 12.3, timestamp: 1 },
-      time_book_meta_migrate: 180
-    }, resolve));
+  test.it('bookMeta 未存储时返回 null，saveBookMeta 保存后产出完整 speed 默认结构', async () => {
+    assert.equal(await EpubStorage.getBookMeta('non_existent_book'), null);
 
-    const meta = await EpubStorage.getBookMeta('book_meta_migrate');
+    await EpubStorage.saveBookMeta('book_meta_modern', {
+      pos: { cfi: 'epubcfi(/6/2)', percentage: 12.3, timestamp: 1 },
+      time: 180
+    });
+
+    const meta = await EpubStorage.getBookMeta('book_meta_modern');
 
     assert.deepEqual(meta, {
       pos: { cfi: 'epubcfi(/6/2)', percentage: 12.3, timestamp: 1 },
@@ -219,70 +221,31 @@ test.describe('EpubStorage 行为覆盖', () => {
     });
   });
 
-  test.it('bookMeta lazy migration 与 savePosition 并发时不会回写旧位置', async () => {
-    const id = 'book-meta-migrate-race';
-    const key = 'bookMeta_' + id;
-    const legacyPosKey = 'pos_' + id;
-    const legacyTimeKey = 'time_' + id;
-    const originalGet = EpubStorage._get;
-    const originalSet = EpubStorage._set;
-    const originalRemove = EpubStorage._remove;
-    const memory = {
-      [legacyPosKey]: { cfi: 'epubcfi(/6/2)', percentage: 10, timestamp: 1 },
-      [legacyTimeKey]: 180
-    };
+  test.it('saveBookMeta 与 savePosition 并发时遵循队列顺序不会丢失新位置', async () => {
+    const id = 'book-meta-concurrent';
+    await EpubStorage.saveBookMeta(id, { pos: null, time: 100 });
 
-    EpubStorage._get = async function patchedGet(storageKey) {
-      await new Promise((resolve) => setImmediate(resolve));
-      return memory[storageKey] ? JSON.parse(JSON.stringify(memory[storageKey])) : undefined;
-    };
-    EpubStorage._set = async function patchedSet(data) {
-      const meta = data[key];
-      if (meta?.pos?.cfi === 'epubcfi(/6/2)') {
-        await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
-      } else {
-        await new Promise((resolve) => setImmediate(resolve));
-      }
-      Object.assign(memory, JSON.parse(JSON.stringify(data)));
-    };
-    EpubStorage._remove = async function patchedRemove(storageKey) {
-      await new Promise((resolve) => setImmediate(resolve));
-      [].concat(storageKey).forEach((keyToRemove) => { delete memory[keyToRemove]; });
-    };
+    await Promise.all([
+      EpubStorage.saveBookMeta(id, { time: 180 }),
+      EpubStorage.savePosition(id, 'epubcfi(/6/8)', 55)
+    ]);
 
-    try {
-      await Promise.all([
-        EpubStorage.getBookMeta(id),
-        EpubStorage.savePosition(id, 'epubcfi(/6/8)', 55)
-      ]);
-    } finally {
-      EpubStorage._get = originalGet;
-      EpubStorage._set = originalSet;
-      EpubStorage._remove = originalRemove;
-    }
-
-    assert.equal(memory[key].pos.cfi, 'epubcfi(/6/8)');
-    assert.equal(memory[key].pos.percentage, 55);
-    assert.equal(memory[key].time, 180);
-    assert.equal(memory[legacyPosKey], undefined);
-    assert.equal(memory[legacyTimeKey], undefined);
+    const meta = await EpubStorage.getBookMeta(id);
+    assert.equal(meta.pos.cfi, 'epubcfi(/6/8)');
+    assert.equal(meta.pos.percentage, 55);
   });
 
-  test.it('removeReadingTime 会清除聚合 bookMeta.time 并兼容旧 key', async () => {
+  test.it('removeReadingTime 会清除聚合 bookMeta.time 并重置为 0', async () => {
     await EpubStorage.saveBookMeta('book-remove-time', {
       pos: null,
       time: 240,
       speed: { sampledSeconds: 10, sampledProgress: 0.02 }
     });
-    await new Promise((resolve) => chrome.storage.local.set({ 'time_book-remove-time': 240 }, resolve));
 
     await EpubStorage.removeReadingTime('book-remove-time');
 
     const meta = await EpubStorage.getBookMeta('book-remove-time');
-    const legacy = await new Promise((resolve) => chrome.storage.local.get(['time_book-remove-time'], resolve));
-
     assert.equal(meta.time, 0);
-    assert.equal(legacy['time_book-remove-time'], undefined);
   });
 
   test.it('removePosition 与 saveReadingTime 并发时不会互相覆盖', async () => {
@@ -836,8 +799,8 @@ test.describe('EpubStorage 行为覆盖', () => {
 
   test.it('enforceFileLRU 仅淘汰文件缓存并保留阅读数据', async () => {
     const now = Date.now();
-    await EpubStorage.addRecentBook({ id: 'newer', title: 'newer' });
     await EpubStorage.addRecentBook({ id: 'older', title: 'older' });
+    await EpubStorage.addRecentBook({ id: 'newer', title: 'newer' });
     await EpubStorage.saveBookMeta('newer', { pos: null, time: 20, speed: { sampledSeconds: 0, sampledProgress: 0 } });
     await EpubStorage.saveBookMeta('older', { pos: null, time: 10, speed: { sampledSeconds: 0, sampledProgress: 0 } });
     await EpubStorage.saveHighlights('older', [{ cfi: 'hl-old' }]);
@@ -862,7 +825,7 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual((await EpubStorage.getRecentBooks()).map((book) => book.id).sort(), ['newer', 'older']);
   });
 
-  test.it('getFile 刷新访问时间，使 LRU 保留最近打开的旧缓存', async () => {
+  test.it('打开阅读（addRecentBook）刷新活跃顺序，使 LRU 保留最近活跃书籍', async () => {
     const now = Date.now();
     await EpubStorage._dbGateway.put('files', {
       bookId: 'opened-old', filename: 'old.epub', data: new Uint8Array([1]), timestamp: now - 10_000
@@ -870,15 +833,10 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage._dbGateway.put('files', {
       bookId: 'unopened-new', filename: 'new.epub', data: new Uint8Array([2]), timestamp: now
     });
-    const originalNow = Date.now;
-    Date.now = () => now + 10_000;
 
-    try {
-      await EpubStorage.getFile('opened-old');
-      await EpubStorage.enforceFileLRU(1);
-    } finally {
-      Date.now = originalNow;
-    }
+    // 重新打开旧书，提升其在 recentBooks 中的优先级
+    await EpubStorage.addRecentBook({ id: 'opened-old', title: 'old.epub' });
+    await EpubStorage.enforceFileLRU(1);
 
     assert.notEqual(await EpubStorage.getFile('opened-old'), null);
     assert.equal(await EpubStorage.getFile('unopened-new'), null);
@@ -914,10 +872,6 @@ test.describe('EpubStorage 行为覆盖', () => {
     });
     await EpubStorage.saveHighlights('orphan-highlight', [{ cfi: 'epubcfi(/6/2)' }]);
     await EpubStorage.saveBookmarks('orphan-bookmark', [{ cfi: 'epubcfi(/6/4)' }]);
-    await EpubStorage._set({
-      'pos_legacy-position': { cfi: 'epubcfi(/6/6)' },
-      'time_legacy-time': 30
-    });
     await EpubStorage._dbGateway.put('files', {
       bookId: 'orphan-file', filename: 'orphan.epub', data: new Uint8Array([1]), timestamp: Date.now()
     });
@@ -925,8 +879,6 @@ test.describe('EpubStorage 行为覆盖', () => {
     await EpubStorage._dbGateway.put('locations', { bookId: 'orphan-locations', json: '[]' });
 
     assert.deepEqual((await EpubStorage.getAllBookIds()).sort(), [
-      'legacy-position',
-      'legacy-time',
       'orphan-bookmark',
       'orphan-cover',
       'orphan-file',
@@ -1113,16 +1065,16 @@ test.describe('EpubStorage 行为覆盖', () => {
     }
   });
 
-  test.it('getBookMetaBatch 批量获取多本书籍元数据并支持部分缺失与 legacy 迁移', async () => {
-    // 准备测试数据：book1 有完整 meta，book2 有 legacy pos，book3 不存在
+  test.it('getBookMetaBatch 批量获取多本书籍元数据并支持部分缺失', async () => {
     await EpubStorage.saveBookMeta('book1', {
       pos: { cfi: 'cfi-1', percentage: 0.5, timestamp: 1000 },
       time: 120,
       speed: { sampledSeconds: 60, sampledProgress: 0.2, contentUnitCount: 1000, contentUnitVersion: 1 }
     });
-    await new Promise((resolve) => chrome.storage.local.set({
-      'pos_book2': { cfi: 'cfi-2', percentage: 0.8, timestamp: 2000 }
-    }, resolve));
+    await EpubStorage.saveBookMeta('book2', {
+      pos: { cfi: 'cfi-2', percentage: 0.8, timestamp: 2000 },
+      time: 0
+    });
 
     const result = await EpubStorage.getBookMetaBatch(['book1', 'book2', 'book3']);
 
@@ -1140,65 +1092,63 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.deepEqual(emptyResult, {});
   });
 
-  test.it('fileTimestamps 支持多 bookId 并发写入与防竞争', async () => {
-    const bookIds = ['book-c-1', 'book-c-2', 'book-c-3', 'book-c-4'];
-    await Promise.all(bookIds.map((id) => EpubStorage._touchFileTimestamp(id)));
+  test.it('getFile 为纯读取操作，并发多次调用零写放大，不向 storage 或 IndexedDB 写入', async () => {
+    await EpubStorage._dbGateway.put('files', {
+      bookId: 'pure-read-book',
+      filename: 'pure.epub',
+      data: new Uint8Array([1, 2, 3]),
+      timestamp: Date.now()
+    });
 
-    const timestamps = await EpubStorage._get('fileTimestamps');
-    assert.ok(typeof timestamps === 'object' && timestamps !== null);
-    for (const id of bookIds) {
-      assert.ok(typeof timestamps[id] === 'number' && timestamps[id] > 0, `${id} 的时间戳应存在且为有效数字`);
+    let storageSetCalls = 0;
+    const origSet = chrome.storage.local.set;
+    chrome.storage.local.set = (items, cb) => {
+      storageSetCalls++;
+      if (origSet) origSet.call(chrome.storage.local, items, cb);
+      else if (cb) cb();
+    };
+
+    try {
+      const results = await Promise.all([
+        EpubStorage.getFile('pure-read-book'),
+        EpubStorage.getFile('pure-read-book'),
+        EpubStorage.getFile('pure-read-book')
+      ]);
+      assert.equal(results.length, 3);
+      assert.equal(results[0].bookId, 'pure-read-book');
+      assert.equal(storageSetCalls, 0, 'getFile 不得向 chrome.storage.local 产生任何写入（零写放大）');
+    } finally {
+      chrome.storage.local.set = origSet;
     }
   });
 
-  test.it('fileTimestamps 损坏时 _touchFileTimestamp 与 enforceFileLRU 安全降级', async () => {
-    // 注入损坏的非对象数据
-    await new Promise((resolve) => chrome.storage.local.set({ fileTimestamps: 'corrupted-string' }, resolve));
+  test.it('enforceFileLRU 在无 recentBooks 时安全按原生 timestamp 排序淘汰', async () => {
+    const now = Date.now();
+    await EpubStorage._dbGateway.put('files', { bookId: 'ts-1', filename: '1.epub', data: new Uint8Array([1]), timestamp: now - 3000 });
+    await EpubStorage._dbGateway.put('files', { bookId: 'ts-2', filename: '2.epub', data: new Uint8Array([2]), timestamp: now - 1000 });
+    await EpubStorage._dbGateway.put('files', { bookId: 'ts-3', filename: '3.epub', data: new Uint8Array([3]), timestamp: now - 2000 });
 
-    await EpubStorage._touchFileTimestamp('recovered-book');
-    const timestamps = await EpubStorage._get('fileTimestamps');
+    await EpubStorage.enforceFileLRU(2);
 
-    assert.ok(typeof timestamps === 'object' && timestamps !== null);
-    assert.ok(typeof timestamps['recovered-book'] === 'number');
+    assert.equal(await EpubStorage.getFile('ts-1'), null, '最早存入的 ts-1 应被淘汰');
+    assert.notEqual(await EpubStorage.getFile('ts-2'), null);
+    assert.notEqual(await EpubStorage.getFile('ts-3'), null);
+  });
 
-    // enforceFileLRU 遇到非对象也能正常工作
-    await new Promise((resolve) => chrome.storage.local.set({ fileTimestamps: null }, resolve));
+  test.it('enforceFileLRU 遇异常安全降级，单本失败不中断整体流程', async () => {
     await assert.doesNotReject(async () => {
       await EpubStorage.enforceFileLRU(10);
     });
   });
 
-  test.it('getFile 在 _touchFileTimestamp 抛错时仍降级返回 fallbackRecord', async () => {
+  test.it('removeFile 从 IndexedDB 准确删除文件记录', async () => {
     await EpubStorage._dbGateway.put('files', {
-      bookId: 'touch-fail-book',
-      filename: 'touch-fail.epub',
-      data: new Uint8Array([7, 8, 9]),
-      timestamp: Date.now()
+      bookId: 'to-remove-file', filename: 'rm.epub', data: new Uint8Array([1]), timestamp: Date.now()
     });
+    assert.notEqual(await EpubStorage.getFile('to-remove-file'), null);
 
-    const origTouch = EpubStorage._touchFileTimestamp.bind(EpubStorage);
-    EpubStorage._touchFileTimestamp = async () => {
-      throw new Error('simulated timestamp touch failure');
-    };
-
-    try {
-      const record = await EpubStorage.getFile('touch-fail-book');
-      assert.notEqual(record, null, '时间戳更新失败不应影响文件读取返回');
-      assert.equal(record.bookId, 'touch-fail-book');
-      assert.deepEqual(Array.from(record.data), [7, 8, 9]);
-    } finally {
-      EpubStorage._touchFileTimestamp = origTouch;
-    }
-  });
-
-  test.it('removeFile 级联清理 fileTimestamps 中的对应记录', async () => {
-    await EpubStorage._touchFileTimestamp('to-remove-book');
-    let map = await EpubStorage._get('fileTimestamps');
-    assert.ok(typeof map['to-remove-book'] === 'number');
-
-    await EpubStorage.removeFile('to-remove-book');
-    map = await EpubStorage._get('fileTimestamps');
-    assert.equal(map['to-remove-book'], undefined, 'removeFile 后时间戳 Map 中应已删除该 bookId');
+    await EpubStorage.removeFile('to-remove-file');
+    assert.equal(await EpubStorage.getFile('to-remove-file'), null);
   });
 
   test.it('BUG-2: saveReadingSpeed 正确保留显式 0 值且支持正文计数 patch', async () => {
@@ -1298,7 +1248,6 @@ test.describe('EpubStorage 行为覆盖', () => {
     const allKeys = await new Promise((r) => chrome.storage.local.get(null, r));
     const tombstones = Object.keys(allKeys).filter((k) => k.startsWith('deletedBook_'));
     assert.equal(tombstones.length, 0, '清空书架后不应遗留 deletedBook_ 墓碑键');
-    assert.equal(allKeys.fileTimestamps, undefined, '清空书架后应清理 fileTimestamps');
   });
 
   test.it('importBookFile 一站式完成 ArrayBuffer 读取、哈希生成与落盘', async () => {

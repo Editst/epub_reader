@@ -51,7 +51,7 @@ flowchart TB
     end
 
     subgraph PHYSICAL_STORAGE["6. 物理存储介质 (Physical Storage Media)"]
-        CSL[("chrome.storage.local (10MB 配额)<br/>• preferences (全局偏好)<br/>• recentBooks (书架列表)<br/>• fileTimestamps (访问时间戳)<br/>• bookMeta_&lt;id&gt; (位置/时长/速度)<br/>• highlights_&lt;id&gt; (高亮笔记)<br/>• bookmarks_&lt;id&gt; (书签)<br/>• deletedBook_&lt;id&gt; (删除墓碑)")]
+        CSL[("chrome.storage.local (10MB 配额)<br/>• preferences (全局偏好)<br/>• recentBooks (书架列表)<br/>• bookMeta_&lt;id&gt; (位置/时长/速度)<br/>• highlights_&lt;id&gt; (高亮笔记)<br/>• bookmarks_&lt;id&gt; (书签)<br/>• deletedBook_&lt;id&gt; (删除墓碑)")]
         IDB[("IndexedDB: EpubReaderDB (v4)<br/>• files (EPUB 二进制原文件)<br/>• covers (封面 Blob)<br/>• locations (CFI 位置索引 JSON)")]
     end
 
