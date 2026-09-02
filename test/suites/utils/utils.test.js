@@ -255,5 +255,31 @@ test.describe('安全与注入防护 (Utils)', () => {
     }
   });
 
+  test.it('formatDuration 与 formatMinutes 极端脏输入与异常类型全面防御', () => {
+    const dirtyInputs = [-999, 'not-a-number', {}, [], true, false, Symbol('test')];
+    for (const input of dirtyInputs) {
+      assert.equal(Utils.formatDuration(input), '0秒');
+      assert.equal(Utils.formatMinutes(input), '0分钟');
+    }
+  });
+
+  test.it('sanitizeColor 严格支持标准 3/4/6/8 位十六进制及 transparent，其余一律回退默认', () => {
+    // 合法十六进制（含大小写与透明通道）
+    assert.equal(Utils.sanitizeColor('#ABC'), '#ABC');
+    assert.equal(Utils.sanitizeColor('#AbCd'), '#AbCd');
+    assert.equal(Utils.sanitizeColor('#123456'), '#123456');
+    assert.equal(Utils.sanitizeColor('#123456Ff'), '#123456Ff');
+    assert.equal(Utils.sanitizeColor('transparent'), 'transparent');
+
+    // 畸形与越界
+    assert.equal(Utils.sanitizeColor('#12'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('#12345'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('#1234567'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('#123456789'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('rgba(0,0,0,0)'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor('hsl(0, 100%, 50%)'), '#ffeb3b');
+    assert.equal(Utils.sanitizeColor(''), 'transparent');
+  });
+
 });
 

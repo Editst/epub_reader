@@ -39,18 +39,13 @@ test.describe('项目工程完整性检查', () => {
     assert.ok(!architecture.includes('onLocationChanged'));
   });
 
-  test.it('入口未加载的旧 Popup 样式文件不应继续保留', () => {
-    assert.equal(fs.existsSync('src/popup/popup.css'), false);
-  });
-
-  test.it('首方样式不保留无调用选择器和历史工单标签', () => {
+  test.it('首方样式不保留已废弃的选择器', () => {
     const css = [
       fs.readFileSync('src/reader/reader.css', 'utf8'),
       fs.readFileSync('src/home/home.css', 'utf8')
     ].join('\n');
 
     assert.ok(!css.includes('.annotation-item-cover'));
-    assert.ok(!/v\d+\.\d+\.\d+|PDCA|\bFIX:/.test(css));
   });
 
   test.it('本地工具单例使用 IIFE 并显式导出到 window', () => {

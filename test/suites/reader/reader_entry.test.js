@@ -5,11 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 test.describe('Reader 入口与装配契约', () => {
-  test.it('reader.js 保持为轻量编排层，并显式装配四层依赖', () => {
+  test.it('reader.js 显式装配四层依赖与异常收口', () => {
     const src = fs.readFileSync('src/reader/reader.js', 'utf8');
-    const lines = src.trimEnd().split('\n').length;
 
-    assert.ok(lines < 120, `reader.js line count=${lines}`);
     assert.ok(src.includes('ReaderState.createReaderState'));
     assert.ok(src.includes('ReaderUi.createReaderUi'));
     assert.ok(src.includes('ReaderPersistence.createReaderPersistence'));

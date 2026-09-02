@@ -3056,18 +3056,6 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(capturedQuery, 'C\\+\\+ \\[1\\] \\(foo\\)\\*\\?');
   });
 
-  test.it('Annotations._BLOCK_TAGS 包含 dd, dt, figure 等定义列表标签', () => {
-    const src = fs.readFileSync('src/reader/annotations.js', 'utf8');
-    const match = src.match(/const _BLOCK_TAGS = new Set\(\[([\s\S]*?)\]\);/);
-    assert.ok(match, '_BLOCK_TAGS 应存在');
-    const tags = match[1];
-    assert.ok(tags.includes("'dd'"), '应包含 dd');
-    assert.ok(tags.includes("'dt'"), '应包含 dt');
-    assert.ok(tags.includes("'figure'"), '应包含 figure');
-    assert.ok(tags.includes("'figcaption'"), '应包含 figcaption');
-    assert.ok(tags.includes("'article'"), '应包含 article');
-  });
-
   test.it('ReaderState.safeNavigate 优先调用注入 navigate 并能安全捕获异常', async () => {
     let captured = null;
     const mockNavigate = (t) => { captured = t; return Promise.resolve('ok'); };
@@ -3135,6 +3123,145 @@ test.describe('Reader 模块基础行为', () => {
     Annotations._targetIdIndex.set('fn2', 'chap2.xhtml');
     Annotations.unmount();
     assert.equal(Annotations._targetIdIndex.size, 0, 'unmount 应清空 _targetIdIndex');
+  });
+
+  test.it('ReaderUi 自定义主题对比度不足 2.5 时自动降级高对比度前景色', () => {
+    const { document } = createMockDocument([
+      'font-size-slider', 'font-size-value', 'line-height-slider', 'line-height-value',
+      'font-family-select', 'custom-theme-options', 'custom-bg-color', 'custom-text-color'
+    ]);
+    const themeOverrides = [];
+    const state = {
+      prefs: {
+        theme: 'custom',
+        customBg: '#ffffff',
+        customText: '#ffff00', // 白底亮黄，对比度极低 (< 2.5)
+        fontSize: 18,
+        lineHeight: 1.8,
+        layout: 'paginated',
+        spread: 'auto',
+        paragraphIndent: true
+      },
+      rendition: {
+        themes: {
+          override(property, value) { themeOverrides.push([property, value]); }
+        },
+        getContents() { return []; }
+      }
+    };
+    const windowMock = { document, focus() {}, addEventListener() {} };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    ui.applyTheme('custom');
+
+    const textColorOverride = themeOverrides.find(([prop]) => prop === 'color')?.[1];
+    assert.equal(textColorOverride, '#1f2937', '白底浅色文字应降级为高对比度深灰');
+
+    // 测试深底深黑文字降级为浅色
+    themeOverrides.length = 0;
+    state.prefs.customBg = '#111111';
+    state.prefs.customText = '#000000';
+    ui.applyTheme('custom');
+    const darkTextColorOverride = themeOverrides.find(([prop]) => prop === 'color')?.[1];
+    assert.equal(darkTextColorOverride, '#f3f4f6', '深底黑色文字应降级为高对比度浅灰');
+
+    // 测试正常高对比度保留原色
+    themeOverrides.length = 0;
+    state.prefs.customBg = '#ffffff';
+    state.prefs.customText = '#000000';
+    ui.applyTheme('custom');
+    const normalTextColorOverride = themeOverrides.find(([prop]) => prop === 'color')?.[1];
+    assert.equal(normalTextColorOverride, '#000000', '充足对比度应保留原色');
+  });
+
+  test.it('ReaderUi 字号与行距越界时精确收敛至合法区间 [12, 32] 与 [1.2, 3.0]', () => {
+    const { document } = createMockDocument([
+      'font-size-slider', 'font-size-value', 'line-height-slider', 'line-height-value',
+      'font-family-select', 'custom-theme-options', 'custom-bg-color', 'custom-text-color'
+    ]);
+    const state = {
+      prefs: {
+        theme: 'light',
+        fontSize: 6,      // < 12
+        lineHeight: 0.8,  // < 1.2
+        layout: 'paginated',
+        spread: 'auto',
+        paragraphIndent: true
+      },
+      rendition: null
+    };
+    const windowMock = { document, focus() {}, addEventListener() {} };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: windowMock,
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    ui.syncPrefsToControls();
+
+    assert.equal(state.prefs.fontSize, 12, '字号过小应被截断至下限 12');
+    assert.equal(state.prefs.lineHeight, 1.2, '行距过小应被截断至下限 1.2');
+
+    state.prefs.fontSize = 50;     // > 32
+    state.prefs.lineHeight = 5.5;  // > 3.0
+    ui.syncPrefsToControls();
+
+    assert.equal(state.prefs.fontSize, 32, '字号过大应被截断至上限 32');
+    assert.equal(state.prefs.lineHeight, 3, '行距过大应被截断至上限 3.0');
+  });
+
+  test.it('Search 在空输入或章节加载异常时安全降级不中断整体搜索', async () => {
+    const { document } = createMockDocument([
+      'search-panel', 'search-input', 'btn-do-search', 'search-results-list',
+      'search-status', 'btn-search', 'btn-search-close', 'sidebar-overlay'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      window: { document }
+    });
+    Search.init();
+
+    let spineLoadCalls = 0;
+    const items = [
+      {
+        href: 'chap1.xhtml',
+        load: async () => {
+          spineLoadCalls++;
+          throw new Error('corrupted section');
+        },
+        find: () => [],
+        unload: () => {}
+      },
+      {
+        href: 'chap2.xhtml',
+        load: async () => {
+          spineLoadCalls++;
+        },
+        find: () => [{ cfi: 'epubcfi(/6/4)', excerpt: 'found keyword here' }],
+        unload: () => {}
+      }
+    ];
+    const mockBook = {
+      spine: {
+        length: items.length,
+        get: (i) => items[i]
+      }
+    };
+    Search.setBook(mockBook, null);
+
+    // 1. 纯空格搜索：安全短路返回
+    await Search.doSearch('   ');
+    assert.equal(spineLoadCalls, 0, '空白查询不得扫描章节');
+
+    // 2. 正常查询遇单章损坏：安全忽略并继续后续章节
+    await Search.doSearch('keyword');
+    assert.equal(spineLoadCalls, 2, '第二章应被继续加载搜索');
+    const statusText = document.getElementById('search-status').textContent;
+    assert.ok(statusText.includes('1'), '应成功找到第 2 章的结果');
   });
 });
 

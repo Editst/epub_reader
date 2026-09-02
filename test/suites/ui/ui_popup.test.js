@@ -19,76 +19,17 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
       'popup.html 不应引用外部 popup.css（会引入加载时序与CSP问题）');
   });
 
-  test.it('P-2: #file-input 使用物理隐藏而非 display:none', () => {
+  test.it('P-3: popup.html 无外部 preconnect/prefetch 标签', () => {
     const html = fs.readFileSync('src/popup/popup.html', 'utf8');
-    assert.ok(!html.match(/#file-input\s*\{[^}]*display\s*:\s*none/),
-      '#file-input 不得使用 display:none（会导致 .click() 被 Chrome 拦截）');
-    assert.ok(html.match(/#file-input\s*\{[^}]*(opacity|width\s*:\s*0|height\s*:\s*0)/),
-      '#file-input 应使用零尺寸/透明物理隐藏');
-  });
-
-  test.it('C-10: popup.js 中 emptyState 使用 style.display 直写', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    assert.ok(js.includes("style.display = 'block'") || js.includes('style.display = "block"'));
-    assert.ok(js.includes("style.display = 'none'") || js.includes('style.display = "none"'));
-    assert.ok(!js.includes("classList.add('is-hidden')"));
-    assert.ok(!js.includes("classList.remove('is-hidden')"));
+    assert.ok(!html.includes('rel="preconnect"'), 'popup.html 不应有 preconnect');
+    assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
   });
 
   test.it('P-4: popup.js openBtn click handler 为同步函数且调用 .click()', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
     const code = js.split('\n').filter(l => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
-    assert.ok(!code.includes('showOpenFilePicker'), 'popup.js 代码逻辑中不应调用 showOpenFilePicker');
+    assert.ok(!code.includes('showOpenFilePicker'), 'popup.js 代码逻辑中不应调用 showOpenFilePicker（会丢失用户手势激活）');
     assert.ok(code.includes('fileInput.click()'), 'openBtn 应直接调用 fileInput.click()');
-  });
-
-  test.it('P-5: popup.js loadRecentBooks 通过安全辅助函数保护', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    assert.ok(js.includes('function loadRecentBooksSafely()'), '应通过安全辅助函数加载最近阅读');
-    assert.ok(js.includes('const renderSeq = ++recentBooksRenderSeq'), '每次刷新应递增渲染代次');
-    assert.ok(js.includes('return loadRecentBooks(renderSeq).catch((e) => {'), 'loadRecentBooksSafely 应捕获加载失败');
-    assert.ok(js.includes('if (renderSeq !== recentBooksRenderSeq) return'), '旧刷新失败不得覆盖新列表');
-    assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed"), 'catch 块应 have fallback');
-    assert.ok(js.includes('function showEmptyState()'), '空列表与加载失败应共用空状态恢复路径');
-    assert.ok(js.includes('showEmptyState();'), '加载失败应重新挂载空状态而非保留旧列表');
-  });
-
-  test.it('popup.js 最近阅读进度显示前必须归一化', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    assert.ok(js.includes('Utils.normalizePercent(meta.pos.percentage)'), 'popup.js 应归一化 storage 中的阅读进度');
-    assert.ok(js.includes("percent.toFixed(1) + '%'"), '展示文本应基于归一化后的数字格式化');
-  });
-
-  test.it('popup 最近列表忽略封面读取期间迟到的旧刷新', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    const checks = js.match(/if \(renderSeq !== recentBooksRenderSeq\) return/g) || [];
-
-    assert.ok(js.includes('let recentBooksRenderSeq = 0'));
-    assert.ok(js.includes('async function loadRecentBooks(renderSeq)'));
-    assert.ok(checks.length >= 3, '读取列表、加载卡片数据和失败回退后都应校验代次');
-    assert.ok(js.indexOf("img.addEventListener('load'") < js.indexOf('img.src = coverObjectUrl'),
-      '封面回收监听必须先于 src 赋值注册');
-    assert.ok(js.includes('function clearRenderedRecentItems()'));
-    assert.ok(js.includes('item.dataset.coverUrl = coverObjectUrl'));
-    assert.ok(js.includes('delete item.dataset.coverUrl'));
-    assert.ok(js.includes("window.addEventListener('pagehide', clearRenderedRecentItems)"),
-      'Popup 关闭时必须释放仍由列表项持有的封面 URL');
-  });
-
-  test.it('popup 最近阅读日期使用样式类并保持相对时间格式', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
-
-    assert.ok(js.includes("dateEl.className = 'recent-item-date recent-item-opened-at'"));
-    assert.ok(js.includes("Utils.formatDate(book.lastOpened, '')"));
-    assert.ok(!js.includes("dateEl.style.marginTop = '2px'"));
-    assert.match(html, /\.recent-item-opened-at\s*\{[^}]*margin-top:\s*2px/);
-  });
-
-  test.it('P-3: popup.html 无外部 preconnect/prefetch 标签', () => {
-    const html = fs.readFileSync('src/popup/popup.html', 'utf8');
-    assert.ok(!html.includes('rel="preconnect"'), 'popup.html 不应有 preconnect');
-    assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
   });
 
   test.it('popup.html 弹窗脚本使用裸路径并保持加载顺序', () => {
@@ -102,30 +43,6 @@ test.describe('Popup 弹出页专项检查 (迁移)', () => {
       'popup.js',
     ]);
     assert.ok(scripts.every((src) => !src.includes('?')), '弹窗本地脚本不应使用手动查询串刷新缓存');
-  });
-
-  test.it('popup.js 最近书籍加载不应阻塞核心事件绑定', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-    const openBindIndex = js.indexOf("openBtn.addEventListener('click'");
-    const homeBindIndex = js.indexOf("homeBtn.addEventListener('click'");
-    const fileBindIndex = js.indexOf("fileInput.addEventListener('change'");
-    const loadIndex = js.indexOf('loadRecentBooksSafely();');
-
-    assert.ok(openBindIndex !== -1 && homeBindIndex !== -1 && fileBindIndex !== -1 && loadIndex !== -1);
-    assert.ok(openBindIndex < loadIndex, '打开文件按钮绑定应早于最近书籍加载');
-    assert.ok(homeBindIndex < loadIndex, '书架管理按钮绑定应早于最近书籍加载');
-    assert.ok(fileBindIndex < loadIndex, 'file input change 绑定应早于最近书籍加载');
-    assert.ok(js.includes('function loadRecentBooksSafely()'), '最近书籍加载应集中到安全辅助函数');
-    assert.ok(js.includes("console.warn('[Popup] loadRecentBooks failed:'"), '最近书籍加载失败应记录告警');
-  });
-
-  test.it('popup.js 移除最近书籍后始终按权威 recentBooks 重建列表', () => {
-    const js = fs.readFileSync('src/popup/popup.js', 'utf8');
-
-    assert.ok(js.includes("console.warn('[Popup] remove recent book failed:'"), '移除失败应被捕获并告警');
-    assert.match(js, /finally \{\s*releaseCoverObjectUrl\(item\);\s*await loadRecentBooksSafely\(\);/, '成功或失败后都应释放资源并刷新列表');
-    assert.ok(!js.includes('item.remove();'), '弹窗不应维护独立 DOM 真相源');
-    assert.ok(js.includes('recentList.appendChild(emptyState);'), '权威列表为空时应重新挂载空状态');
   });
 
 });

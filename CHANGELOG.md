@@ -26,10 +26,16 @@
   - `enforceFileLRU` 重构为直接复用 `recentBooks` 的阅读活跃倒序结合 IndexedDB 原生文件时间戳进行判定，精简代码 110 余行。
 - **消除注释角标强制同步重排 (`annotations.js`)**：
   - `_readVerticalAlign` 增加 `link.style.verticalAlign` 内联样式短路检查，消除章节解析时对每个 `<a>` 标签调用 `getComputedStyle` 引发的浏览器强制同步布局（Layout Thrashing），消除长任务掉帧。
-- **全书 Spine 结构 WeakMap 静态缓存 (`annotations.js`)**：
-  - 引入 `_bookSpineCache` (WeakMap) 缓存整书的 spine 索引与 href/filename/index 映射字典，将翻页时每章重复扫描全书 spine 的复杂度从 O(N*M) 降为全书一次性的 O(N)，并支持根据 `sectionIndex` 的 O(1) 反查。
 - **退出刷盘定位快照复用 (`reader-persistence.js`)**：
   - 优化 `flushPositionSave` / `flushSessionBundle` 提取逻辑，优先复用已结算的 `state.currentStableLocator.restoreCfi` 快照，避免在关闭窗口（`beforeunload`）或切书的关键时间窗口内重复执行 17 点螺旋 DOM 采样。
+
+### test
+- **测试套件瘦身消融与高质量补齐 (`test/suites/`)**：
+  - 消融 27 个脆弱的“修改探测器”测试（针对内部私有函数名、私有常量、局部作用域切片及行数硬编码的正则扫描）；
+  - 合并去重跨入口重复的 `#file-input` 检查与加载顺序断言，归拢至系统级规范守卫；
+  - 补齐 Reader 自定义主题可读性与对比度自适应降级算法（`contrastRatio` / `ensureReadableTheme`）单测；
+  - 补齐字号/行距/布局白名单越界防御收敛单测，以及搜索模块空查询短路与异常容错测试；
+  - 补齐工具函数极端脏输入与畸形颜色清洗的边界防御测试。
 
 ---
 

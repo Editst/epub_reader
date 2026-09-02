@@ -146,7 +146,7 @@
   }
 
   async function doSearch(query) {
-    if (!book) return;
+    if (!book || !query || typeof query !== 'string' || !query.trim()) return;
     
     const searchId = ++currentSearchId;
     const activeBook = book;
