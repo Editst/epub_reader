@@ -36,6 +36,10 @@
   - 补齐 Reader 自定义主题可读性与对比度自适应降级算法（`contrastRatio` / `ensureReadableTheme`）单测；
   - 补齐字号/行距/布局白名单越界防御收敛单测，以及搜索模块空查询短路与异常容错测试；
   - 补齐工具函数极端脏输入与畸形颜色清洗的边界防御测试。
+- **补齐 Popup 与 Home 页面真实 UI 交互行为测试 (`ui_popup_interaction`, `ui_home_interaction`)**：
+  - 增强沙箱环境事件冒泡、`closest` 向上遍历与递归 `querySelectorAll` 支持；
+  - 新增 Popup 交互测试（打开文件同步触发、新书导入与 reader 打开、书架跳转、空状态与卡片移除）；
+  - 新增 Home 交互测试（主题切换、网格/列表视图切换、标注筛选/排序联动、全局拖放上传与遮罩）。
 
 ---
 
