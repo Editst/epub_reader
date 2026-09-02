@@ -478,6 +478,8 @@
         return { matched: false, corrected: false };
       }
 
+      await _nextFrame();
+
       let currentPage = await _readCurrentDisplayedPage();
       if (!currentPage) {
         state.currentStableLocator = null;
@@ -704,8 +706,9 @@
     async function _initializeBook(
       fileData, bookId, fileName, targetCfi, openStartedAt, openLifecycleSeq
     ) {
-      ui.setReaderVisible(true);
-      ui.clearReaderError();
+      if (typeof ui.setReaderVisible === 'function') ui.setReaderVisible(true);
+      if (typeof ui.setReaderDimmed === 'function') ui.setReaderDimmed(true);
+      if (typeof ui.clearReaderError === 'function') ui.clearReaderError();
 
       state.currentBookId   = bookId;
       state.currentFileName = fileName || '';
@@ -848,6 +851,8 @@
       _mountFeatureModules();
 
       // ── isBookLoaded ─────────────────────────────────────────────────────────
+      await _nextFrame();
+      if (typeof ui.setReaderDimmed === 'function') ui.setReaderDimmed(false);
       ui.showLoading(false);
       state.isBookLoaded = true;
 

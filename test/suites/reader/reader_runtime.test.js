@@ -1631,6 +1631,7 @@ test.describe('ReaderRuntime', () => {
     };
 
     const displayCalls = [];
+    const dimmedCalls = [];
     let nextCalls = 0;
     let prevCalls = 0;
     let reportLocationCalls = 0;
@@ -1745,7 +1746,7 @@ test.describe('ReaderRuntime', () => {
         setReaderVisible() {},
         clearReaderError() {},
         setBookTitle() {},
-        setReaderDimmed() {},
+        setReaderDimmed(dimmed) { dimmedCalls.push(dimmed); },
         syncPrefsToControls() {},
         applyThemeToRendition() {},
         setupRenditionKeyEvents() {},
@@ -1772,7 +1773,7 @@ test.describe('ReaderRuntime', () => {
     EpubStorage.getLocations = originalGetLocations;
 
     return {
-      displayCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls,
+      displayCalls, dimmedCalls, nextCalls, prevCalls, reportLocationCalls, relocatedCalls,
       state, idleTask, positionReads
     };
   }
@@ -1805,6 +1806,7 @@ test.describe('ReaderRuntime', () => {
     assert.equal(result.positionReads, 0, '已读取 bookMeta 后不得重复读取同一位置数据');
     assert.equal(result.state.currentStableCfi, 'epubcfi(/6/8!/4/2)');
     assert.equal(result.state.currentStableLocator.restoreCfi, 'epubcfi(/6/8!/4/3)');
+    assert.deepEqual(result.dimmedCalls, [true, false], '开书全流程具备低透明度防闪烁阻尼保护并在稳定后解除');
   });
 
   test.it('正文计数缓存命中时不重复调度章节扫描', async () => {

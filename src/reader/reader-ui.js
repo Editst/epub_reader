@@ -194,6 +194,7 @@
 
     function showLoadError(msg) {
       showLoading(false);
+      setReaderDimmed(false);
       if (dom.welcomeScreen) dom.welcomeScreen.classList.add('is-hidden');
       const rm = dom.readerMain;
       if (!rm) return;

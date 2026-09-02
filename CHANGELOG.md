@@ -6,6 +6,12 @@
 
 ## [2.6.0] - 2026-09-03
 
+### fix
+- **消除重新打开书籍时的跳页闪烁与透光 (`reader-runtime.js`, `reader-ui.js`, `reader.css`)**：
+  - `_correctRestoredPage` 采样前引入 `_nextFrame()` 帧稳定等待，给 epub.js 分栏排版与滚动偏移提供对齐时窗，消除异步时差引发的误判及二次 `display` 重放；
+  - 开书全链路纳入 `setReaderDimmed(true)`（`opacity: 0`）视觉阻尼保护，待位置彻底恢复且渲染 settled 后平滑解除，彻底杜绝章节头部（Page 1）中间态泄漏；
+  - `loading-overlay` 调整为跟随主题的不透光纯色背景（`var(--bg-primary)`），物理消除高对比度文本透过半透明毛玻璃的跳动穿透。
+
 ### refactor
 - **子模块生命周期单轨化 (`reader-runtime.js`)**：
   - 移除 `_hookRenditionEvents` 中对 `ImageViewer` 和 `Annotations` 的硬编码挂钩，统一由 `reader.js` 的 `moduleLifecycle.mount()` 依赖注入单轨调度，彻底消除子模块重复挂载与 `ReaderRuntime` 对全局模块的强耦合。
