@@ -753,7 +753,6 @@ const EpubStorage = {
       if (!existing && !createIfMissing) return;
 
       const current = existing || this._createDefaultBookMeta();
-      if (this._deletingBookIds.has(bookId)) return;
       const updated = (await mutator(current)) || current;
       await this._set({ [KEYS.bookMeta(bookId)]: updated });
       return updated;
