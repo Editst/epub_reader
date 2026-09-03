@@ -4,6 +4,34 @@
 
 ---
 
+## [2.6.1] - 2026-09-03
+
+### refactor
+- **死代码与不可达分支剪枝 (`annotations.js`, `reader-persistence.js`, `bookmarks.js`)**：
+  - 清理 `Annotations._isTocList` 中因覆盖全部返回分支而永远无法执行的 `querySelectorAll` 回退代码；
+  - 清理 `Annotations.isFootnoteLink` 中针对不含 `#` 的 href 再次执行 `_RE.filepos.test` 的冗余判断；
+  - 移除 `Annotations._findTarget` 中无外部传入字符串的 `DOMParser` 字符串解析分支；
+  - 简化 `ReaderPersistence.onRelocated` 中的重复属性提取与可选链，提取并复用 `startCfi`；
+  - 移除 `Bookmarks` 模块中通过 `document.getElementById('btn-bookmark')` 直接操作 DOM 的边界刺探代码，严格对齐 UI 层集中管理契约。
+- **跨模块逻辑去重与标准模式统一 (`utils.js`, `toc.js`, `search.js`, `reader-ui.js`, `popup.js`, `home.js`)**：
+  - 提取 `Utils.isEditableTarget` 纯函数，统一 `TOC`、`Search` 及 `ReaderUi` 快捷键对输入控件的焦点抑制逻辑；
+  - 统一 `Popup` 与 `Home` 模块的封面 ObjectURL 释放逻辑，规范复用 `Utils.releaseElementCoverUrl`；
+  - 统一 `Bookmarks`、`TOC`、`Search` 导航跳转至 `ReaderState.safeNavigate`，收敛同步与异步导航异常处理。
+- **全局事件监听生命周期对齐与拖拽优化 (`search.js`, `toc.js`, `image-viewer.js`, `highlights.js`, `reader.css`, `reader.html`)**：
+  - `Search` 与 `TOC` 的全局快捷键监听器提取为具名函数，在 `unmount()` 中彻底注销；
+  - `ImageViewer` 的键盘事件监听器提取并在 `unmount()` 中注销；`mousemove` / `mouseup` 改为 `mousedown` 时按需绑定并在 `mouseup` 时立即注销，彻底消除空闲状态的高频空跑；
+  - `Highlights` 的全局 `_onWindowMouseDown` 在 `unmount()` 中显式移除；
+  - 将 `reader.html` 中 `#btn-show-toolbar` 的内联样式提取并归拢至 `reader.css`。
+- **存储层并发守卫精简 (`storage.js`)**：
+  - 精简 `_enqueueBookMetaWrite` 与 `_runWritableBookTask` 同步调用栈中的多余 `_deletingBookIds` 检查，保留跨异步等待间隙的核心防线。
+
+### test
+- **工具函数测试补齐 (`utils.test.js`, `sys_manifest.test.js`)**：
+  - 补充 `Utils.isEditableTarget` 针对各种标签与 `contenteditable` 的全覆盖单元测试；
+  - 同步版本断言至 2.6.1。
+
+---
+
 ## [2.6.0] - 2026-09-03
 
 ### fix
