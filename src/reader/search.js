@@ -74,9 +74,7 @@
     _keydownHandler = (e) => {
       if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (!book) return;
-        const active = document.activeElement;
-        const tag = active ? active.tagName : '';
-        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA' && !active?.isContentEditable) {
+        if (!Utils.isEditableTarget(e.target)) {
           e.preventDefault();
           togglePanel();
           if (panel?.classList.contains('open')) {
@@ -305,8 +303,7 @@
   }
 
   function navigateTo(target) {
-    if (navigate) return navigate(target);
-    return rendition?.display(target);
+    return ReaderState.safeNavigate(navigate, rendition, target, 'Search');
   }
 
   function mount(context) {

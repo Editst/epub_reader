@@ -555,8 +555,7 @@
     function _handleKeyNav(e, runtime) {
       if (!state.isBookLoaded) return;
       const active = document.activeElement;
-      const tag = e.target?.tagName || (active ? active.tagName : '');
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+      if (Utils.isEditableTarget(e.target, active)) {
         if (e.key === 'Escape') (e.target?.blur ? e.target : active)?.blur();
         return;
       }

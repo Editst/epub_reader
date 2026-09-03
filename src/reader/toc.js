@@ -35,9 +35,7 @@
     // Keyboard shortcut
     this._keydownHandler = (e) => {
       if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const active = document.activeElement;
-        const tag = active ? active.tagName : '';
-        if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'TEXTAREA' && !active?.isContentEditable) {
+        if (!Utils.isEditableTarget(e.target)) {
           e.preventDefault();
           this.toggle();
         }
@@ -169,8 +167,7 @@
   },
 
   _navigateTo(target) {
-    if (this.navigate) return this.navigate(target);
-    return this.rendition?.display(target);
+    return ReaderState.safeNavigate(this.navigate, this.rendition, target, 'TOC');
   },
 
   reset() {

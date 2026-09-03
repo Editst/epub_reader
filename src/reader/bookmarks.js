@@ -192,8 +192,7 @@
   },
 
   _navigateTo(target) {
-    if (this.navigate) return this.navigate(target);
-    return this.rendition?.display(target);
+    return ReaderState.safeNavigate(this.navigate, this.rendition, target, 'Bookmarks');
   },
 
   reset() {

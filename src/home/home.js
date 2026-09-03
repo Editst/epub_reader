@@ -102,10 +102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function releaseCoverObjectUrl(card) {
-    const objectUrl = card?.dataset?.coverUrl;
-    if (!objectUrl) return;
-    delete card.dataset.coverUrl;
-    URL.revokeObjectURL(objectUrl);
+    Utils.releaseElementCoverUrl(card);
   }
 
   function clearRenderedBookCards() {

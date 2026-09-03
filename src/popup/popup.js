@@ -35,10 +35,16 @@ document.addEventListener('DOMContentLoaded', () => {
   loadRecentBooksSafely();
 
   function releaseCoverObjectUrl(item) {
+    if (typeof Utils !== 'undefined' && typeof Utils.releaseElementCoverUrl === 'function') {
+      Utils.releaseElementCoverUrl(item);
+      return;
+    }
     const objectUrl = item?.dataset?.coverUrl;
     if (!objectUrl) return;
     delete item.dataset.coverUrl;
-    URL.revokeObjectURL(objectUrl);
+    if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 
   function clearRenderedRecentItems() {

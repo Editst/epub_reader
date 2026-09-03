@@ -93,6 +93,18 @@ test.describe('Utils 基础工具函数', () => {
     assert.equal(warnings.length, 2);
     assert.equal(warnings[0][0], '[Test] write failed:');
   });
+
+  test.it('Utils.isEditableTarget: 准确识别 input/select/textarea 和 isContentEditable', () => {
+    assert.equal(Utils.isEditableTarget(null), false);
+    assert.equal(Utils.isEditableTarget({ tagName: 'DIV' }), false);
+    assert.equal(Utils.isEditableTarget({ tagName: 'BUTTON' }), false);
+    assert.equal(Utils.isEditableTarget({ tagName: 'INPUT' }), true);
+    assert.equal(Utils.isEditableTarget({ tagName: 'input' }), true);
+    assert.equal(Utils.isEditableTarget({ tagName: 'TEXTAREA' }), true);
+    assert.equal(Utils.isEditableTarget({ tagName: 'SELECT' }), true);
+    assert.equal(Utils.isEditableTarget({ tagName: 'DIV', isContentEditable: true }), true);
+    assert.equal(Utils.isEditableTarget(null, { tagName: 'INPUT' }), true);
+  });
 });
 
 test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {

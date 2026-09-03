@@ -270,6 +270,20 @@ const Utils = {
     if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
       URL.revokeObjectURL(objectUrl);
     }
+  },
+
+  /**
+   * 判断目标元素或当前活动元素是否处于可编辑控件中，用于快捷键焦点抑制。
+   * @param {Element|null} [target]
+   * @param {Element|null} [activeElement]
+   * @returns {boolean}
+   */
+  isEditableTarget(target, activeElement = null) {
+    const el = target || activeElement || (typeof document !== 'undefined' ? document.activeElement : null);
+    if (!el) return false;
+    const tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return true;
+    return !!el.isContentEditable;
   }
 };
 
