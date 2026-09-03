@@ -157,8 +157,6 @@
             if (loc && loc.start && bm.cfi === loc.start.cfi) {
               if (this.panelController && typeof this.panelController.updateBookmarkButtonState === 'function') {
                 this.panelController.updateBookmarkButtonState(false);
-              } else {
-                document.getElementById('btn-bookmark')?.classList.remove('active');
               }
             }
           }

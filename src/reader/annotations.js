@@ -710,16 +710,7 @@ const Annotations = {
       if (liCount < _TOC_MIN_ITEMS) return false;
       return (longLinked / liCount) >= _TOC_LONG_LINK_RATIO;
     }
-
-    if (typeof listEl.querySelectorAll !== 'function') return false;
-    const items = listEl.querySelectorAll(':scope > li');
-    if (items.length < _TOC_MIN_ITEMS) return false;
-    let longLinked = 0;
-    for (let i = 0; i < items.length; i++) {
-      const a = items[i].querySelector('a');
-      if (a && a.textContent && a.textContent.trim().length > _TOC_LINK_TEXT_MIN_LENGTH) longLinked++;
-    }
-    return (longLinked / items.length) >= _TOC_LONG_LINK_RATIO;
+    return false;
   },
 
   // ── Phase 1: Back-link detection (cheapest signals first) ──────────────────
@@ -816,7 +807,7 @@ const Annotations = {
     const role     = link.getAttribute('role') || '';
     if (_RE.noteSemanticPos.test(epubType) || _RE.noteSemanticPos.test(role)) return true;
 
-    if (href.indexOf('#') === -1 && !_RE.filepos.test(href)) return false;
+    if (href.indexOf('#') === -1) return false;
     const text = link.textContent.trim();
     if (text.length > 40) return false;
 
@@ -921,11 +912,7 @@ const Annotations = {
    */
   _findTarget(doc, targetId) {
     if (!doc || !targetId) return null;
-    let d = doc;
-    if (typeof d === 'string') {
-      try { d = new DOMParser().parseFromString(d, 'application/xhtml+xml'); }
-      catch (_) { return null; }
-    }
+    const d = doc;
     try {
       if (typeof d.getElementById === 'function') {
         const el = d.getElementById(targetId);

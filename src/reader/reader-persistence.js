@@ -542,10 +542,11 @@
       if (state.isResizing) return;
       if (!location || !location.start) return;
 
+      const startCfi = location.start.cfi;
       let percent = null;
       const progress = ReaderState.getLocationProgress(
         state.book && state.book.locations,
-        location.start.cfi
+        startCfi
       );
       if (progress !== null) {
         percent = Math.round(progress * 1000) / 10;
@@ -585,7 +586,7 @@
           : null;
         const currentPosition = currentLoc ? _buildPositionFromLocation(currentLoc) : null;
         const position = eventPosition.cfi ? eventPosition : (currentPosition || eventPosition);
-        const cfi = position.cfi || location.start.cfi;
+        const cfi = position.cfi || startCfi;
         const nextPercent = position.percent !== null ? position.percent : percent;
         const cfiChanged = _isPositionMeaningfullyChanged(cfi, state.currentStableCfi);
         const locatorChanged = _isLocatorMeaningfullyChanged(position.locator, state.currentStableLocator);
