@@ -13,6 +13,7 @@
   navigate: null,
   panelController: null,
   _boundDocument: null,
+  _keydownHandler: null,
 
   init() {
     this.container = document.getElementById('toc-container');
@@ -32,7 +33,7 @@
     });
 
     // Keyboard shortcut
-    document.addEventListener('keydown', (e) => {
+    this._keydownHandler = (e) => {
       if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const active = document.activeElement;
         const tag = active ? active.tagName : '';
@@ -41,7 +42,8 @@
           this.toggle();
         }
       }
-    });
+    };
+    document.addEventListener('keydown', this._keydownHandler);
   },
 
   /**
@@ -57,6 +59,11 @@
   },
 
   unmount() {
+    if (this._keydownHandler) {
+      document.removeEventListener('keydown', this._keydownHandler);
+      this._keydownHandler = null;
+    }
+    this._boundDocument = null;
     this.reset();
   },
 

@@ -25,6 +25,7 @@
   let focusRequestSeq = 0;
   let _lastSearchAlertCfi = null;
   let _boundDocument = null;
+  let _keydownHandler = null;
 
   function cancelPendingFocus() {
     focusRequestSeq++;
@@ -70,7 +71,7 @@
     }
 
     // Keyboard shortcut (F)
-    document.addEventListener('keydown', (e) => {
+    _keydownHandler = (e) => {
       if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (!book) return;
         const active = document.activeElement;
@@ -83,7 +84,8 @@
           }
         }
       }
-    });
+    };
+    document.addEventListener('keydown', _keydownHandler);
   }
 
   function setBook(b, r) {
@@ -315,6 +317,11 @@
   }
 
   function unmount() {
+    if (_keydownHandler) {
+      document.removeEventListener('keydown', _keydownHandler);
+      _keydownHandler = null;
+    }
+    _boundDocument = null;
     reset();
   }
 

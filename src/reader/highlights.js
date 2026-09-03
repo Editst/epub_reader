@@ -664,6 +664,8 @@
     }
     clearRenderedHighlights();
     closePanels();
+    try { window.removeEventListener('mousedown', _onWindowMouseDown); } catch (_) {}
+    _boundDocument = null;
     highlights = [];
     _bookId = '';
     _rendition = null;

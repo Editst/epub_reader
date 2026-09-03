@@ -1417,6 +1417,8 @@ svg.epubjs-annotation {
   color: var(--text-accent);
   font-weight: 600;
   opacity: 0.8;
+  margin-right: auto;
+  padding-left: 0;
 }
 
 #btn-show-toolbar:hover {

@@ -25,6 +25,7 @@
   _boundDocument: null,
   _contextSeq: 0,
   _rendition: null,
+  _keydownHandler: null,
 
   init() {
     this.overlay = document.getElementById('image-viewer');
@@ -52,7 +53,23 @@
       this.zoom(delta);
     }, { passive: false });
 
-    // Drag to pan
+    // Drag to pan (bind mousemove/mouseup on demand to eliminate idle event overhead)
+    const onMouseMove = (e) => {
+      if (!this.isDragging) return;
+      this.translateX = e.clientX - this.startX;
+      this.translateY = e.clientY - this.startY;
+      this.applyTransform();
+    };
+
+    const onMouseUp = () => {
+      if (this.isDragging) {
+        this.isDragging = false;
+        if (this.img) this.img.style.transition = 'transform 0.2s ease';
+      }
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
     this.container?.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       this.isDragging = true;
@@ -60,24 +77,12 @@
       this.startX = e.clientX - this.translateX;
       this.startY = e.clientY - this.translateY;
       e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!this.isDragging) return;
-      this.translateX = e.clientX - this.startX;
-      this.translateY = e.clientY - this.startY;
-      this.applyTransform();
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (this.isDragging) {
-        this.isDragging = false;
-        if (this.img) this.img.style.transition = 'transform 0.2s ease';
-      }
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
     });
 
     // Keyboard
-    document.addEventListener('keydown', (e) => {
+    this._keydownHandler = (e) => {
       if (!this.overlay || this.overlay.classList.contains('is-hidden')) return;
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -92,7 +97,8 @@
         e.preventDefault();
         this.resetTransform();
       }
-    });
+    };
+    document.addEventListener('keydown', this._keydownHandler);
   },
 
   /**
@@ -142,6 +148,11 @@
   unmount() {
     this._contextSeq++;
     this._rendition = null;
+    if (this._keydownHandler) {
+      document.removeEventListener('keydown', this._keydownHandler);
+      this._keydownHandler = null;
+    }
+    this._boundDocument = null;
     this.close();
   },
 
