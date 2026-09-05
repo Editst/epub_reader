@@ -4,6 +4,46 @@
 
 ---
 
+## [2.6.2] - 2026-09-06
+ 
+### perf
+- **排版字号/行距滑块防抖重排与 forced reflow 消除 (`reader-ui.js`)**：
+  - 去除滑块 `input` 事件中同步执行的 `updateCustomStyles()` 强制重排调用，仅更新数值反馈与防抖计划，将高开销的样式注入与重排收敛至 200ms 防抖定时器及 `change` 事件；
+  - 提供 `hasAnyPanelOpen()` 状态直检辅助方法，阅读器 iframe 点击判断从全文档范围的 `document.querySelector` 优化为缓存节点类的 $O(1)$ 检查。
+- **注脚检测读写分离消除布局抖动 (`annotations.js`)**：
+  - `_hookContents` 链接打标改用读写分离两阶段扫描，第一阶段只读收集满足注脚条件的链接，第二阶段批量执行 DOM 属性修改与类标记，根治 `getComputedStyle` 与 DOM 写操作交叉引发的 forced synchronous layout。
+- **列表批量追加优化为 DocumentFragment (`search.js`, `bookmarks.js`, `popup.js`, `home.js`)**：
+  - 搜索结果（`renderPartialResults`）、书签列表（`renderList`）、弹窗最近阅读（`loadRecentBooks`）和标注列表（`renderAnnotations`）统一采用 `DocumentFragment` 批量追加至容器，避免循环逐项 `appendChild` 引起的连续页面重排。
+- **目录高亮激活滚动收敛 (`toc.js`)**：
+  - `TOC.setActive` 循环遍历只负责状态类切换并记录当前 `activeItem`，循环外部单次按需调用 `scrollIntoView`，消除多章节目录下的多余布局触发。
+- **HTML 实体转义单例容器复用 (`utils.js`)**：
+  - `Utils.escapeHtml` 内部维护单例 DOM 容器，避免每次调用重复创建与销毁临时 `div` 元素，极大降低垃圾回收（GC）压力；同时提供无 DOM 环境安全降级。
+- **正文阅读单位统计零拷贝算法优化 (`utils.js`)**：
+  - `Utils.countReadingUnits` 消除整章大字符串的 `replace` 拷贝开销，改用短 token 细分统计与无 CJK 文本直接匹配，将内存分配开销从 $O(\text{章长度})$ 降至 $O(1)$。
+- **首页切标签页智能按需重载 (`home.js`)**：
+  - 接入 `chrome.storage.onChanged` 维护脏数据状态标记，`visibilitychange` 恢复可见时仅在数据确实变更后才触发书架与标注列表重建，杜绝空跑全量 IO 与 DOM 渲染。
+- **高频交互 CSS 过渡属性精细化 (`home.css`, `reader.css`)**：
+  - `home.css` 的 `--transition` 变量及 `reader.css` 中的翻页箭头、侧边栏关闭按钮、目录项、主题/布局按钮、注释关闭按钮等从 `transition: all` 收敛为具体动画属性，避免过度占用 GPU 合成层与不必要重绘。
+- **弹窗字体加载管线优化 (`popup.html`)**：
+  - 将内联 `<style>` 中的 `@import` 移出为 `<link rel="stylesheet">`，消除对弹出页渲染管线的串行阻塞。
+- **后台正文单位扫描平滑调度 (`reader-runtime.js`)**：
+  - 将 `CONTENT_UNIT_COUNT_BATCH_SIZE` 从 8 调优为 2，缩短大章节书籍后台扫描对主线程的单次占用时长，提升阅读翻页交互流畅度。
+
+### refactor
+- **首页书架与标注列表事件委托改造 (`home.js`)**：
+  - 书架容器（`booksContainer`）与标注容器（`annotationsContainer`）统一采用父容器事件委托，通过 `data-book-id`、`data-cfi` 等属性路由删除与导航操作，消除数百个卡片和按钮上的独立事件监听器绑定。
+
+### test
+- **全面补齐 P1/P2 行为与性能保障用例 (`utils.test.js`, `reader_modules_behavior.test.js`, `ui_home_interaction.test.js`, `ui_styles.test.js`, `sys_manifest.test.js`)**：
+  - 增加 `Utils.escapeHtml` 单例复用与防状态污染测试；
+  - 增加 `Utils.countReadingUnits` 复杂混合语种与标点断言；
+  - 增加注脚两阶段打标、目录单次 `scrollIntoView`、iframe 点击快速关闭面板测试；
+  - 增加 Home 书架卡片与标注项事件委托及 `visibilitychange` 脏标记更新测试；
+  - 增加高频 CSS 动画属性规避 `transition: all` 断言；
+  - 同步更新版本检查断言至 2.6.2。
+
+---
+
 ## [2.6.1] - 2026-09-03
 
 ### refactor
