@@ -41,8 +41,48 @@ function createClassList(initial = []) {
   };
 }
 
+function parseHtmlToMockNodes(html, root) {
+  if (!html) return;
+  const tagRegex = /<\/?([a-zA-Z0-9]+)([^>]*)>/g;
+  const stack = [root];
+  let match;
+
+  while ((match = tagRegex.exec(html)) !== null) {
+    const fullTag = match[0];
+    const tagName = match[1].toLowerCase();
+    const attrString = match[2] || '';
+    const isClosing = fullTag.startsWith('</');
+    const isSelfClosing = fullTag.endsWith('/>') || ['img', 'input', 'br', 'hr'].includes(tagName);
+
+    if (isClosing) {
+      if (stack.length > 1 && stack[stack.length - 1].tagName.toLowerCase() === tagName) {
+        stack.pop();
+      }
+    } else {
+      const el = createMockElement('', tagName);
+      const idMatch = attrString.match(/\bid=["']([^"']+)["']/i);
+      if (idMatch) el.id = idMatch[1];
+      const classMatch = attrString.match(/\bclass=["']([^"']+)["']/i);
+      if (classMatch) {
+        el.className = classMatch[1];
+        classMatch[1].trim().split(/\s+/).forEach((c) => el.classList.add(c));
+      }
+      const titleMatch = attrString.match(/\btitle=["']([^"']+)["']/i);
+      if (titleMatch) el.title = titleMatch[1];
+
+      const parent = stack[stack.length - 1];
+      if (parent) parent.appendChild(el);
+
+      if (!isSelfClosing) {
+        stack.push(el);
+      }
+    }
+  }
+}
+
 function createMockElement(id = '', tagName = 'DIV') {
   let _textContent = '';
+  let _innerHTML = '';
   const el = {
     id,
     tagName: tagName.toUpperCase(),
@@ -56,7 +96,14 @@ function createMockElement(id = '', tagName = 'DIV') {
       _textContent = String(val ?? '');
       this.children = [];
     },
-    innerHTML: '',
+    get innerHTML() {
+      return _innerHTML;
+    },
+    set innerHTML(val) {
+      _innerHTML = String(val ?? '');
+      this.children = [];
+      parseHtmlToMockNodes(_innerHTML, this);
+    },
     value: '',
     title: '',
     dataset: {},
@@ -92,11 +139,26 @@ function createMockElement(id = '', tagName = 'DIV') {
       if (!this.parentNode || !this.parentNode.children) return;
       this.parentNode.children = this.parentNode.children.filter((child) => child !== this);
     },
+    replaceWith(newEl) {
+      if (!this.parentNode || !this.parentNode.children) return;
+      const idx = this.parentNode.children.indexOf(this);
+      if (idx !== -1) {
+        this.parentNode.children[idx] = newEl;
+        newEl.parentNode = this.parentNode;
+      }
+    },
     setAttribute(name, value) {
       this[name] = value;
       if (name.startsWith('data-')) {
         const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
         this.dataset[key] = String(value);
+      }
+    },
+    removeAttribute(name) {
+      delete this[name];
+      if (name.startsWith('data-')) {
+        const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+        delete this.dataset[key];
       }
     },
     getAttribute(name) {
@@ -105,6 +167,9 @@ function createMockElement(id = '', tagName = 'DIV') {
         return this.dataset && this.dataset[key] !== undefined ? this.dataset[key] : null;
       }
       return this[name] !== undefined ? this[name] : null;
+    },
+    getAttributeNS(_ns, name) {
+      return this.getAttribute(name);
     },
     hasAttribute(name) {
       if (name.startsWith('data-')) {

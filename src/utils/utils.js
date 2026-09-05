@@ -10,22 +10,35 @@ const READING_SPEED_MIN_SAMPLED_PROGRESS = 0.01;
 const READING_SPEED_MIN_SAMPLED_SECONDS = 120;
 const READING_CONTENT_UNIT_VERSION = 1;
 const CJK_READING_UNIT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
+const CJK_CHAR_TEST_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const NON_CJK_READING_WORD_PATTERN = /[\p{L}\p{N}\p{M}]+(?:['’][\p{L}\p{N}\p{M}]+)*/gu;
+
+let _escapeDiv = null;
 
 const Utils = {
 
   /**
    * HTML 实体转义，防止将用户内容插入 innerHTML 时产生 XSS。
-   * 实现使用 DOM textContent 赋值再读取 innerHTML，由浏览器完成转义。
+   * 实现使用复用的 DOM div 进行 textContent 赋值再读取 innerHTML，由浏览器完成转义。
    *
    * @param {*} text
    * @returns {string}
    */
   escapeHtml(text) {
     if (text === null || text === undefined) return '';
-    const div = document.createElement('div');
-    div.textContent = String(text);
-    return div.innerHTML;
+    if (!_escapeDiv && typeof document !== 'undefined' && typeof document.createElement === 'function') {
+      _escapeDiv = document.createElement('div');
+    }
+    if (_escapeDiv) {
+      _escapeDiv.textContent = String(text);
+      return _escapeDiv.innerHTML;
+    }
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   },
 
   /**
@@ -163,10 +176,24 @@ const Utils = {
   countReadingUnits(text) {
     const value = String(text ?? '');
     if (!value) return 0;
-    const cjkUnits = value.match(CJK_READING_UNIT_PATTERN) || [];
-    const nonCjkText = value.replace(CJK_READING_UNIT_PATTERN, ' ');
-    const wordUnits = nonCjkText.match(NON_CJK_READING_WORD_PATTERN) || [];
-    return cjkUnits.length + wordUnits.length;
+    const cjkMatches = value.match(CJK_READING_UNIT_PATTERN);
+    const cjkCount = cjkMatches ? cjkMatches.length : 0;
+    if (cjkCount === 0) {
+      const words = value.match(NON_CJK_READING_WORD_PATTERN);
+      return words ? words.length : 0;
+    }
+
+    let wordCount = 0;
+    for (const match of value.matchAll(NON_CJK_READING_WORD_PATTERN)) {
+      const token = match[0];
+      if (!CJK_CHAR_TEST_PATTERN.test(token)) {
+        wordCount++;
+      } else {
+        const subWords = token.replace(CJK_READING_UNIT_PATTERN, ' ').match(NON_CJK_READING_WORD_PATTERN);
+        if (subWords) wordCount += subWords.length;
+      }
+    }
+    return cjkCount + wordCount;
   },
 
   /**

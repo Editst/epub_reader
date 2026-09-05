@@ -105,6 +105,10 @@ document.addEventListener('DOMContentLoaded', () => {
     emptyState.style.display = 'none';
     clearRenderedRecentItems();
 
+    const fragment = typeof document.createDocumentFragment === 'function'
+      ? document.createDocumentFragment()
+      : null;
+
     for (let i = 0; i < books.length; i++) {
       const book = books[i];
       const coverBlob = covers[i];
@@ -192,7 +196,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      recentList.appendChild(item);
+      (fragment || recentList).appendChild(item);
+    }
+
+    if (fragment) {
+      recentList.appendChild(fragment);
     }
   }
 });

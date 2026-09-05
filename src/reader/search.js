@@ -251,6 +251,10 @@
     const splitRegex = new RegExp(`(${safeQuery})`, 'gi');
     const testRegex = new RegExp(`^${safeQuery}$`, 'i');
 
+    const fragment = typeof document.createDocumentFragment === 'function'
+      ? document.createDocumentFragment()
+      : null;
+
     newResults.forEach(res => {
       const itemEl = document.createElement('div');
       itemEl.className = 'bookmark-item search-result-item';
@@ -286,8 +290,12 @@
         }
       });
 
-      resultsList.appendChild(itemEl);
+      (fragment || resultsList).appendChild(itemEl);
     });
+
+    if (fragment) {
+      resultsList.appendChild(fragment);
+    }
   }
 
   // 清理上一次结果定位产生的 rendition annotation，避免跨搜索残留。

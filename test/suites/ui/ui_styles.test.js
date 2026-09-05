@@ -33,4 +33,18 @@ test.describe('样式与辅助类检查', () => {
     assert.ok(css.includes('.custom-theme-options.is-visible'));
   });
 
+  test.it('高频动画元素避免使用 transition: all 以防止多余合成重绘', () => {
+    const homeCss = fs.readFileSync('src/home/home.css', 'utf8');
+    const readerCss = fs.readFileSync('src/reader/reader.css', 'utf8');
+    
+    // home.css --transition 变量应使用明确属性列表
+    assert.ok(!homeCss.includes('--transition: all'));
+    assert.ok(homeCss.includes('--transition: background-color'));
+
+    // reader.css 高频交互元素不应使用 transition: all
+    assert.match(readerCss, /\.nav-arrow\s*\{[^}]*transition:\s*opacity[^;]+background/s);
+    assert.match(readerCss, /\.toc-item\s*\{[^}]*transition:\s*background[^;]+color/s);
+    assert.match(readerCss, /\.sidebar-close\s*\{[^}]*transition:\s*background[^;]+color/s);
+  });
+
 });

@@ -729,7 +729,7 @@ const Annotations = {
    */
   isBackLink(link, ctx) {
     // Stage 0: Semantic attributes — definitive when present
-    const epubType = link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') ||
+    const epubType = (typeof link.getAttributeNS === 'function' ? link.getAttributeNS('http://www.idpf.org/2007/ops', 'type') : null) ||
                      link.getAttribute('epub:type') || '';
     if (_RE.backlinkSemantic.test(epubType)) return true;
 
@@ -1266,15 +1266,24 @@ const Annotations = {
     doc.addEventListener('click', docCaptureHandler, true);
 
     // Stamp footnote reference links ─────────────────────────────────────────
+    // 读写分离两阶段执行，避免 isFootnoteLink 读取 getComputedStyle 与 DOM 修改交替触发强制同步布局
     const links = doc.querySelectorAll('a[href]');
+    const footnoteTargets = [];
     for (let i = 0; i < links.length; i++) {
       const link = links[i];
       if (this.isBackLink(link, ctx))      continue;
       if (!this.isFootnoteLink(link, ctx)) continue;
+      footnoteTargets.push({ link, href: link.getAttribute('href') });
+    }
 
-      const href = link.getAttribute('href');
+    for (let i = 0; i < footnoteTargets.length; i++) {
+      const { link, href } = footnoteTargets[i];
       link.setAttribute(_FN_DATA_ATTR, href);
-      link.removeAttribute('href');    // prevent browser default navigation
+      if (typeof link.removeAttribute === 'function') {
+        link.removeAttribute('href');    // prevent browser default navigation
+      } else {
+        delete link.href;
+      }
 
       // epub.js linksHandler set link.onclick = function(){ rendition.display(href) }
       // before our hook ran. The closure captured the original href, so removing

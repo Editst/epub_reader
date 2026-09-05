@@ -94,7 +94,8 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
       normalizePercent: (p) => (Number.isFinite(p) ? p : 0),
       estimateReadingSpeed: () => ({ unitsPerMinute: null, isEstimating: true }),
       resolveDisplayColor: (c) => c || '#ffeb3b',
-      releaseElementCoverUrl: () => {}
+      releaseElementCoverUrl: () => {},
+      formatDuration: (s) => (s ? '1 小时' : '')
     },
     URL: {
       createObjectURL: () => 'blob:mock-cover',
@@ -104,6 +105,11 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
     chrome: {
       runtime: {
         getURL: (p) => `chrome-extension://mock-id/${p}`
+      },
+      storage: {
+        onChanged: {
+          addListener(fn) { storageListeners.push(fn); }
+        }
       }
     },
     confirm: () => true,
@@ -113,6 +119,7 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
     }
   };
 
+  const storageListeners = [];
   const homeCode = fs.readFileSync('src/home/home.js', 'utf8');
   const context = vm.createContext({
     ...windowMock,
@@ -131,11 +138,15 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
     btnUpload,
     fileInput,
     booksContainer,
+    annotationsContainer,
     dragOverlay,
     filterBtns: { filterAll, filterHighlight, filterNote },
     btnSortTime,
     savedPreferences,
     windowMock,
+    triggerStorageChanged: (changes) => {
+      storageListeners.forEach((fn) => fn(changes, 'local'));
+    },
     dispatchReady: async () => {
       document.dispatchEvent('DOMContentLoaded');
       await new Promise((r) => setTimeout(r, 20));
@@ -256,6 +267,64 @@ test.describe('Home 书架页 UI 交互行为测试', () => {
     await new Promise((r) => setTimeout(r, 20));
     assert.ok(dragOverlay.classList.contains('is-hidden'), 'drop 后遮罩必须重新隐藏');
     assert.equal(importedFile, dropFile, 'drop 事件应将文件送交 EpubStorage.importBookFile');
+  });
+
+  test.it('Home 书架卡片点击与删除通过容器事件委托触发', async () => {
+    let removedBookId = null;
+    const mockStorage = {
+      async getRecentBooks() {
+        return [{ id: 'b1', title: 'Book One', filename: 'book1.epub' }];
+      },
+      async removeBook(id) {
+        removedBookId = id;
+      }
+    };
+    const { booksContainer, windowMock, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    await dispatchReady();
+    await new Promise((r) => setTimeout(r, 60));
+
+    const card = booksContainer.querySelector('.book-card:not(.skeleton-card)') ||
+      Array.from(booksContainer.querySelectorAll('.book-card')).find((c) => !c.classList.contains('skeleton-card'));
+    assert.ok(card, '应渲染出 book-card');
+
+    // 1. 点击卡片正文（触发阅读器跳转）
+    const titleEl = card.querySelector('.book-title');
+    titleEl.click();
+    assert.ok(windowMock.location.href.includes('reader.html?bookId=b1'));
+
+    // 2. 点击删除按钮（触发删除委托）
+    const deleteBtn = card.querySelector('.book-delete');
+    deleteBtn.click();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(removedBookId, 'b1', '应通过委托触发 removeBook(b1)');
+  });
+
+  test.it('Home 页面 visibilitychange 仅在存储变更为脏时才重新加载', async () => {
+    let storageReadCount = 0;
+    const mockStorage = {
+      async getRecentBooks() {
+        storageReadCount++;
+        return [];
+      }
+    };
+    const { document, triggerStorageChanged, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    await dispatchReady();
+    const initialCount = storageReadCount;
+    assert.ok(initialCount >= 1, '初始化时已完成首屏加载');
+
+    // 1. 未触发任何 storage onChanged 时，切到 visible 不应触发重新加载
+    document.visibilityState = 'visible';
+    document.dispatchEvent('visibilitychange');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(storageReadCount, initialCount, '存储未变脏时不应重复加载');
+
+    // 2. 模拟 storage 变更标记为脏
+    triggerStorageChanged({ recentBooks: { newValue: [] } });
+
+    // 3. 再次切到 visible 时应触发重新加载
+    document.dispatchEvent('visibilitychange');
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(storageReadCount > initialCount, '存储变脏后切到 visible 应重新加载');
   });
 
 });

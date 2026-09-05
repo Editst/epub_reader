@@ -57,6 +57,73 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // --- 书架卡片事件委托 ---
+  booksContainer?.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.book-delete');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const card = deleteBtn.closest('.book-card');
+      const bookId = card?.dataset?.bookId;
+      const bookLabel = card?.dataset?.bookLabel || '该书籍';
+      if (!bookId) return;
+      if (typeof confirm === 'function' && !confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
+        return;
+      }
+      releaseCoverObjectUrl(card);
+      try {
+        await EpubStorage.removeBook(bookId);
+      } catch (err) {
+        console.warn('[Home] remove book failed:', err);
+      } finally {
+        await loadBookshelfSafely();
+      }
+      return;
+    }
+
+    const card = e.target.closest('.book-card');
+    if (card && card.dataset?.bookId) {
+      window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(card.dataset.bookId);
+    }
+  });
+
+  // --- 标注列表事件委托 ---
+  annotationsContainer?.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.annotation-delete-btn');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const item = deleteBtn.closest('.annotation-item');
+      const bookId = item?.dataset?.bookId;
+      const cfi = item?.dataset?.cfi;
+      const timestamp = Number(item?.dataset?.timestamp) || 0;
+      if (!bookId || !cfi) return;
+      if (typeof confirm === 'function' && !confirm('确定要删除这条标注吗？')) return;
+      try {
+        await EpubStorage.updateHighlights(bookId, (highlights) =>
+          (highlights || []).filter((h) =>
+            !(h.cfi === cfi && (timestamp ? h.timestamp === timestamp : true))
+          )
+        );
+        const activeFilter = document.querySelector('.filter-btn.active');
+        loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', true);
+      } catch (err) {
+        console.warn('[Home] remove annotation failed:', err);
+      }
+      return;
+    }
+
+    const bookLink = e.target.closest('.annotation-book');
+    if (bookLink) {
+      const item = bookLink.closest('.annotation-item');
+      const bookId = item?.dataset?.bookId;
+      const cfi = item?.dataset?.cfi;
+      if (bookId) {
+        window.location.href = chrome.runtime.getURL('reader/reader.html') +
+          '?bookId=' + encodeURIComponent(bookId) +
+          '&target=' + encodeURIComponent(cfi || '');
+      }
+    }
+  });
+
   async function loadBookshelfSafely() {
     try {
       await loadBookshelf();
@@ -331,25 +398,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const speedEl = card.querySelector('.book-speed-value');
       if (speedEl) speedEl.textContent = speedText;
 
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.book-delete')) return;
-        window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(book.id);
-      });
-
-      card.querySelector('.book-delete').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
-          // 删除前显式 revoke ObjectURL，不依赖 load/error 事件。
-          releaseCoverObjectUrl(card);
-          try {
-            await EpubStorage.removeBook(book.id);
-          } catch (err) {
-            console.warn('[Home] remove book failed:', err);
-          } finally {
-            await loadBookshelfSafely();
-          }
-        }
-      });
+      card.dataset.bookId = book.id;
+      card.dataset.bookLabel = bookLabel;
 
       // 挂载前再次确认代次，若已失效立即释放 ObjectURL
       if (renderSeq !== bookshelfRenderSeq) {
@@ -358,8 +408,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const skeleton = booksContainer.querySelector(`.skeleton-card[data-skeleton-index="${index}"]`);
-      if (skeleton) skeleton.replaceWith(card);
-      else booksContainer.appendChild(card);
+      if (skeleton && typeof skeleton.replaceWith === 'function') {
+        skeleton.replaceWith(card);
+      } else if (skeleton && skeleton.parentNode && typeof skeleton.parentNode.replaceChild === 'function') {
+        skeleton.parentNode.replaceChild(card, skeleton);
+      } else if (skeleton) {
+        skeleton.remove();
+        booksContainer.appendChild(card);
+      } else {
+        booksContainer.appendChild(card);
+      }
     } catch (err) {
       if (card) releaseCoverObjectUrl(card);
       console.warn('[Home] render book card failed:', book.id, err);
@@ -422,6 +480,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentSort === 'desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
     );
 
+    const fragment = typeof document.createDocumentFragment === 'function'
+      ? document.createDocumentFragment()
+      : null;
+
     for (const hl of flatAnnotations) {
       const isNoteOnly = hl.color === 'transparent';
       const annotationColor = isNoteOnly ? '#64748b' : Utils.resolveDisplayColor(hl.color);
@@ -431,6 +493,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         : `color-mix(in srgb, ${annotationColor} 20%, transparent)`;
       const item = document.createElement('div');
       item.className = 'annotation-item';
+      item.dataset.bookId = hl._bookId || '';
+      item.dataset.cfi = hl.cfi || '';
+      item.dataset.timestamp = String(hl.timestamp || '');
       item.innerHTML = `
         <div class="annotation-content">
           <div class="annotation-header">
@@ -453,31 +518,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
       `;
 
-      item.querySelector('.annotation-book').addEventListener('click', () => {
-        if (hl._bookId) {
-          window.location.href = chrome.runtime.getURL('reader/reader.html') +
-            '?bookId=' + encodeURIComponent(hl._bookId) +
-            '&target=' + encodeURIComponent(hl.cfi);
-        }
-      });
+      (fragment || annotationsContainer).appendChild(item);
+    }
 
-      item.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (confirm('确定要删除这条标注吗？')) {
-          try {
-            await EpubStorage.updateHighlights(hl._bookId, (highlights) =>
-              (highlights || []).filter((h) =>
-                !(h.cfi === hl.cfi && (hl.timestamp ? h.timestamp === hl.timestamp : true))
-              )
-            );
-            loadAnnotationsSafely(filterType, true);
-          } catch (err) {
-            console.warn('[Home] remove annotation failed:', err);
-          }
-        }
-      });
-
-      annotationsContainer.appendChild(item);
+    if (fragment) {
+      annotationsContainer.appendChild(fragment);
     }
 
     annotationsEmpty.classList.toggle('show', flatAnnotations.length === 0);
@@ -533,8 +578,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadBookshelfSafely();
   await loadAnnotationsSafely('all');
 
+  let _needsRefresh = false;
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local') return;
+      const keys = Object.keys(changes || {});
+      const affectsHome = keys.some((k) =>
+        k === 'recentBooks' ||
+        k.startsWith('highlights_') ||
+        k.startsWith('bookmarks_') ||
+        k.startsWith('bookMeta_') ||
+        k.startsWith('deletedBook_')
+      );
+      if (affectsHome) {
+        _needsRefresh = true;
+      }
+    });
+  }
+
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && _needsRefresh) {
+      _needsRefresh = false;
       loadBookshelfSafely();
       const activeFilter = document.querySelector('.filter-btn.active');
       loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', true);

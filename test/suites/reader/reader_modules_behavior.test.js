@@ -1302,6 +1302,41 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(items[1].classList.contains('active'), true);
   });
 
+  test.it('TOC setActive 在侧栏打开时单次调用 activeItem.scrollIntoView', () => {
+    const { document } = createMockDocument([
+      'toc-container', 'sidebar', 'sidebar-overlay', 'btn-toc', 'btn-toc-close'
+    ]);
+    const sidebar = document.getElementById('sidebar');
+    sidebar.classList.add('open');
+
+    let scrollCalls = [];
+    const context = {
+      document,
+      ReaderState: {
+        getTocItemLabel(item) { return item?.label || ''; },
+        isTocHrefMatch(cur, target) { return cur === target; }
+      }
+    };
+    const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', context);
+    TOC.init();
+    TOC.build({
+      toc: [
+        { label: 'Item 1', href: 'p1.xhtml' },
+        { label: 'Item 2', href: 'p2.xhtml' }
+      ]
+    }, { display() {} });
+
+    const items = document.getElementById('toc-container').querySelectorAll('.toc-item');
+    items.forEach((item, idx) => {
+      item.scrollIntoView = (opt) => { scrollCalls.push({ idx, opt }); };
+    });
+
+    TOC.setActive('p2.xhtml');
+    assert.equal(scrollCalls.length, 1);
+    assert.equal(scrollCalls[0].idx, 1);
+    assert.equal(scrollCalls[0].opt.block, 'nearest');
+  });
+
   test.it('目录、书签和搜索结果统一通过 lifecycle 导航命令定位', async () => {
     const navigated = [];
     const directDisplays = [];
@@ -2845,6 +2880,49 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(state.prefs.fontSize, 24);
   });
 
+  test.it('ReaderUi iframe 内点击在有面板打开时高效触发 closeAllPanels', async () => {
+    const { document } = createMockDocument([
+      'settings-panel',
+      'sidebar-overlay',
+      'toc-sidebar',
+      'bookmarks-panel',
+      'search-panel'
+    ]);
+    const settingsPanel = document.getElementById('settings-panel');
+    settingsPanel.classList.add('open');
+
+    let hookRegistered = null;
+    const rendition = {
+      hooks: {
+        content: {
+          register(fn) { hookRegistered = fn; }
+        }
+      }
+    };
+    const state = {
+      rendition,
+      isBookLoaded: true,
+      prefs: { layout: 'paginated' }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, addEventListener() {} },
+      requestAnimationFrame(fn) { fn(); return 1; },
+      EpubStorage: { async savePreferences() {} }
+    });
+    const ui = ReaderUi.createReaderUi({ state });
+    ui.setupRenditionKeyEvents(rendition, {}, {});
+
+    assert.ok(hookRegistered, 'content hook should be registered');
+    const { document: iframeDoc } = createMockDocument();
+    const fakeContent = { document: iframeDoc };
+    hookRegistered(fakeContent);
+
+    // 点击非 <a> 标签且 settings-panel 打开时，应触发关闭
+    iframeDoc.dispatchEvent('click', { target: { closest: () => null } });
+    assert.equal(settingsPanel.classList.contains('open'), false, 'settings-panel should be closed');
+  });
+
   test.it('ReaderUi 字号滑块 change 事件立即 flush 待执行的字体重排', async () => {
     const { document } = createMockDocument(['font-size-slider', 'font-size-value']);
     const displays = [];
@@ -3123,6 +3201,49 @@ test.describe('Reader 模块基础行为', () => {
     Annotations._targetIdIndex.set('fn2', 'chap2.xhtml');
     Annotations.unmount();
     assert.equal(Annotations._targetIdIndex.size, 0, 'unmount 应清空 _targetIdIndex');
+  });
+
+  test.it('Annotations._hookContents: 读写分离两阶段扫描准确标记注脚链接', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const { document: doc } = createMockDocument();
+    
+    // 创建一个注脚链接 (包含在 <sup> 中，符合常用排版结构)
+    const sup = doc.createElement('sup');
+    const fnLink = doc.createElement('a');
+    fnLink.setAttribute('href', '#note-1');
+    fnLink.textContent = '[1]';
+    fnLink.onclick = () => 'original';
+    sup.appendChild(fnLink);
+    fnLink.parentElement = sup;
+    
+    // 创建普通链接
+    const normalLink = doc.createElement('a');
+    normalLink.setAttribute('href', 'https://example.com');
+    normalLink.textContent = 'Example';
+
+    // 创建回跳链接
+    const backLink = doc.createElement('a');
+    backLink.setAttribute('href', '#ref-1');
+    backLink.textContent = '↩';
+
+    doc.body.children = [sup, normalLink, backLink];
+
+    const contents = {
+      document: doc,
+      on() {},
+      section: { href: 'chapter1.xhtml' }
+    };
+
+    Annotations._hookContents(contents);
+
+    // 验证注脚链接被两阶段正确打标且 href 移除，普通链接保留原状
+    assert.equal(fnLink.getAttribute('data-footnote-href'), '#note-1');
+    assert.equal(fnLink.getAttribute('href'), null);
+    assert.equal(fnLink.onclick, null);
+    assert.ok(fnLink.classList.contains('__epub-fn-ref'));
+
+    assert.equal(normalLink.getAttribute('href'), 'https://example.com');
+    assert.equal(normalLink.getAttribute('data-footnote-href'), null);
   });
 
   test.it('ReaderUi 自定义主题对比度不足 2.5 时自动降级高对比度前景色', () => {

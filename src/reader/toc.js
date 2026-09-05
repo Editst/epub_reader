@@ -123,17 +123,20 @@
   setActive(href) {
     if (!this.container) return;
     const items = this.container.querySelectorAll('.toc-item');
+    let activeItem = null;
 
     items.forEach((item) => {
       item.classList.remove('active');
       const itemHref = item.dataset.href;
       if (ReaderState.isTocHrefMatch(href, itemHref)) {
         item.classList.add('active');
-        if (this.sidebar?.classList.contains('open') && typeof item.scrollIntoView === 'function') {
-          item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        }
+        activeItem = item;
       }
     });
+
+    if (activeItem && this.sidebar?.classList.contains('open') && typeof activeItem.scrollIntoView === 'function') {
+      activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   },
 
   toggle() {

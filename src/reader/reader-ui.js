@@ -502,7 +502,7 @@
         doc.addEventListener('click', (e) => {
           if (state.rendition !== rend) return;
           if (!e.target.closest('a')) {
-            if (document.querySelector('.settings-panel.open, .bookmarks-panel.open, .sidebar.open')) {
+            if (hasAnyPanelOpen()) {
               closeAllPanels();
             }
           }
@@ -518,6 +518,16 @@
     }
 
     // ── Panels ────────────────────────────────────────────────────────────────
+
+    function hasAnyPanelOpen() {
+      if (dom.settingsPanel?.classList.contains('open')) return true;
+      if (dom.sidebarOverlay?.classList.contains('visible')) return true;
+      const panels = _sharedSidebarPanels();
+      for (let i = 0; i < panels.length; i++) {
+        if (panels[i]?.classList.contains('open')) return true;
+      }
+      return false;
+    }
 
     function toggleSettings() { dom.settingsPanel?.classList.toggle('open'); }
     function closeSettings()  { dom.settingsPanel?.classList.remove('open'); }
@@ -749,7 +759,6 @@
         if (dom.fontSizeValue) dom.fontSizeValue.textContent = size + 'px';
         state.prefs.fontSize = size;
         _beginTypographyAdjustment();
-        updateCustomStyles();
         _scheduleTypographyReflow(persistence);
       });
       dom.fontSizeSlider.addEventListener('change', (e) => {
@@ -765,7 +774,6 @@
         if (dom.lineHeightValue) dom.lineHeightValue.textContent = val.toFixed(1);
         state.prefs.lineHeight = val;
         _beginTypographyAdjustment();
-        updateCustomStyles();
         _scheduleTypographyReflow(persistence);
       });
       dom.lineHeightSlider?.addEventListener('change', (e) => {

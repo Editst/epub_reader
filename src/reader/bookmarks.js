@@ -109,6 +109,10 @@
       return;
     }
 
+    const fragment = typeof document.createDocumentFragment === 'function'
+      ? document.createDocumentFragment()
+      : null;
+
     list.forEach((bm) => {
       const item = document.createElement('div');
       item.className = 'bookmark-item';
@@ -165,8 +169,12 @@
         }
       });
 
-      this.listEl.appendChild(item);
+      (fragment || this.listEl).appendChild(item);
     });
+
+    if (fragment) {
+      this.listEl.appendChild(fragment);
+    }
   },
 
   togglePanel() {

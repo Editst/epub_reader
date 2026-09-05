@@ -27,6 +27,31 @@ test.describe('Utils 基础工具函数', () => {
     assert.equal(Utils.escapeHtml('hello'), 'hello');
   });
 
+  test.it('Utils.escapeHtml: 连续多次调用无状态污染并复用单例容器', () => {
+    const originalCreate = typeof document !== 'undefined' ? document.createElement : null;
+    let createCount = 0;
+    if (typeof document !== 'undefined') {
+      document.createElement = function (tag) {
+        createCount++;
+        return originalCreate.call(document, tag);
+      };
+    }
+    try {
+      assert.equal(Utils.escapeHtml('<b>first</b>'), '&lt;b&gt;first&lt;/b&gt;');
+      assert.equal(Utils.escapeHtml('<i>second</i>'), '&lt;i&gt;second&lt;/i&gt;');
+      assert.equal(Utils.escapeHtml(null), '');
+      assert.equal(Utils.escapeHtml('<span attr="val">& test</span>'), '&lt;span attr=&quot;val&quot;&gt;&amp; test&lt;/span&gt;');
+      // 后续调用不应重复触发 document.createElement
+      if (typeof document !== 'undefined') {
+        assert.ok(createCount <= 1, `Expected createElement count <= 1, got ${createCount}`);
+      }
+    } finally {
+      if (typeof document !== 'undefined') {
+        document.createElement = originalCreate;
+      }
+    }
+  });
+
   test.it('Utils.formatDate', () => {
     const now = Date.now();
     assert.equal(Utils.formatDate(null), '未知时间'); // 默认 fallback
@@ -115,6 +140,11 @@ test.describe('Utils 业务逻辑 (速度模型与 ETA)', () => {
     assert.equal(Utils.countReadingUnits("cafe\u0301 don't"), 2, '组合音标和英文撇号应保留在词内');
     assert.equal(Utils.countReadingUnits('，。！？ --'), 0);
     assert.equal(Utils.countReadingUnits(null), 0);
+    assert.equal(Utils.countReadingUnits('第1章 核心概念与实践 (Chapter 2: Testing)'), 13);
+    // 纯英文文本
+    assert.equal(Utils.countReadingUnits('The quick brown fox jumps over the lazy dog.'), 9);
+    // 空白与多标点
+    assert.equal(Utils.countReadingUnits('   Hello,   world!   '), 2);
   });
 
   test.it('computeSessionWeight: 连续阅读权重高于跳读', () => {

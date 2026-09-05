@@ -23,7 +23,7 @@
   const LOCATIONS_BREAK_MEDIUM          = 3200;
   const LOCATIONS_BREAK_SMALL           = 1600;
   const CONTENT_UNIT_VERSION            = 1;
-  const CONTENT_UNIT_COUNT_BATCH_SIZE   = 8;
+  const CONTENT_UNIT_COUNT_BATCH_SIZE   = 2;
   const CONTENT_UNIT_EXCLUDED_SELECTOR  = 'script,style,noscript,template,[hidden],[aria-hidden="true"],rt,rp';
   const CONTENT_UNIT_EXCLUDED_TAGS      = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'RT', 'RP']);
   const FONT_READY_TIMEOUT_MS           = 300;
