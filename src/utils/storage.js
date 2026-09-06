@@ -19,8 +19,7 @@
  *
  *   IndexedDB (via DbGateway)：files / covers / locations
  *
- * 兼容约束：getBookMeta 首次读取时迁移旧 pos_/time_ key；getAllHighlights
- * 清理旧 highlightKeys 索引。enforceFileLRU 只淘汰 EPUB 文件缓存，保留
+ * 兼容约束：enforceFileLRU 只淘汰 EPUB 文件缓存，保留
  * 进度、书签、标注、封面和 locations。
  */
 (function () {
@@ -77,6 +76,7 @@ const EpubStorage = {
     const stored = await this._get(KEYS.preferences);
     return {
       theme:           'light',
+      homeTheme:       null,
       fontSize:        18,
       fontFamily:      '',
       lineHeight:      1.8,
@@ -111,26 +111,22 @@ const EpubStorage = {
   },
 
   async getRecentBooks() {
-    const recent = await this._get(KEYS.recentBooks);
-    return this._normalizeRecordList(recent, 'id');
+    const books = await this._get(KEYS.recentBooks);
+    return this._normalizeRecordList(books, 'id');
   },
 
   async removeRecentBook(bookId) {
-    return this._enqueueKeyWrite(
-      '_recentBooksQueue',
-      KEYS.recentBooks,
-      [],
-      (recent) => this._normalizeRecordList(recent, 'id').filter(b => b.id !== bookId)
+    if (!bookId) return;
+    return this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) =>
+      this._normalizeRecordList(recent, 'id').filter(b => b.id !== bookId)
     );
   },
 
-  // ── Book Meta（位置 + 时间 + 速度） ──────────────────────────────────────────
-  //
-  // 三个小字段合并为一个 key（合计 < 200 bytes），翻页只读写 bookMeta，
+  // ── Book Meta (pos, time, speed) ──────────────────────────────────────────
   // 不触碰大型 highlights/bookmarks 数据，避免写放大。
 
   /**
-   * 读取书籍完整元数据。首次访问时自动迁移 v1.6.0 的 pos_/time_ flat key。
+   * 读取书籍完整元数据（pos、time、speed）。
    */
   async getBookMeta(bookId) {
     if (!bookId) return null;
@@ -504,6 +500,20 @@ const EpubStorage = {
     return record || null;
   },
 
+  async hasFile(bookId) {
+    if (!bookId || this._deletingBookIds.has(bookId)) return false;
+    try {
+      if (this._dbGateway && typeof this._dbGateway.has === 'function') {
+        return await this._dbGateway.has(STORES.files, bookId);
+      }
+      const stored = await this._dbGateway.get(STORES.files, bookId);
+      return !!(stored && stored.data);
+    } catch (e) {
+      console.warn('[Storage] hasFile error:', bookId, e);
+      return false;
+    }
+  },
+
   async removeFile(bookId) {
     if (!bookId) return;
     return this._dbGateway.delete(STORES.files, bookId);
@@ -517,7 +527,9 @@ const EpubStorage = {
         stored.timestamp = Date.now();
         await this._dbGateway.put(STORES.files, stored);
       }
-    } catch (_) {}
+    } catch (e) {
+      console.warn('[Storage] _touchFileRecordTimestamp failed for bookId:', bookId, e);
+    }
   },
 
   /**
@@ -911,7 +923,9 @@ const EpubStorage = {
     if (!pending) return;
     try {
       await pending;
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Storage] _drainBookMetaQueue error for bookId:', bookId, err);
+    }
   },
 
   async _drainBookResourceWrites(bookId) {

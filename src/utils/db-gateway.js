@@ -108,6 +108,18 @@ const DbGateway = {
     });
   },
 
+  async has(storeName, key) {
+    const db = await this.connect();
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(storeName)) return resolve(false);
+      const tx  = db.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).count(key);
+      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] has aborted for store "${storeName}"`));
+      req.onsuccess = () => resolve(req.result > 0);
+      req.onerror   = () => reject(req.error);
+    });
+  },
+
   async put(storeName, data) {
     const db = await this.connect();
     return new Promise((resolve, reject) => {

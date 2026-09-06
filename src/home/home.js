@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } catch (err) {
     console.warn('[Home] get preferences failed:', err);
   }
-  let currentTheme = currentPrefs.theme === 'dark' ? 'dark' : 'light';
+  let currentTheme = currentPrefs.homeTheme || (currentPrefs.theme === 'dark' ? 'dark' : 'light');
   let currentView  = currentPrefs.homeView === 'list' ? 'list' : 'grid';
   let bookshelfRenderSeq = 0;
   let annotationsRenderSeq = 0;
@@ -82,6 +82,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const card = e.target.closest('.book-card');
     if (card && card.dataset?.bookId) {
+      if (card.dataset.evicted === 'true') {
+        const bookLabel = card.dataset.bookLabel || '该书籍';
+        if (typeof alert === 'function') {
+          alert(`《${bookLabel}》的文件缓存已被自动清理。请重新导入该 EPUB 文件，系统将自动恢复您的所有阅读进度与笔记。`);
+        }
+        fileInput?.click();
+        return;
+      }
       window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(card.dataset.bookId);
     }
   });
@@ -183,7 +191,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   btnTheme.addEventListener('click', () => {
     currentTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(currentTheme);
-    savePreferencesSafely({ theme: currentTheme });
+    savePreferencesSafely({ homeTheme: currentTheme });
   });
 
   function setTheme(theme) {
@@ -209,11 +217,45 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  function showToast(message) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    container.appendChild(toast);
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => toast.classList.add('show'));
+    } else {
+      toast.classList.add('show');
+    }
+    const safeSetTimeout = typeof window !== 'undefined' && typeof window.setTimeout === 'function'
+      ? window.setTimeout
+      : (typeof setTimeout === 'function' ? setTimeout : (fn) => fn());
+    safeSetTimeout(() => {
+      toast.classList.remove('show');
+      safeSetTimeout(() => {
+        if (typeof toast.remove === 'function') toast.remove();
+        else if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 300);
+    }, 2500);
+  }
+
   btnUpload.addEventListener('click', () => fileInput.click());
 
   fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const rawFiles = Array.from(e.target.files || []);
+    const fileList = rawFiles.filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
+    if (fileList.length === 0 && rawFiles.length > 0) {
+      alert('所选文件非 .epub 格式，请选择有效的 EPUB 电子书。');
+      return;
+    }
+    if (fileList.length === 0) return;
     e.target.value = '';
     
     const originalBtnText = btnUpload.innerHTML;
@@ -221,11 +263,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnUpload.style.pointerEvents = 'none';
     btnUpload.style.opacity = '0.7';
 
+    let successCount = 0;
+    let lastBookLabel = '';
     try {
-      const { bookId } = await EpubStorage.importBookFile(file);
-      window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
+      for (const file of fileList) {
+        try {
+          const res = await EpubStorage.importBookFile(file);
+          if (res) {
+            successCount++;
+            lastBookLabel = file.name.replace(/\.epub$/i, '');
+          }
+        } catch (itemErr) {
+          console.error('[Home] Failed to import file:', file.name, itemErr);
+        }
+      }
+      if (successCount > 0) {
+        await loadBookshelfSafely();
+        showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+      } else {
+        alert('无法导入所选文件，请检查文件是否损坏。');
+      }
     } catch (err) {
-      console.error('[Home] Failed to open file:', err);
+      console.error('[Home] Failed to import files:', err);
       alert('无法导入文件: ' + err.message);
     } finally {
       btnUpload.innerHTML = originalBtnText;
@@ -250,12 +309,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     e.stopPropagation();
     dragOverlay?.classList.add('is-hidden');
-    const files = e.dataTransfer?.files;
-    const file = files && files[0];
-    if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
+    const droppedFiles = Array.from(e.dataTransfer?.files || []).filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
+    if (droppedFiles.length === 0) return;
+    let successCount = 0;
+    let lastBookLabel = '';
     try {
-      const { bookId } = await EpubStorage.importBookFile(file);
-      window.location.href = chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId);
+      for (const file of droppedFiles) {
+        try {
+          const res = await EpubStorage.importBookFile(file);
+          if (res) {
+            successCount++;
+            lastBookLabel = file.name.replace(/\.epub$/i, '');
+          }
+        } catch (itemErr) {
+          console.error('[Home] Failed to import dropped file:', file.name, itemErr);
+        }
+      }
+      if (successCount > 0) {
+        await loadBookshelfSafely();
+        showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+      }
     } catch (err) {
       console.error('[Home] Failed to open dropped file:', err);
       alert('无法导入文件: ' + (err.message || '未知错误'));
@@ -316,11 +389,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function streamRenderBookCard(book, index, renderSeq) {
     let card = null;
     try {
+      const isFileCached = typeof EpubStorage.hasFile === 'function'
+        ? await EpubStorage.hasFile(book.id)
+        : true;
+      if (renderSeq !== bookshelfRenderSeq) return;
+
       const { coverBlob, meta } = await loadBookCardData(book);
       if (renderSeq !== bookshelfRenderSeq) return;
 
       card = document.createElement('div');
-      card.className = 'book-card';
+      card.className = isFileCached ? 'book-card' : 'book-card is-evicted';
+      card.classList.add('book-card');
+      if (!isFileCached) {
+        card.classList.add('is-evicted');
+        card.dataset.evicted = 'true';
+      }
 
       // 保存 ObjectURL 引用到 dataset，供删除时显式 revoke。
       let coverObjectUrl = null;
@@ -386,6 +469,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         placeholder.className = 'placeholder';
         placeholder.textContent = '📖';
         coverEl.appendChild(placeholder);
+      }
+
+      if (!isFileCached && coverEl) {
+        const badge = document.createElement('div');
+        badge.className = 'book-badge evicted-badge';
+        badge.textContent = '需重新导入';
+        coverEl.appendChild(badge);
       }
 
       const titleEl = card.querySelector('.book-title');
