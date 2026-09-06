@@ -92,6 +92,8 @@
       lineHeightSlider:   document.getElementById('line-height-slider'),
       lineHeightValue:    document.getElementById('line-height-value'),
       fontFamilySelect:   document.getElementById('font-family-select'),
+      paragraphIndentCheckbox: document.getElementById('paragraph-indent-checkbox'),
+      spreadSelect:       document.getElementById('spread-select'),
       settingsPanel:      document.getElementById('settings-panel'),
       customThemeOptions: document.getElementById('custom-theme-options'),
       customBgColor:      document.getElementById('custom-bg-color'),
@@ -367,6 +369,7 @@
       const prefs = normalizePreferences(state.prefs);
       const fontFamily = prefs.fontFamily || DEFAULT_FONT_STACK;
       const activeTheme = getActiveThemeColors(prefs.theme);
+      const indentRule = prefs.paragraphIndent !== false ? 'text-indent: 2em !important;' : 'text-indent: 0 !important;';
       return `
         @namespace xmlns "http://www.w3.org/1999/xhtml";
         html, body {
@@ -377,6 +380,7 @@
           line-height: ${prefs.lineHeight} !important;
         }
         p, div, li, h1, h2, h3, h4, h5, h6 { font-family: inherit; line-height: inherit !important; text-align: justify; }
+        p { ${indentRule} }
         a { color: var(--text-accent, #0078D7) !important; }
       `;
     }
@@ -636,6 +640,12 @@
         if (dom.lineHeightValue) dom.lineHeightValue.textContent = state.prefs.lineHeight.toFixed(1);
       }
       if (dom.fontFamilySelect) dom.fontFamilySelect.value = state.prefs.fontFamily;
+      if (dom.paragraphIndentCheckbox) {
+        dom.paragraphIndentCheckbox.checked = state.prefs.paragraphIndent !== false;
+      }
+      if (dom.spreadSelect) {
+        dom.spreadSelect.value = state.prefs.spread || 'auto';
+      }
       document.querySelectorAll('.layout-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.layout === state.prefs.layout);
       });
@@ -793,6 +803,27 @@
         }
         _withCfiLock(() => updateCustomStyles(), persistence);
         _savePreferencesSafely({ fontFamily });
+      });
+
+      dom.paragraphIndentCheckbox?.addEventListener('change', (e) => {
+        const isChecked = e.target.checked;
+        state.prefs.paragraphIndent = isChecked;
+        if (_typographyDebounceTimer !== null) {
+          _safeClearTimeout(_typographyDebounceTimer);
+          _typographyDebounceTimer = null;
+        }
+        _withCfiLock(() => updateCustomStyles(), persistence);
+        _savePreferencesSafely({ paragraphIndent: isChecked });
+      });
+
+      dom.spreadSelect?.addEventListener('change', (e) => {
+        const spread = VALID_SPREADS.has(e.target.value) ? e.target.value : 'auto';
+        state.prefs.spread = spread;
+        e.target.value = spread;
+        _savePreferencesSafely({ spread });
+        if (_runtime && typeof _runtime.setLayout === 'function') {
+          _runtime.setLayout(state.prefs.layout);
+        }
       });
     }
 

@@ -116,7 +116,7 @@
 
   function _onWindowMouseDown(e) {
     if (!toolbar.contains(e.target) && !notePopup.contains(e.target)) {
-      if (e.target.closest('#header-bar') || e.target.closest('#sidebar') || e.target.closest('.bottom-bar')) {
+      if (e.target.closest('#toolbar, #sidebar, .bottom-bar, #settings-panel, .settings-panel, #bookmarks-panel, #search-panel')) {
         return;
       }
       closePanels();
@@ -148,7 +148,9 @@
   async function setBookDetails(bookId, rendition) {
     // 切书或布局重建前移除旧 rendition 监听，避免重复选择处理和残留注解。
     if (_rendition) {
-      try { _rendition.off('selected', handleSelection); } catch (_) {}
+      try { _rendition.off('selected', handleSelection); } catch (e) {
+        console.warn('[Highlights] Failed to unbind selected handler:', e);
+      }
       clearRenderedHighlights();
     }
 
@@ -414,7 +416,9 @@
             try {
               rendition.annotations.remove(activeCfi, "highlight");
               rendition.annotations.remove(activeCfi, "underline");
-            } catch (_) {}
+            } catch (e) {
+              console.warn('[Highlights] handleClearHighlight annotation remove failed:', activeCfi, e);
+            }
           }
           _renderedHighlightCfis.delete(activeCfi);
           highlights = highlights.filter(h => h.cfi !== activeCfi);
@@ -592,7 +596,9 @@
       try {
         _rendition.annotations.remove(cfi, "highlight");
         _rendition.annotations.remove(cfi, "underline");
-      } catch (_) {}
+      } catch (e) {
+        console.warn('[Highlights] clearRenderedHighlights remove failed:', cfi, e);
+      }
     });
     _renderedHighlightCfis.clear();
   }
@@ -660,11 +666,15 @@
     resetInternalAction();
     clearPendingNotePopup();
     if (_rendition) {
-      try { _rendition.off('selected', handleSelection); } catch (_) {}
+      try { _rendition.off('selected', handleSelection); } catch (e) {
+        console.warn('[Highlights] unmount off selected failed:', e);
+      }
     }
     clearRenderedHighlights();
     closePanels();
-    try { window.removeEventListener('mousedown', _onWindowMouseDown); } catch (_) {}
+    try { window.removeEventListener('mousedown', _onWindowMouseDown); } catch (e) {
+      console.warn('[Highlights] unmount removeEventListener failed:', e);
+    }
     _boundDocument = null;
     highlights = [];
     _bookId = '';
