@@ -111,9 +111,21 @@ function loadHighlights(storedHighlights, options = {}) {
     }
   };
 
+  const windowListeners = {};
   const context = {
     window: {
-      addEventListener() {},
+      addEventListener(type, fn) {
+        windowListeners[type] = windowListeners[type] || [];
+        windowListeners[type].push(fn);
+      },
+      removeEventListener(type, fn) {
+        if (windowListeners[type]) {
+          windowListeners[type] = windowListeners[type].filter(f => f !== fn);
+        }
+      },
+      dispatchEvent(event) {
+        (windowListeners[event.type] || []).forEach(fn => fn(event));
+      },
       innerHeight: 800
     },
     setTimeout(fn) { fn(); },
@@ -623,5 +635,41 @@ test.describe('Reader Highlights 行为', () => {
 
     // 验证旧批次未在 annotations 中新增渲染（切书清空后无新污染）
     assert.equal(annotations.length, 0, '旧批次在代次变化后应被 abort');
+  });
+
+  test.it('点击 #toolbar 或 #settings-panel 时不误关选区浮层与笔记弹窗', async () => {
+    const { Highlights, rendition, elements, context } = loadHighlights([], {});
+    await Highlights.setBookDetails('book-toolbar-test', rendition);
+
+    const toolbar = elements.get('selection-toolbar');
+    toolbar.classList.add('show');
+
+    // 构造位于 #toolbar 内的按钮点击事件
+    const toolbarBtn = createElement('btn-toc');
+    toolbarBtn.closest = (sel) => {
+      if (sel.includes('#toolbar')) return { id: 'toolbar' };
+      return null;
+    };
+
+    // 派发 mousedown
+    context.window.dispatchEvent({ type: 'mousedown', target: toolbarBtn });
+    assert.equal(toolbar.classList.contains('show'), true, '点击 #toolbar 时不应关闭浮层');
+
+    // 构造位于 #settings-panel 内的元素点击事件
+    const settingsEl = createElement('settings-content');
+    settingsEl.closest = (sel) => {
+      if (sel.includes('#settings-panel') || sel.includes('.settings-panel')) return { id: 'settings-panel' };
+      return null;
+    };
+
+    context.window.dispatchEvent({ type: 'mousedown', target: settingsEl });
+    assert.equal(toolbar.classList.contains('show'), true, '点击 #settings-panel 时不应关闭浮层');
+
+    // 构造位于外部空白处的点击事件
+    const outsideEl = createElement('random-outside');
+    outsideEl.closest = () => null;
+
+    context.window.dispatchEvent({ type: 'mousedown', target: outsideEl });
+    assert.equal(toolbar.classList.contains('show'), false, '点击外部空白处应正常关闭浮层');
   });
 });

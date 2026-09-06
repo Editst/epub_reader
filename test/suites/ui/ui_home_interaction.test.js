@@ -113,7 +113,7 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
       }
     },
     confirm: () => true,
-    alert: () => {},
+    alert: (msg) => { if (typeof windowMock._alertHandler === 'function') windowMock._alertHandler(msg); },
     addEventListener(type, handler) {
       document.addEventListener(type, handler);
     }
@@ -125,7 +125,9 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
     ...windowMock,
     window: windowMock,
     global: windowMock,
-    console
+    console,
+    setTimeout,
+    clearTimeout
   });
 
   vm.runInContext(homeCode, context, { filename: 'src/home/home.js' });
@@ -167,12 +169,26 @@ test.describe('Home 书架页 UI 交互行为测试', () => {
     // 点击切换为 dark
     btnTheme.click();
     assert.equal(document.documentElement.attrs['data-theme'], 'dark');
-    assert.equal(savedPreferences[savedPreferences.length - 1]?.theme, 'dark');
+    assert.equal(savedPreferences[savedPreferences.length - 1]?.homeTheme, 'dark');
 
     // 再次点击切回 light
     btnTheme.click();
     assert.equal(document.documentElement.attrs['data-theme'], 'light');
-    assert.equal(savedPreferences[savedPreferences.length - 1]?.theme, 'light');
+    assert.equal(savedPreferences[savedPreferences.length - 1]?.homeTheme, 'light');
+  });
+
+  test.it('Home 主题切换仅更新 homeTheme，不覆盖阅读器的 sepia/green/custom 主题', async () => {
+    const { document, btnTheme, savedPreferences, dispatchReady } = loadHomeInSandbox({
+      mockPrefs: { theme: 'sepia' }
+    });
+
+    await dispatchReady();
+    assert.equal(document.documentElement.attrs['data-theme'], 'light');
+
+    btnTheme.click();
+    assert.equal(document.documentElement.attrs['data-theme'], 'dark');
+    assert.equal(savedPreferences[savedPreferences.length - 1]?.homeTheme, 'dark');
+    assert.equal(savedPreferences[savedPreferences.length - 1]?.theme, undefined, '不得覆写阅读器 theme');
   });
 
   test.it('点击 btnView 切换网格与列表视图并持久化偏好', async () => {
@@ -325,6 +341,64 @@ test.describe('Home 书架页 UI 交互行为测试', () => {
     document.dispatchEvent('visibilitychange');
     await new Promise((r) => setTimeout(r, 20));
     assert.ok(storageReadCount > initialCount, '存储变脏后切到 visible 应重新加载');
+  });
+
+  test.it('导入书籍后默认留在书架页并更新列表，支持多文件导入', async () => {
+    const importedBooks = [];
+    const mockStorage = {
+      async importBookFile(file) {
+        importedBooks.push(file);
+        return { bookId: 'imported-' + file.name };
+      },
+      async getRecentBooks() {
+        return importedBooks.map((f, i) => ({ id: 'imported-' + f.name, title: f.name, filename: f.name }));
+      }
+    };
+    const { fileInput, windowMock, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    await dispatchReady();
+
+    // 模拟多文件上传
+    const file1 = { name: 'book1.epub', size: 1024 };
+    const file2 = { name: 'book2.epub', size: 2048 };
+    fileInput.files = [file1, file2];
+    fileInput.dispatch('change', { target: fileInput });
+
+    await new Promise((r) => setTimeout(r, 40));
+
+    assert.equal(importedBooks.length, 2, '两本书都应被导入');
+    assert.equal(windowMock.location.href, '', '导入后不应强制跳转到 reader.html');
+  });
+
+  test.it('书架卡片在文件缓存已被驱逐时显示需重新导入标识，点击时拦截直接导航并提示', async () => {
+    let alertMessage = null;
+    let fileInputClicked = false;
+    const mockStorage = {
+      async getRecentBooks() {
+        return [{ id: 'evicted-book', title: 'Evicted Book', filename: 'evicted.epub' }];
+      },
+      async hasFile(bookId) {
+        return bookId !== 'evicted-book';
+      }
+    };
+    const { booksContainer, fileInput, windowMock, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    windowMock._alertHandler = (msg) => { alertMessage = msg; };
+    fileInput.click = () => { fileInputClicked = true; };
+
+    await dispatchReady();
+    await new Promise((r) => setTimeout(r, 60));
+
+    const card = Array.from(booksContainer.querySelectorAll('.book-card')).find((c) => !c.classList.contains('skeleton-card'));
+    assert.ok(card, '应渲染出卡片');
+    assert.equal(card.classList.contains('is-evicted'), true, '已驱逐卡片应添加 is-evicted 类');
+    assert.equal(card.dataset.evicted, 'true', '已驱逐卡片 dataset.evicted 应为 true');
+
+    // 点击已驱逐卡片
+    card.click();
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(windowMock.location.href, '', '已驱逐卡片点击时不应导航到 reader.html');
+    assert.ok(alertMessage && alertMessage.includes('重新导入'), '应弹出友好提示重新导入');
+    assert.equal(fileInputClicked, true, '应触发文件选择器重新导入');
   });
 
 });

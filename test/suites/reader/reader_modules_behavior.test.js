@@ -3384,6 +3384,59 @@ test.describe('Reader 模块基础行为', () => {
     const statusText = document.getElementById('search-status').textContent;
     assert.ok(statusText.includes('1'), '应成功找到第 2 章的结果');
   });
+
+  test.it('ReaderUi 同步并响应 paragraphIndent 与 spread 偏好更改', async () => {
+    const savedPrefs = [];
+    const layoutCalls = [];
+    const elements = [
+      'welcome-screen', 'loading-overlay', 'loading-text', 'reader-main', 'bottom-bar',
+      'toolbar', 'file-input', 'book-title', 'chapter-title', 'progress-slider',
+      'progress-current', 'progress-location', 'progress-time', 'font-size-slider',
+      'font-size-value', 'line-height-slider', 'line-height-value', 'font-family-select',
+      'paragraph-indent-checkbox', 'spread-select',
+      'settings-panel', 'custom-theme-options', 'custom-bg-color', 'custom-text-color',
+      'drag-overlay', 'welcome-open-btn', 'btn-open', 'btn-home', 'btn-prev', 'btn-next',
+      'btn-settings', 'btn-settings-close', 'btn-bookmark', 'sidebar', 'bookmarks-panel',
+      'search-panel', 'sidebar-overlay'
+    ];
+    const { document } = createMockDocument(elements);
+    const state = {
+      prefs: { paragraphIndent: false, spread: 'none', layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: '', theme: 'light' },
+      isBookLoaded: false
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      EpubStorage: {
+        async savePreferences(prefs) { savedPrefs.push(prefs); }
+      }
+    });
+
+    const ui = ReaderUi.createReaderUi({ state });
+    ui.bindRuntime({
+      setLayout: async (l) => { layoutCalls.push(l); }
+    });
+    ui.syncPrefsToControls();
+
+    const indentCheck = document.getElementById('paragraph-indent-checkbox');
+    const spreadSelect = document.getElementById('spread-select');
+
+    assert.equal(indentCheck.checked, false, 'paragraphIndent 应同步到 checkbox');
+    assert.equal(spreadSelect.value, 'none', 'spread 应同步到 select');
+
+    // 触发 indent change
+    indentCheck.checked = true;
+    indentCheck.dispatch('change', { target: indentCheck });
+    assert.equal(state.prefs.paragraphIndent, true);
+    assert.deepEqual(Object.assign({}, savedPrefs[savedPrefs.length - 1]), { paragraphIndent: true });
+
+    // 触发 spread change
+    spreadSelect.value = 'auto';
+    spreadSelect.dispatch('change', { target: spreadSelect });
+    assert.equal(state.prefs.spread, 'auto');
+    assert.deepEqual(Object.assign({}, savedPrefs[savedPrefs.length - 1]), { spread: 'auto' });
+    assert.deepEqual(layoutCalls, ['paginated']);
+  });
 });
 
 
