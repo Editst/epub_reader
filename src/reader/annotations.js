@@ -148,7 +148,8 @@ function _isSameDocumentTargetBeforeSource(link, targetEl) {
     const position = link.compareDocumentPosition(targetEl);
     if (position & _DOCUMENT_POSITION_DISCONNECTED) return false;
     return !!(position & _DOCUMENT_POSITION_PRECEDING);
-  } catch (_) {
+  } catch (err) {
+    console.warn('[Annotations] _isLinkPrecedingTarget failed:', err);
     return false;
   }
 }
@@ -310,7 +311,9 @@ function _serializeNode(node) {
     if (typeof XMLSerializer !== 'undefined') {
       return new XMLSerializer().serializeToString(node);
     }
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[Annotations] _serializeNode XMLSerializer failed:', err);
+  }
   return _escapeHtmlText(_nodeText(node));
 }
 
@@ -360,7 +363,8 @@ function _readVerticalAlign(el) {
   if (typeof getter !== 'function') return '';
   try {
     return String(getter.call(view || window, el)?.verticalAlign || '').toLowerCase();
-  } catch (_) {
+  } catch (err) {
+    console.warn('[Annotations] _readVerticalAlign failed:', err);
     return '';
   }
 }
@@ -607,7 +611,9 @@ const Annotations = {
 
     const loaded = await section.load(activeLoad);
     if (cancelToken?.cancelled || !this._isCurrentContext(context)) {
-      try { section.unload(); } catch (_) {}
+      try { section.unload(); } catch (err) {
+        console.warn('[Annotations] section.unload error:', err);
+      }
       return null;
     }
     this._rememberSectionDocument(key, loaded);
@@ -678,7 +684,9 @@ const Annotations = {
           ctx.hasFootnoteSections = true;
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Annotations] _buildSectionContext scan error:', err);
+    }
 
     return ctx;
   },
@@ -853,13 +861,15 @@ const Annotations = {
         const target = this._findTarget(contents.document, targetId);
         if (!this._isCurrentContext(context)) return false;
         if (target) {
-          try        { displayHref = contents.cfiFromNode(target); }
-          catch (_)  {
+          try { displayHref = contents.cfiFromNode(target); }
+          catch (cfiErr) {
             try {
               const startHref = context.rendition?.currentLocation?.()?.start?.href;
               const cur = startHref ? _parseHref(startHref).sectionHref : '';
               displayHref = cur ? `${cur}#${targetId}` : '';
-            } catch (_) {}
+            } catch (hrefErr) {
+              console.warn('[Annotations] Fallback href resolution failed:', hrefErr);
+            }
           }
           this._displayContent(this._extractContent(target), displayHref || href, context);
           return true;
@@ -888,7 +898,9 @@ const Annotations = {
           const cur    = context.rendition.currentLocation()?.start?.href || '';
           const curDir = cur.substring(0, cur.lastIndexOf('/') + 1);
           resolvedHref = curDir + href.replace(/^(\.\.\/)+/, '');
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[Annotations] Resolved href fallback failed:', err);
+        }
       }
       this._displayContent(
         '<p class="annotation-fallback-hint">点击下方链接查看注释内容</p>',
@@ -918,7 +930,9 @@ const Annotations = {
         const el = d.getElementById(targetId);
         if (el) return el;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Annotations] _findTarget getElementById failed:', targetId, err);
+    }
     try {
       const escapeFn = (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
         ? CSS.escape
@@ -928,7 +942,9 @@ const Annotations = {
         return d.querySelector(`[id="${escaped}"]`) ||
                d.querySelector(`[name="${escaped}"]`);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Annotations] _findTarget querySelector failed:', targetId, err);
+    }
     return null;
   },
 
@@ -1014,7 +1030,9 @@ const Annotations = {
           try {
             const cur    = activeRendition.currentLocation()?.start?.href || '';
             section      = activeBook.spine.get(_resolveRelativeSectionHref(cur, sectionHref));
-          } catch (_) {}
+          } catch (e) {
+            console.warn('[Annotations] _resolveRelativeSectionHref failed:', e);
+          }
         }
 
         // Method 3
@@ -1057,7 +1075,9 @@ const Annotations = {
           if (html) return { html, href: section.href };
         } finally {
           if (loadedResult.shouldUnload) {
-            try { section.unload(); } catch (_) {}
+            try { section.unload(); } catch (err) {
+              console.warn('[Annotations] section.unload error:', err);
+            }
           }
         }
       }
@@ -1083,7 +1103,9 @@ const Annotations = {
               this._targetIdIndex.delete(targetId);
             } finally {
               if (loadedResult.shouldUnload) {
-                try { indexedSection.unload(); } catch (_) {}
+                try { indexedSection.unload(); } catch (err) {
+                  console.warn('[Annotations] indexedSection.unload error:', err);
+                }
               }
             }
           }
@@ -1116,10 +1138,13 @@ const Annotations = {
               const html = this._extractContent(el);
               return { html, href: s.href };
             }
-          } catch (_) {
+          } catch (err) {
+            console.warn('[Annotations] brute-force section load error:', s.href, err);
           } finally {
             if (loadedResult?.shouldUnload) {
-              try { s.unload(); } catch (__) {}
+              try { s.unload(); } catch (err) {
+                console.warn('[Annotations] s.unload error:', s.href, err);
+              }
             }
           }
         }
@@ -1160,14 +1185,15 @@ const Annotations = {
       try {
         await nav(href);
         await this._compensatePaginationOffset(href, context);
-      } catch (_) {
+      } catch (navErr) {
+        console.warn('[Annotations] navigate direct href failed, retrying base:', href, navErr);
         try {
           const base = _parseHref(href).sectionHref;
           if (base && base !== href) {
             await nav(base);
             await this._compensatePaginationOffset(href, context);
           }
-        } catch (__) { console.warn('Annotation: navigate failed', href); }
+        } catch (baseErr) { console.warn('[Annotations] navigate base href failed:', href, baseErr); }
       }
     });
     jumpWrap.appendChild(anchor);
@@ -1197,7 +1223,9 @@ const Annotations = {
       if (!this._findTarget(contents.document, fragment)) {
         await context.rendition.next?.();
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Annotations] _compensatePaginationOffset failed:', err);
+    }
   },
 
   close() {
@@ -1254,7 +1282,9 @@ const Annotations = {
         styleEl.textContent = _FN_STYLE_CSS;
         (doc.head || doc.documentElement).appendChild(styleEl);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[Annotations] Failed to inject footnote stylesheet:', err);
+    }
 
     // Cancel token (scoped to this section load) ─────────────────────────────
     const cancelToken = { cancelled: false };
@@ -1302,11 +1332,15 @@ const Annotations = {
     const cleanup = () => {
       if (cancelToken.cancelled) return;
       cancelToken.cancelled = true;
-      try { doc.removeEventListener('click', docCaptureHandler, true); } catch (_) {}
+      try { doc.removeEventListener('click', docCaptureHandler, true); } catch (err) {
+        console.warn('[Annotations] cleanup removeEventListener failed:', err);
+      }
       ctx.doc = null;
     };
 
-    try { contents.on('destroy', cleanup); } catch (_) {}
+    try { contents.on('destroy', cleanup); } catch (err) {
+      console.warn('[Annotations] contents.on destroy failed:', err);
+    }
   },
   };
 

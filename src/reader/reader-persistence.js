@@ -433,7 +433,9 @@
           if (restoreCfi && restoreCfi !== state.currentStableCfi) {
             state.currentStableLocator.restoreCfi = restoreCfi;
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[ReaderPersistence] Failed to build restoreCfi anchor:', err);
+        }
       }
       if (state.currentStableCfi) {
         return {

@@ -502,7 +502,8 @@
       for (let attempt = 0; canRedisplay && currentPage.page !== locator.page && attempt < RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS; attempt++) {
         try {
           await state.rendition.display(displayCfi);
-        } catch (_) {
+        } catch (err) {
+          console.warn('[Runtime] restore page redisplay failed:', err);
           return { matched: true, corrected: false };
         }
         currentPage = await _readCurrentDisplayedPage();

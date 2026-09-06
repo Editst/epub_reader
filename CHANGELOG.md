@@ -4,6 +4,36 @@
 
 ---
 
+## [2.6.3] - 2026-09-07
+
+### fix
+- **高亮点击外部白名单边界收敛 (`highlights.js`)**：
+  - 修复关闭高亮工具栏/气泡的点击外部监听器中硬编码不存在的 `#header-bar` 选择器，校准为 `#toolbar`，并扩充面板与底栏白名单（`#settings-panel`, `#bookmarks-panel`, `#search-panel`, `#sidebar`, `.bottom-bar`），杜绝点击操作栏时意外关闭。
+- **排版控制缺失项补齐 (`reader.html`, `reader-ui.js`, `reader.css`)**：
+  - 设置面板新增“首行缩进（2 字符）”开关与“页面分栏（单栏 / 双栏 / 自动）”下拉选择器；
+  - `ReaderUi` 建立控件双向同步与偏好持久化（`paragraphIndent`, `spread`），实时注入 `text-indent: 2em` 动态样式。
+- **书架主题独立解耦 (`home.js`, `storage.js`)**：
+  - 首页暗黑模式切换改用专属键 `homeTheme`（`light` / `dark`），与阅读器 `theme`（支持 `light`, `dark`, `sepia`, `green`, `night`, `cream`）物理隔离，根治书架切深色破坏阅读器羊皮纸/护眼绿主题的问题。
+- **导入多文件流与书架留存 (`home.html`, `home.js`)**：
+  - 文件选择器与拖放区支持 `multiple` 批量导入，导入完成后停留在书架原地流式刷新，展示原生轻量 Toast 提示进度，消除单书上传强行重定向跳转终端流程。
+- **文件缓存驱逐感知与重新导入引导 (`db-gateway.js`, `storage.js`, `home.html`, `home.css`, `home.js`)**：
+  - `DbGateway` 新增 `has(storeName, key)` 方法，基于 `IDBObjectStore.count()` 实现 $O(1)$ 零内存文件缓存探活；
+  - `EpubStorage.hasFile(bookId)` 对齐缓存状态，书架卡片精准渲染 `.is-evicted` 驱逐角标与提示；
+  - 点击被 LRU 驱逐的书籍卡片时拦截盲目跳转，弹窗提示并自动调起文件选择器引导重新导入，保留已有阅读进度与批注。
+- **空 catch 块与静默吞错全面清理 (`storage.js`, `search.js`, `reader-persistence.js`, `highlights.js`, `annotations.js`, `bookmarks.js`, `reader-runtime.js`)**：
+  - 严格清理源码中所有空 `catch` 块与占位吞错，补充模块前缀上下文日志警告（`console.warn`），杜绝隐藏系统级异常。
+- **仓库地址占位符校准 (`README.md`)**：
+  - 将安装文档中的克隆地址占位符 `your-username/epub-reader-extension.git` 校准为官方仓库 `Editst/epub_reader.git`。
+
+### test
+- **补全 P0 交互与异常回归测试用例 (`highlights_behavior.test.js`, `reader_modules_behavior.test.js`, `ui_home_interaction.test.js`, `sys_manifest.test.js`)**：
+  - 新增高亮外部点击白名单拦截验证；
+  - 新增排版设置 `paragraphIndent` 与 `spread` 双向绑定及 CSS 注入验证；
+  - 新增书架独立主题、批量导入留存与 Toast、文件缓存驱逐提示与重导引导验证；
+  - 同步版本断言升级至 2.6.3。
+
+---
+
 ## [2.6.2] - 2026-09-06
  
 ### perf

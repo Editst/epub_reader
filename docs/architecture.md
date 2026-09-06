@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.6.2  
-更新：2026-09-06  
+版本：v2.6.3  
+更新：2026-09-07  
 
 本文档包含项目系统架构、核心数据模型、模块接口契约与关键调度约束。
 
@@ -278,6 +278,7 @@ interface IEpubStorage {
   importBookFile(file: File): Promise<{ bookId: string; filename: string; fileData: File | ArrayBuffer }>;
   storeFile(filename: string, data: Uint8Array | ArrayBuffer | Blob, bookId: string): Promise<void>;
   getFile(bookId: string): Promise<FileRecord | null>;
+  hasFile(bookId: string): Promise<boolean>;
   removeFile(bookId: string): Promise<void>;
   enforceFileLRU(maxCount?: number): Promise<void>;
 
@@ -298,6 +299,7 @@ IndexedDB 单例操作封装。
 interface IDbGateway {
   connect(): Promise<IDBDatabase>;
   get(storeName: string, key: any): Promise<any | null>;
+  has(storeName: string, key: any): Promise<boolean>;
   put(storeName: string, data: object): Promise<void>;
   delete(storeName: string, key: any): Promise<void>;
   getAll(storeName: string): Promise<any[]>;

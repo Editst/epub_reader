@@ -77,7 +77,8 @@
       const bookmarks = await EpubStorage.getBookmarks(bookId);
       if (bookId !== this.bookId || !Array.isArray(bookmarks)) return false;
       return bookmarks.some(b => b.cfi === cfi);
-    } catch (_) {
+    } catch (err) {
+      console.warn('[Bookmarks] isBookmarked error:', bookId, cfi, err);
       return false;
     }
   },

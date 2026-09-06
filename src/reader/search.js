@@ -303,7 +303,8 @@
     if (_lastSearchAlertCfi && rendition && rendition.annotations) {
       try {
         rendition.annotations.remove(_lastSearchAlertCfi, 'highlight');
-      } catch (_) {
+      } catch (err) {
+        console.warn('[Search] Failed to remove search highlight annotation:', _lastSearchAlertCfi, err);
       } finally {
         _lastSearchAlertCfi = null;
       }
