@@ -543,8 +543,18 @@
     function openExclusivePanel(panelElement) {
       if (!panelElement) return;
       _sharedSidebarPanels().forEach((panel) => {
-        panel.classList.toggle('open', panel === panelElement);
+        if (panel !== panelElement && panel.classList.contains('open')) {
+          panel.classList.remove('open');
+          if (panel === dom.searchPanel && typeof Search !== 'undefined' && Search.closePanel) {
+            Search.closePanel();
+          } else if (panel === dom.tocSidebar && typeof TOC !== 'undefined' && TOC.close) {
+            TOC.close();
+          } else if (panel === dom.bookmarksPanel && typeof Bookmarks !== 'undefined' && Bookmarks.closePanel) {
+            Bookmarks.closePanel();
+          }
+        }
       });
+      panelElement.classList.add('open');
       dom.sidebarOverlay?.classList.add('visible');
     }
 
@@ -859,9 +869,8 @@
         e.stopPropagation();
         dom.dragOverlay?.classList.add('is-hidden');
         const files = e.dataTransfer?.files;
-        const file = files && files[0];
-        if (!file || !file.name.toLowerCase().endsWith('.epub')) return;
-        if (_runtime) await openLocalFile(file, _runtime);
+        if (!files || files.length === 0) return;
+        if (_runtime) await openLocalFiles(files, _runtime);
       });
     }
 
@@ -923,24 +932,49 @@
       window.addEventListener('resize', _resizeHandler);
     }
 
-    async function _openLocalFile(file, runtime) {
+    async function _openLocalFiles(files, runtime) {
+      const rawList = Array.isArray(files)
+        ? files
+        : (files && typeof files[Symbol.iterator] === 'function' ? Array.from(files) : [files]);
+      const fileList = rawList.filter((f) => f && f.name && f.name.toLowerCase().endsWith('.epub'));
+      if (fileList.length === 0) return;
+
       try {
         showLoading(true);
-        const { bookId, fileData } = await EpubStorage.importBookFile(file);
-        await runtime.openBook(fileData || file, bookId, file.name);
-        const readerUrl = chrome.runtime.getURL('reader/reader.html') +
-          '?bookId=' + encodeURIComponent(bookId);
-        window.history?.replaceState?.(null, '', readerUrl);
+        let firstResult = null;
+        for (const file of fileList) {
+          try {
+            const res = await EpubStorage.importBookFile(file);
+            if (!firstResult && res) {
+              firstResult = { res, file };
+            }
+          } catch (itemErr) {
+            console.error('[ReaderUi] failed to import file:', file.name, itemErr);
+          }
+        }
+        if (firstResult) {
+          const { bookId, fileData } = firstResult.res;
+          await runtime.openBook(fileData || firstResult.file, bookId, firstResult.file.name);
+          const readerUrl = chrome.runtime.getURL('reader/reader.html') +
+            '?bookId=' + encodeURIComponent(bookId);
+          window.history?.replaceState?.(null, '', readerUrl);
+        } else {
+          showLoadError('无法加载所选 EPUB 文件');
+        }
       } catch (err) {
-        console.error('[ReaderUi] failed to open local file:', err);
+        console.error('[ReaderUi] failed to open local files:', err);
         showLoadError('无法加载此 EPUB 文件: ' + err.message);
       }
     }
 
-    function openLocalFile(file, runtime) {
-      const task = _openLocalFileQueue.then(() => _openLocalFile(file, runtime));
+    function openLocalFiles(files, runtime) {
+      const task = _openLocalFileQueue.then(() => _openLocalFiles(files, runtime));
       _openLocalFileQueue = task.catch(() => {});
       return task;
+    }
+
+    function openLocalFile(file, runtime) {
+      return openLocalFiles(file ? [file] : [], runtime);
     }
 
     /**
@@ -963,9 +997,9 @@
       });
 
       dom.fileInput?.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (_runtime) await openLocalFile(file, _runtime);
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        if (_runtime) await openLocalFiles(files, _runtime);
         e.target.value = '';
       });
 

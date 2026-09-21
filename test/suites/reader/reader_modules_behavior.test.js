@@ -1481,6 +1481,36 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(overlay.classList.contains('visible'), false);
   });
 
+  test.it('ReaderUi openExclusivePanel 切换时通知被隐藏面板所属模块的关闭回调以防止后台泄漏', () => {
+    const { document } = createMockDocument([
+      'sidebar', 'bookmarks-panel', 'search-panel', 'sidebar-overlay', 'settings-panel'
+    ]);
+    const calls = [];
+    const context = {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      Search: { closePanel() { calls.push('search-closed'); } },
+      Bookmarks: { closePanel() { calls.push('bookmarks-closed'); } },
+      TOC: { close() { calls.push('toc-closed'); } }
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {} } });
+    const bookmarksPanel = document.getElementById('bookmarks-panel');
+    const searchPanel = document.getElementById('search-panel');
+    const overlay = document.getElementById('sidebar-overlay');
+
+    // 假设 searchPanel 当前处于打开状态
+    searchPanel.classList.add('open');
+    overlay.classList.add('visible');
+
+    // 打开书签面板，应互斥关闭搜索面板并通知 Search 模块收口
+    ui.openExclusivePanel(bookmarksPanel);
+
+    assert.equal(searchPanel.classList.contains('open'), false);
+    assert.equal(bookmarksPanel.classList.contains('open'), true);
+    assert.deepEqual(calls, ['search-closed']);
+  });
+
   test.it('Bookmarks 打开/关闭时维护共享遮罩与兄弟面板状态', async () => {
     const { document } = createMockDocument([
       'bookmarks-panel',
@@ -1910,6 +1940,115 @@ test.describe('Reader 模块基础行为', () => {
       ['store', 'second.epub'],
       ['open', 'second.epub'],
       ['history', 'chrome-extension://test/reader/reader.html?bookId=id-second.epub']
+    ]);
+  });
+
+  test.it('ReaderUi 支持批量多选 EPUB 文件导入并自动打开第一本', async () => {
+    const { document } = createMockDocument(['file-input']);
+    const calls = [];
+    const context = {
+      document,
+      window: {
+        document,
+        focus() {},
+        addEventListener() {},
+        history: {
+          replaceState(_state, _title, url) { calls.push(['history', url]); }
+        }
+      },
+      chrome: {
+        runtime: { getURL: (p) => 'chrome-extension://test/' + p }
+      },
+      EpubStorage: {
+        async importBookFile(file) {
+          calls.push(['import', file.name]);
+          return { bookId: 'id-' + file.name, fileData: file, fileName: file.name };
+        },
+        async savePreferences() {}
+      },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {}, isBookLoaded: false } });
+    await ui.bindRuntime({
+      async openBook(_data, _bookId, fileName) { calls.push(['open', fileName]); },
+      next() {}, prev() {}, setLayout() {}, displayPercentage() {}
+    }, {});
+
+    const fileInput = document.getElementById('file-input');
+    const changeHandler = fileInput.listeners.get('change')[0];
+    await changeHandler({
+      target: {
+        files: [
+          { name: 'book1.epub' },
+          { name: 'book2.epub' },
+          { name: 'invalid.txt' },
+          { name: 'book3.epub' }
+        ],
+        value: ''
+      }
+    });
+
+    assert.deepEqual(calls, [
+      ['import', 'book1.epub'],
+      ['import', 'book2.epub'],
+      ['import', 'book3.epub'],
+      ['open', 'book1.epub'],
+      ['history', 'chrome-extension://test/reader/reader.html?bookId=id-book1.epub']
+    ]);
+  });
+
+  test.it('ReaderUi 拖放多个 EPUB 文件批量导入并自动打开第一本', async () => {
+    const { document } = createMockDocument(['drag-overlay']);
+    const calls = [];
+    const context = {
+      document,
+      window: {
+        document,
+        focus() {},
+        addEventListener() {},
+        history: {
+          replaceState(_state, _title, url) { calls.push(['history', url]); }
+        }
+      },
+      chrome: {
+        runtime: { getURL: (p) => 'chrome-extension://test/' + p }
+      },
+      EpubStorage: {
+        async importBookFile(file) {
+          calls.push(['import', file.name]);
+          return { bookId: 'id-' + file.name, fileData: file, fileName: file.name };
+        },
+        async savePreferences() {}
+      },
+      setTimeout: global.setTimeout,
+      requestAnimationFrame: (fn) => fn()
+    };
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', context);
+    const ui = ReaderUi.createReaderUi({ state: { prefs: {}, isBookLoaded: false } });
+    await ui.bindRuntime({
+      async openBook(_data, _bookId, fileName) { calls.push(['open', fileName]); },
+      next() {}, prev() {}, setLayout() {}, displayPercentage() {}
+    }, {});
+
+    document.dispatchEvent('drop', {
+      dataTransfer: {
+        files: [
+          { name: 'drag1.epub' },
+          { name: 'ignored.pdf' },
+          { name: 'drag2.epub' }
+        ]
+      }
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepEqual(calls, [
+      ['import', 'drag1.epub'],
+      ['import', 'drag2.epub'],
+      ['open', 'drag1.epub'],
+      ['history', 'chrome-extension://test/reader/reader.html?bookId=id-drag1.epub']
     ]);
   });
 

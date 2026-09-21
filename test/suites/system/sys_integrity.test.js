@@ -136,6 +136,8 @@ test.describe('项目工程完整性检查', () => {
         `${f} #file-input 不得使用 display:none`);
       assert.ok(!fileInputLine.includes('class="is-hidden"') && !fileInputLine.includes("class='is-hidden'"),
         `${f} #file-input 不得使用 is-hidden class`);
+      assert.ok(fileInputLine.includes('multiple'),
+        `${f} #file-input 应包含 multiple 属性以支持多选批量导入`);
     }
   });
 

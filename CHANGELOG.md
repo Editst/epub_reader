@@ -4,6 +4,27 @@
 
 ---
 
+## [2.6.5] - 2026-09-21
+
+### fix
+- **侧栏面板互斥切换生命周期泄漏根治 (`reader-ui.js`)**：
+  - 修复 `openExclusivePanel` 仅对其他面板盲目切换 `.open` class 而未触发对应模块关闭回调的缺陷。
+  - 在互斥关闭 `searchPanel` / `tocSidebar` / `bookmarksPanel` 时，优先移除 `.open` 并按归属权显式调用模块收口函数（`Search.closePanel()`、`TOC.close()`、`Bookmarks.closePanel()`），彻底杜绝在搜索进行中切换到书签或目录时后台异步循环继续消耗 CPU、内存及渲染资源的生命周期泄漏。
+- **Reader 全生命周期多文件批量导入与对齐 (`reader.html`, `reader-ui.js`)**：
+  - 为 `reader.html` 的 `#file-input` 补齐 `multiple` 属性，与 `home.html` 保持一致；
+  - 重构 `reader-ui.js` 文件选择 `change` 与拖放 `drop` 处理器，从原先仅读取 `files[0]` 升级为遍历有效 `.epub` 文件集合；
+  - 批量将所有有效电子书安全存入 IndexedDB 并登记至书架（`recentBooks`），最后自动打开集合中的第一本电子书，杜绝用户在阅读界面多拖拽/多选文件时静默丢弃其余书籍的数据丢失隐患。
+
+### test
+- **多文件导入与模块互斥收口契约覆盖 (`reader_modules_behavior.test.js`, `sys_integrity.test.js`, `sys_manifest.test.js`)**：
+  - 新增 `openExclusivePanel` 互斥切换时通知被隐藏面板所属模块关闭回调的断言；
+  - 新增 Reader 文件选择器批量多选文件导入并自动打开第一本的异步行为断言；
+  - 新增 Reader 拖放区域批量拖拽多文件导入并自动打开第一本的异步行为断言；
+  - 在系统完整性测试中扩展对 `reader.html` 与 `home.html` 全入口 `#file-input` 的 `multiple` 属性一致性约束；
+  - 同步版本断言升级至 2.6.5。
+
+---
+
 ## [2.6.4] - 2026-09-21
 
 ### fix
