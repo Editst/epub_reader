@@ -25,11 +25,12 @@ test.describe('Popup 弹出页安全与瞬态交互契约', () => {
     assert.ok(!html.includes('rel="prefetch"'), 'popup.html 不应有 prefetch');
   });
 
-  test.it('P-4: popup.js openBtn click handler 为同步函数且直接调用 .click() (防用户激活丢失)', () => {
+  test.it('P-4: popup.js openBtn click handler 导航至 reader 页面（防系统文件对话框触发失焦销毁）', () => {
     const js = fs.readFileSync('src/popup/popup.js', 'utf8');
     const code = js.split('\n').filter(l => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
     assert.ok(!code.includes('showOpenFilePicker'), 'popup.js 代码逻辑中不应调用 showOpenFilePicker（会丢失用户手势激活）');
-    assert.ok(code.includes('fileInput.click()'), 'openBtn 应直接调用 fileInput.click()');
+    assert.ok(!code.includes('fileInput.click()'), 'popup.js 不应在浮窗内直接触发 fileInput.click()（会导致失焦被 Chrome 销毁）');
+    assert.ok(code.includes('reader/reader.html'), 'openBtn 应打开 reader.html 页面处理阅读与文件选择');
   });
 
 });

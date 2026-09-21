@@ -1292,6 +1292,42 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(stored.filename, 'test-import.epub');
   });
 
+  test.it('importBookFile 完成后 recentBooks 包含该书且标题为文件名去后缀', async () => {
+    resetAll();
+    const fakeFile = {
+      name: 'my-novel.epub',
+      async arrayBuffer() { return new Uint8Array([10, 20, 30]).buffer; }
+    };
+    const result = await EpubStorage.importBookFile(fakeFile);
+    const recent = await EpubStorage.getRecentBooks();
+    assert.equal(recent.length, 1, '导入后 recentBooks 应有 1 条记录');
+    assert.equal(recent[0].id, result.bookId);
+    assert.equal(recent[0].title, 'my-novel', '标题应为文件名去 .epub 后缀');
+    assert.equal(recent[0].filename, 'my-novel.epub');
+    assert.ok(recent[0].lastOpened > 0, '应记录 lastOpened 时间戳');
+  });
+
+  test.it('importBookFile 重复导入保留 reader 已更新的真实书名与作者', async () => {
+    resetAll();
+    const fakeFile = {
+      name: 'book.epub',
+      async arrayBuffer() { return new Uint8Array([7, 8, 9]).buffer; }
+    };
+    // 首次导入
+    const { bookId } = await EpubStorage.importBookFile(fakeFile);
+    // 模拟 reader 解析后用真实元数据更新 recentBooks
+    await EpubStorage.addRecentBook({
+      id: bookId, title: '百年孤独', author: '马尔克斯', filename: 'book.epub'
+    });
+    // 再次导入同一文件（如 LRU 淘汰后重新导入）
+    await EpubStorage.importBookFile(fakeFile);
+    const recent = await EpubStorage.getRecentBooks();
+    const entry = recent.find(b => b.id === bookId);
+    assert.ok(entry, '重复导入后书籍应仍在 recentBooks');
+    assert.equal(entry.title, '百年孤独', '应保留 reader 已更新的真实书名');
+    assert.equal(entry.author, '马尔克斯', '应保留 reader 已更新的真实作者');
+  });
+
   test.it('_updateBookRecordList 使用 slice() 浅拷贝数组，未修改记录保留原对象引用', async () => {
     resetAll();
     const bookId = 'book_cow_test';

@@ -69,7 +69,7 @@ node --test-name-pattern="ReaderPersistence" test/run_tests.js  # 按名称过�
 - **`bookmarks.js`** / **`toc.js`**：UI 状态更新统一委托 `panelController`；跳转统一走 `ReaderState.safeNavigate`。
 - **`image-viewer.js`**：拖拽平移时临时关闭 CSS transition；缩放范围 `ZOOM_MIN_SCALE=0.2` ~ `ZOOM_MAX_SCALE=8`。
 - **`home.js`**：支持全局拖放导入；单本卡片封面/元数据读取失败只局部降级，不影响整轮流式渲染（`card` 变量需在 `try` 外声明防 TDZ）；标注管理走内存缓存筛选/排序；笔记导出遍历 `getAllHighlights()` 全量字典，无 20 本上限截断。
-- **`popup.js`**：内联 `<style>`；`#file-input` 用零尺寸/透明物理隐藏（禁 `display:none`，否则 `.click()` 被拦截）；不使用 `showOpenFilePicker`（会丢失 transient user activation）。
+- **`popup.js`**：内联 `<style>`；Action popup 浮窗在原生系统文件框弹出时会失焦并被 Chrome 自动销毁（close-on-deactivate），故“打开文件”直接导航至 `reader/reader.html` 欢迎页发起文件选择，不在瞬态 popup 内部处理文件流。
 
 ## 7. 安全与防御性编程
 

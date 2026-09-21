@@ -6,25 +6,17 @@
 document.addEventListener('DOMContentLoaded', () => {
   const openBtn    = document.getElementById('open-btn');
   const homeBtn    = document.getElementById('home-btn');
-  const fileInput  = document.getElementById('file-input');
   const recentList = document.getElementById('recent-list');
   const emptyState = document.getElementById('empty-state');
   let recentBooksRenderSeq = 0;
 
   // ── 打开新书 ───────────────────────────────────────────────────────────────
-  // showOpenFilePicker 需要 "transient user activation"，在 async click handler
-  // 里经过任何 await（包括 loadRecentBooks 的异步等待）后激活状态即失效，
-  // 导致调用静默失败（DevTools 打开时限制放宽故能通过，这是根本症状来源）。
-  // fileInput.click() 在 click handler 的同步调用栈中触发，无此限制。
+  // Chrome 扩展 popup 在系统文件选择框弹出时失焦被自动销毁（close-on-deactivate），
+  // JS 上下文终止，change 事件永远无法触发。DevTools 打开时此限制被放宽，故开发时
+  // 不易发现。正确做法是直接在独立标签页（reader 欢迎页）中由用户发起文件选择。
   openBtn.addEventListener('click', () => {
-    fileInput.click();
-  });
-
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    fileInput.value = '';
-    await _processFile(file);
+    chrome.tabs.create({ url: chrome.runtime.getURL('reader/reader.html') });
+    window.close();
   });
 
   homeBtn.addEventListener('click', () => {
@@ -70,20 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  async function _processFile(file) {
-    try {
-      openBtn.disabled = true;
-      const { bookId } = await EpubStorage.importBookFile(file);
-      chrome.tabs.create({
-        url: chrome.runtime.getURL('reader/reader.html') + '?bookId=' + encodeURIComponent(bookId)
-      });
-      window.close();
-    } catch (e) {
-      console.error('[Popup] Failed to process EPUB:', e);
-      alert('无法导入文件: ' + (e.message || '格式错误或存储受限'));
-      openBtn.disabled = false;
-    }
-  }
 
   // ── 最近书籍列表（并行加载） ───────────────────────────────────────────────
   async function loadRecentBooks(renderSeq) {

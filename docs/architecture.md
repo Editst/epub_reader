@@ -1,7 +1,7 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.6.3  
-更新：2026-09-07  
+版本：v2.6.4  
+更新：2026-09-21  
 
 本文档包含项目系统架构、核心数据模型、模块接口契约与关键调度约束。
 
@@ -94,7 +94,7 @@ flowchart TB
 | **偏好设置同步** | `chrome.storage.local` + `storage.onChanged` | `_enqueueKeyWrite` 内存队列 + Web Lock 独占锁 | 读取失败使用内置默认配置 |
 | **最近书籍管理** | `EpubStorage.addRecentBook` / `removeRecentBook` | 针对 `recentBooks` Key 的排他 Web Lock | 单本损坏自动过滤并修复数组 |
 | **阅读进度与统计** | `flushSessionBundle` 聚合单事务原子写入 | 针对 `book:<bookId>` 的独占写锁 | 增量暂存，下次重试累加 |
-| **文件导入与存储** | File Blob 切片哈希 → IDB `files` 存储 | 针对 `book:<bookId>` 独占锁 + LRU 隔离执行 | 导入失败事务回滚并清理半写入状态 |
+| **文件导入与存储** | File Blob 切片哈希 → IDB `files` 存储 + 注册 `recentBooks` 书架列表 | 针对 `book:<bookId>` 独占锁 + LRU 隔离执行 | 导入失败事务回滚并清理半写入状态 |
 | **删除广播与墓碑** | `deletedBook_<id>` 墓碑写入 + `subscribeBookDeletion` | 独占锁删除 7 项资源，全部 settled 释放守卫 | 标记保留至重新导入，屏蔽旧 Reader 迟到写 |
 
 ---

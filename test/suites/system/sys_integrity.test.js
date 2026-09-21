@@ -124,7 +124,6 @@ test.describe('项目工程完整性检查', () => {
 
   test.it('全入口 file-input 物理隐藏一致性 (防 .click() 拦截)', () => {
     const entries = [
-      'src/popup/popup.html',
       'src/reader/reader.html',
       'src/home/home.html',
     ];

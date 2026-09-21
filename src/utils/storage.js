@@ -475,7 +475,17 @@ const EpubStorage = {
     if (!file) throw new Error('No file provided');
     const bookId = await this.generateBookId(file.name, file);
     await this.storeFile(file.name, file, bookId);
-    return { bookId, filename: file.name, fileData: file };
+    const filename = file.name || '';
+    // 查询已有 recentBooks 记录，避免覆盖 reader 解析后设置的真实书名与作者
+    const recent = await this.getRecentBooks();
+    const existing = recent.find((b) => b.id === bookId);
+    await this.addRecentBook({
+      id: bookId,
+      title: existing?.title || filename.replace(/\.epub$/i, '') || '未知书名',
+      author: existing?.author || '',
+      filename: filename
+    });
+    return { bookId, filename, fileData: file };
   },
 
   async storeFile(filename, data, bookId) {

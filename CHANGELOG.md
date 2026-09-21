@@ -4,6 +4,27 @@
 
 ---
 
+## [2.6.4] - 2026-09-21
+
+### fix
+- **导入书籍书架同步注册 (`storage.js`)**：
+  - 根治 `EpubStorage.importBookFile` 仅将 EPUB 文件存入 IndexedDB `files` 存储而未写入 `recentBooks` 列表的缺陷。
+  - 导入完成后以文件名（去除 `.epub` 后缀）作为初始标题安全调用 `addRecentBook` 完成书架登记；对已有阅读记录（如 LRU 淘汰重新导入）的书籍，主动保留已解析的真实书名与作者信息，杜绝元数据降级。
+  - 解决书架页面（`home.html`）通过按钮选择或拖拽文件导入时显示成功 Toast 但书架空空如也的问题。
+- **Popup 打开文件失焦销毁根治 (`popup.html`, `popup.js`)**：
+  - 定位并解决在 Chromium Extension Action Popup 浮窗内直接触发原生系统文件对话框时，因失焦导致 Popup 立即被宿主销毁（close-on-deactivate）、JS 执行上下文终止而引发“选完文件后什么都不发生”的系统级平台限制。
+  - 重构 Popup “打开文件”交互为直接打开 Reader 标签页（`reader/reader.html`），交由具备持久生命周期的 Reader 欢迎屏与全屏拖拽/选择区域完成文件读取与解析，与“书架管理”形成清晰职责划分；清理 Popup 内无用的物理隐藏 `file-input` 冗余 DOM。
+
+### test
+- **增强导入与 Popup 交互契约覆盖 (`storage_behavior.test.js`, `ui_popup.test.js`, `ui_popup_interaction.test.js`, `sys_integrity.test.js`, `sys_manifest.test.js`)**：
+  - 新增 `importBookFile` 完成后 `recentBooks` 必须包含书籍记录与时间戳的断言；
+  - 新增 `importBookFile` 重复导入时保留 reader 已更新真实书名与作者的断言；
+  - 更新 Popup `openBtn` 导航至 `reader/reader.html` 行为测试，去除因平台失焦限制而废弃的 `fileInput.click()` 依赖断言；
+  - 校准全入口物理隐藏检查范围为 Reader 与 Home 两个持久标签页宿主；
+  - 同步版本断言升级至 2.6.4。
+
+---
+
 ## [2.6.3] - 2026-09-07
 
 ### fix

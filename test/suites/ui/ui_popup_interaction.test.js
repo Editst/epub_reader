@@ -101,41 +101,15 @@ function loadPopupInSandbox({ mockStorage = {}, mockChrome = {}, initialConfirm 
 
 test.describe('Popup 弹出页 UI 交互行为测试', () => {
 
-  test.it('点击 openBtn 同步触发 fileInput.click', async () => {
-    let fileInputClicked = false;
-    const { openBtn, fileInput, dispatchReady } = loadPopupInSandbox();
-    fileInput.click = () => { fileInputClicked = true; };
+  test.it('点击 openBtn 打开 reader 标签页并关闭窗口（popup 内无法完成文件选择）', async () => {
+    const { openBtn, createdTabs, getWindowClosed, dispatchReady } = loadPopupInSandbox();
 
     await dispatchReady();
-    assert.equal(fileInputClicked, false);
 
     openBtn.click();
-    assert.equal(fileInputClicked, true, 'openBtn 点击必须同步触发 fileInput.click()');
-  });
-
-  test.it('fileInput 选择文件后触发 importBookFile 并打开 reader 页面', async () => {
-    let importedFile = null;
-    const mockStorage = {
-      async importBookFile(file) {
-        importedFile = file;
-        return { bookId: 'imported-book-123' };
-      }
-    };
-    const { fileInput, createdTabs, getWindowClosed, dispatchReady } = loadPopupInSandbox({ mockStorage });
-
-    await dispatchReady();
-
-    const dummyFile = { name: 'test.epub', size: 1024 };
-    fileInput.files = [dummyFile];
-    fileInput.dispatch('change', { target: fileInput });
-
-    // 等待异步 _processFile 执行完毕
-    await new Promise((r) => setTimeout(r, 20));
-
-    assert.equal(importedFile, dummyFile, '应将选中的文件提交给 EpubStorage.importBookFile');
-    assert.equal(createdTabs.length, 1, '应调用 chrome.tabs.create 打开标签页');
-    assert.ok(createdTabs[0].url.includes('reader/reader.html?bookId=imported-book-123'));
-    assert.equal(getWindowClosed(), true, '导入完成后应调用 window.close()');
+    assert.equal(createdTabs.length, 1, '应调用 chrome.tabs.create');
+    assert.ok(createdTabs[0].url.includes('reader/reader.html'), '应打开 reader 页面');
+    assert.equal(getWindowClosed(), true, '应关闭 popup 窗口');
   });
 
   test.it('点击 homeBtn 触发 chrome.tabs.create 打开书架页并关闭弹窗', async () => {
