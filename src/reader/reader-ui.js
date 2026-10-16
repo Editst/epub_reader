@@ -848,7 +848,9 @@
           e.target.closest('#sidebar') ||
           e.target.closest('#search-panel') ||
           e.target.closest('.toolbar-btn') ||
-          e.target.closest('.annotation-popup');
+          e.target.closest('.annotation-popup') ||
+          e.target.closest('#note-popup') ||
+          e.target.closest('#selection-toolbar');
         if (!isInsidePanel) closeAllPanels();
       });
     }

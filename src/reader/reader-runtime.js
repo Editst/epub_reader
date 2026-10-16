@@ -587,6 +587,10 @@
         }
       }
 
+      if (persistence && typeof persistence.clearAnchorCache === 'function') {
+        persistence.clearAnchorCache();
+      }
+
       _destroyActiveBookResources();
 
       state.book = null;
@@ -1032,7 +1036,18 @@
       }
     }
 
-    function _clearBrokenLayoutContext() {
+    async function _clearBrokenLayoutContext() {
+      const oldBookId = state.currentBookId;
+      if (oldBookId && state.isBookLoaded && persistence) {
+        try {
+          await persistence.flushSessionBundle(oldBookId);
+        } catch (e) {
+          console.warn('[Runtime] Flush before clearing broken layout failed:', e);
+        }
+      }
+      if (persistence && typeof persistence.clearAnchorCache === 'function') {
+        persistence.clearAnchorCache();
+      }
       _destroyActiveBookResources();
       state.book = null;
       state.rendition = null;
@@ -1090,7 +1105,7 @@
       } catch (e) {
         if (_isCurrentLayoutContext(layoutId, activeBook, rollbackRendition)) {
           console.error('[Runtime] layout rollback failed:', e);
-          _clearBrokenLayoutContext();
+          await _clearBrokenLayoutContext();
         } else {
           console.warn('[Runtime] stale layout rollback failure ignored:', e);
         }
@@ -1177,6 +1192,9 @@
       lifecycleSeq++;
       layoutSeq++;
       navigationSeq++;
+      if (persistence && typeof persistence.clearAnchorCache === 'function') {
+        persistence.clearAnchorCache();
+      }
       _destroyActiveBookResources();
 
       state.book = null;
@@ -1195,6 +1213,9 @@
       lifecycleSeq++;
       layoutSeq++;
       navigationSeq++;
+      if (persistence && typeof persistence.clearAnchorCache === 'function') {
+        persistence.clearAnchorCache();
+      }
       _destroyActiveBookResources();
 
       state.book = null;

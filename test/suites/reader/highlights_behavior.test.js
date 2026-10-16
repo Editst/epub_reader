@@ -36,9 +36,18 @@ function createElement(id) {
       listeners[type].push(fn);
     },
     dispatch(type, event = {}) {
-      (listeners[type] || []).forEach(fn => fn(event));
+      const ev = { stopPropagation() {}, preventDefault() {}, ...event };
+      const results = (listeners[type] || []).map(fn => fn(ev));
+      return Promise.all(results);
     },
-    contains() { return false; },
+    contains(node) {
+      if (this === node) return true;
+      if (!node) return false;
+      if (typeof node.closest === 'function') {
+        return node.closest('#' + this.id) === this;
+      }
+      return false;
+    },
     closest() { return null; },
     focus() {},
     getBoundingClientRect() {
@@ -82,6 +91,9 @@ function loadHighlights(storedHighlights, options = {}) {
       remove(cfi, type) {
         const index = annotations.findIndex(item => item.cfi === cfi && item.type === type);
         if (index !== -1) annotations.splice(index, 1);
+      },
+      getAnnotations() {
+        return annotations;
       }
     },
     getContents() {
@@ -102,7 +114,28 @@ function loadHighlights(storedHighlights, options = {}) {
       if (type === 'selected') selectedHandlers.delete(fn);
     },
     triggerSelected(cfiRange, contents) {
-      selectedHandlers.forEach(fn => fn(cfiRange, contents));
+      const mockContents = contents || {
+        window: {
+          getSelection() {
+            return {
+              rangeCount: 1,
+              getRangeAt() {
+                return {
+                  getBoundingClientRect() {
+                    return { top: 100, left: 100, bottom: 120, width: 20 };
+                  }
+                };
+              }
+            };
+          },
+          frameElement: {
+            getBoundingClientRect() {
+              return { top: 0, left: 0 };
+            }
+          }
+        }
+      };
+      selectedHandlers.forEach(fn => fn(cfiRange, mockContents));
     },
     book: {
       async getRange() {
@@ -671,5 +704,61 @@ test.describe('Reader Highlights 行为', () => {
 
     context.window.dispatchEvent({ type: 'mousedown', target: outsideEl });
     assert.equal(toolbar.classList.contains('show'), false, '点击外部空白处应正常关闭浮层');
+  });
+
+  test.it('Highlights.reRenderCfi 能重新挂载指定 CFI 的用户高亮 (C3)', async () => {
+    const existing = [
+      { cfi: 'epubcfi(/6/2[c1]!/4/2/1:0)', color: '#ffeb3b', text: 'highlit' }
+    ];
+    const { Highlights, rendition } = loadHighlights(existing, {});
+    await Highlights.setBookDetails('book-rerender-test', rendition);
+
+    const initialHighlightCount = rendition.annotations.getAnnotations().filter((a) => a.type === 'highlight').length;
+    assert.equal(initialHighlightCount, 1, '初次加载应渲染高亮');
+
+    // 调用 reRenderCfi
+    Highlights.reRenderCfi('epubcfi(/6/2[c1]!/4/2/1:0)');
+    const updatedCount = rendition.annotations.getAnnotations().filter((a) => a.type === 'highlight').length;
+    assert.equal(updatedCount, 2, 'reRenderCfi 应再次调用 highlight 挂载');
+  });
+
+  test.it('点击 #note-popup 内部不会触发关闭 (C4)', async () => {
+    const { Highlights, rendition, elements, context } = loadHighlights([], {});
+    await Highlights.setBookDetails('book-note-popup-test', rendition);
+
+    const notePopup = elements.get('note-popup');
+    notePopup.classList.add('show');
+
+    // 模拟点击 textarea
+    const noteTextarea = elements.get('note-textarea');
+    noteTextarea.closest = (sel) => {
+      if (sel.includes('#note-popup')) return notePopup;
+      return null;
+    };
+
+    // 触发 mousedown
+    context.window.dispatchEvent({ type: 'mousedown', target: noteTextarea });
+    assert.equal(notePopup.classList.contains('show'), true, '点击 #note-popup 内部不应关闭浮层');
+  });
+
+  test.it('_activeHighlightCfi 指向不存在的记录时点击颜色按钮回退到创建高亮 (H5)', async () => {
+    const stored = [];
+    const { Highlights, rendition, elements } = loadHighlights(stored, {});
+    await Highlights.setBookDetails('book-h5-test', rendition);
+
+    // 模拟选中文本产生选区
+    rendition.triggerSelected('epubcfi(/6/2!/4/10:0,/4/10:5)');
+
+    // 强制把 _activeHighlightCfi 设为不存在的 CFI（模拟错误残留或竞态）
+    // 通过点击颜色按钮
+    const toolbar = elements.get('selection-toolbar');
+    const colorBtns = toolbar.querySelectorAll('.color-btn');
+    const yellowBtn = colorBtns.find((b) => b.dataset.color === '#ffeb3b');
+    assert.ok(yellowBtn, '应存在黄色按钮');
+    await yellowBtn.dispatch('click');
+
+    assert.equal(stored.length, 1, '应回退并成功创建新高亮');
+    assert.equal(stored[0].color, '#ffeb3b');
+    assert.equal(stored[0].cfi, 'epubcfi(/6/2!/4/10:0,/4/10:5)');
   });
 });

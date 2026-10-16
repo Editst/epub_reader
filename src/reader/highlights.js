@@ -266,7 +266,10 @@
         const bookId = _bookId;
         const rendition = _rendition;
 
-        if (_activeHighlightCfi) {
+        const hasActiveRecord = Boolean(
+          _activeHighlightCfi && highlights.some((h) => h && h.cfi === _activeHighlightCfi)
+        );
+        if (hasActiveRecord) {
           updateHighlightData(_activeHighlightCfi, { color });
           reRenderHighlight(_activeHighlightCfi);
           await syncHighlightSafely(bookId, _activeHighlightCfi);
@@ -681,10 +684,20 @@
     _rendition = null;
   }
 
+  function reRenderCfi(cfi) {
+    if (!cfi || !_rendition) return;
+    const existing = highlights.find((h) => h && h.cfi === cfi);
+    if (existing) {
+      _renderedHighlightCfis.delete(cfi);
+      renderHighlight(existing);
+    }
+  }
+
   const Highlights = {
     init: init,
     setBookDetails: setBookDetails,
     closePanels: closePanels,
+    reRenderCfi: reRenderCfi,
     mount: mount,
     unmount: unmount
   };

@@ -198,9 +198,9 @@
           if (searchId !== currentSearchId || !isSearching) {
             break;
           }
-          // item.find returns array of { cfi, excerpt }
+          // item.find returns array of { cfi, excerpt } using literal substring search
           const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          itemResults = item.find(safeQuery);
+          itemResults = item.find(query);
         } catch(e) {
           console.warn('Search error in chapter', i, e);
         } finally {
@@ -301,12 +301,15 @@
   // 清理上一次结果定位产生的 rendition annotation，避免跨搜索残留。
   function clearSearchHighlight() {
     if (_lastSearchAlertCfi && rendition && rendition.annotations) {
+      const cfiToRestore = _lastSearchAlertCfi;
+      _lastSearchAlertCfi = null;
       try {
-        rendition.annotations.remove(_lastSearchAlertCfi, 'highlight');
+        rendition.annotations.remove(cfiToRestore, 'highlight');
+        if (typeof window !== 'undefined' && window.Highlights && typeof window.Highlights.reRenderCfi === 'function') {
+          window.Highlights.reRenderCfi(cfiToRestore);
+        }
       } catch (err) {
-        console.warn('[Search] Failed to remove search highlight annotation:', _lastSearchAlertCfi, err);
-      } finally {
-        _lastSearchAlertCfi = null;
+        console.warn('[Search] Failed to remove search highlight annotation:', cfiToRestore, err);
       }
     }
   }

@@ -3240,7 +3240,7 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(isMarked, false);
   });
 
-  test.it('Search.doSearch 正确转义特殊正则字符避免抛出 SyntaxError', async () => {
+  test.it('Search.doSearch 向 item.find 传入原始字面量查询，不因正则特殊字符抛错', async () => {
     let capturedQuery = null;
     const mockBook = {
       spine: {
@@ -3251,8 +3251,6 @@ test.describe('Reader 模块基础行为', () => {
             unload() {},
             find(query) {
               capturedQuery = query;
-              // 验证传入底层 epub.js 的字符串作为正则不会抛错
-              new RegExp(query, 'gi');
               return [{ cfi: 'cfi_res', excerpt: 'found C++' }];
             }
           };
@@ -3270,7 +3268,7 @@ test.describe('Reader 模块基础行为', () => {
     Search.init();
     Search.setBook(mockBook, {});
     await Search.doSearch('C++ [1] (foo)*?');
-    assert.equal(capturedQuery, 'C\\+\\+ \\[1\\] \\(foo\\)\\*\\?');
+    assert.equal(capturedQuery, 'C++ [1] (foo)*?');
   });
 
   test.it('ReaderState.safeNavigate 优先调用注入 navigate 并能安全捕获异常', async () => {
@@ -3575,6 +3573,111 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(state.prefs.spread, 'auto');
     assert.deepEqual(Object.assign({}, savedPrefs[savedPrefs.length - 1]), { spread: 'auto' });
     assert.deepEqual(layoutCalls, ['paginated']);
+  });
+
+  test.it('Search 模块向 item.find 传入原始字面量查询，支持含正则元字符词条', async () => {
+    const { document } = createMockDocument([
+      'search-panel', 'sidebar-overlay', 'search-input', 'btn-do-search',
+      'search-results-list', 'search-status', 'btn-search', 'btn-search-close',
+      'sidebar', 'bookmarks-panel'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      window: { document, focus() {}, addEventListener() {} }
+    });
+    Search.init();
+
+    let passedQuery = null;
+    const mockBook = {
+      spine: {
+        length: 1,
+        get: () => ({
+          href: 'c1.xhtml',
+          load: async () => {},
+          find: (q) => {
+            passedQuery = q;
+            return [{ cfi: 'epubcfi(/6/2)', excerpt: 'Version 1.5 released with C++ support' }];
+          },
+          unload: () => {}
+        })
+      }
+    };
+    Search.setBook(mockBook, null);
+
+    await Search.doSearch('1.5');
+    assert.equal(passedQuery, '1.5', 'item.find 应接收原始未转义字面量 1.5');
+    const resultsList = document.getElementById('search-results-list');
+    const mark1 = resultsList.querySelector('.search-highlight');
+    assert.ok(mark1, '结果列表中应高亮匹配词');
+    assert.equal(mark1.textContent, '1.5');
+
+    await Search.doSearch('C++');
+    assert.equal(passedQuery, 'C++', 'item.find 应接收原始未转义字面量 C++');
+    const mark2 = resultsList.querySelector('.search-highlight');
+    assert.ok(mark2, '结果列表中应高亮 C++');
+    assert.equal(mark2.textContent, 'C++');
+  });
+
+  test.it('Search 移除搜索定位高亮时恢复同 CFI 处的用户高亮 (C3)', async () => {
+    const { document } = createMockDocument([
+      'search-panel', 'sidebar-overlay', 'search-input', 'btn-do-search',
+      'search-results-list', 'search-status', 'btn-search', 'btn-search-close',
+      'sidebar', 'bookmarks-panel'
+    ]);
+    const restoredCfis = [];
+    const mockHighlights = {
+      reRenderCfi(cfi) {
+        restoredCfis.push(cfi);
+      }
+    };
+    const annotationsLog = [];
+    const mockRendition = {
+      annotations: {
+        highlight(cfi, data, cb, className, styles) {
+          annotationsLog.push({ action: 'highlight', cfi, className });
+        },
+        remove(cfi, type) {
+          annotationsLog.push({ action: 'remove', cfi, type });
+        }
+      }
+    };
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      window: { document, focus() {}, addEventListener() {}, Highlights: mockHighlights }
+    });
+    Search.init();
+    Search.mount({ rendition: mockRendition, navigate: async () => {} });
+
+    const mockBook = {
+      spine: {
+        length: 1,
+        get: () => ({
+          href: 'c1.xhtml',
+          load: async () => {},
+          find: () => [{ cfi: 'epubcfi(/6/2[c1]!/4/2/1:0)', excerpt: 'sample match text' }],
+          unload: () => {}
+        })
+      }
+    };
+    Search.setBook(mockBook, mockRendition);
+    await Search.doSearch('sample');
+
+    const resultItem = document.getElementById('search-results-list').querySelector('.search-result-item');
+    assert.ok(resultItem, '应渲染搜索结果节点');
+
+    // 点击搜索结果高亮
+    resultItem.dispatch('click');
+    assert.ok(
+      annotationsLog.some((a) => a.action === 'highlight' && a.className === 'epubjs-search-highlight'),
+      '应添加 epubjs-search-highlight'
+    );
+
+    // 关闭搜索面板应清理并恢复用户高亮
+    Search.closePanel();
+    assert.ok(
+      restoredCfis.includes('epubcfi(/6/2[c1]!/4/2/1:0)'),
+      '关闭面板时应调用 Highlights.reRenderCfi 恢复同位置的用户高亮'
+    );
   });
 });
 

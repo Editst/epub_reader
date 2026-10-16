@@ -89,6 +89,7 @@ function loadHomeInSandbox({ mockStorage = {}, mockPrefs = {} } = {}) {
     document,
     EpubStorage: defaultStorage,
     Utils: {
+      ...(global.Utils || {}),
       formatDate: (ts) => (ts ? '2026-09-03' : ''),
       formatDateTime: (ts) => (ts ? '2026-09-03 01:00' : ''),
       normalizePercent: (p) => (Number.isFinite(p) ? p : 0),

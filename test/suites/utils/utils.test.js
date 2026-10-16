@@ -14,7 +14,30 @@ test.describe('Utils 基础工具函数', () => {
   test.it('Utils.escapeHtml: 转义 HTML 特殊字符', () => {
     assert.equal(Utils.escapeHtml('<script>alert(1)</script>'), '&lt;script&gt;alert(1)&lt;/script&gt;');
     assert.equal(Utils.escapeHtml('"double quote"'), '&quot;double quote&quot;');
+    assert.equal(Utils.escapeHtml("'single quote'"), '&#39;single quote&#39;');
     assert.equal(Utils.escapeHtml('&amp;'), '&amp;amp;'); // 双重转义
+    assert.equal(Utils.escapeHtml('a"b\'c<d>&e'), 'a&quot;b&#39;c&lt;d&gt;&amp;e');
+  });
+
+  test.it('Utils.formatRemoveBookConfirm and formatClearShelfConfirm', () => {
+    const removeMsg = Utils.formatRemoveBookConfirm('测试书籍');
+    assert.ok(removeMsg.includes('测试书籍'));
+    assert.ok(removeMsg.includes('永久删除'));
+    assert.ok(removeMsg.includes('笔记标注'));
+    assert.ok(removeMsg.includes('书签'));
+    assert.ok(removeMsg.includes('本地文件缓存'));
+    assert.ok(removeMsg.includes('不可恢复，建议先导出笔记'));
+
+    const removeDefault = Utils.formatRemoveBookConfirm();
+    assert.ok(removeDefault.includes('未命名书籍'));
+
+    const clearMsg = Utils.formatClearShelfConfirm();
+    assert.ok(clearMsg.includes('确定要清空书架吗'));
+    assert.ok(clearMsg.includes('永久删除'));
+    assert.ok(clearMsg.includes('笔记标注'));
+    assert.ok(clearMsg.includes('书签'));
+    assert.ok(clearMsg.includes('本地文件缓存'));
+    assert.ok(clearMsg.includes('不可恢复，建议先导出笔记'));
   });
 
   test.it('Utils.escapeHtml: null/undefined 返回空字符串', () => {

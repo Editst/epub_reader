@@ -2109,5 +2109,76 @@ test.describe('ReaderPersistence', () => {
       EpubStorage.flushSessionBundle = originalFlush;
     }
   });
+
+  test.it('书籍 A 生成 visibleAnchor 后切换至书籍 B，B 不复用 A 的缓存 CFI (C2)', async () => {
+    const originalSave = EpubStorage.savePosition;
+    const saves = [];
+    EpubStorage.savePosition = async (...args) => {
+      saves.push(args);
+    };
+
+    let currentVisibleCfi = 'cfi-visible-A';
+    const mockContent = {
+      document: {
+        defaultView: { innerWidth: 800, innerHeight: 600 },
+        body: {},
+        elementFromPoint() { return null; },
+        caretRangeFromPoint() {
+          return { startContainer: {}, startOffset: 0 };
+        }
+      },
+      cfiFromRange() {
+        return currentVisibleCfi;
+      }
+    };
+
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      currentBookId: 'book-A',
+      currentStableCfi: 'cfi-start-A',
+      isBookLoaded: true,
+      prefs: { layout: 'paginated', fontSize: 18, lineHeight: 1.8, fontFamily: 'serif', paragraphIndent: true, spread: 'auto' },
+      book: { locations: { length: () => 10 }, navigation: { toc: [] } },
+      rendition: {
+        getContents() { return [mockContent]; },
+        currentLocation() {
+          return {
+            start: { cfi: state.currentStableCfi, href: 'ch1.xhtml', displayed: { page: 1, total: 2 } }
+          };
+        }
+      }
+    };
+
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    try {
+      // 1. 书籍 A 刷盘，采样生成 anchor 并存入缓存
+      await persistence.flushPositionSave();
+      assert.equal(saves.length, 1);
+      assert.equal(saves[0][0], 'book-A');
+      assert.equal(saves[0][3]?.restoreCfi, 'cfi-visible-A');
+
+      // 2. 切书至书籍 B，修改 currentBookId 与 mockVisibleCfi
+      state.currentBookId = 'book-B';
+      state.currentStableCfi = 'cfi-start-B';
+      currentVisibleCfi = 'cfi-visible-B';
+
+      // 3. 书籍 B 刷盘，断言不复用书籍 A 的缓存 CFI
+      await persistence.flushPositionSave();
+      assert.equal(saves.length, 2);
+      assert.equal(saves[1][0], 'book-B');
+      assert.equal(saves[1][3]?.restoreCfi, 'cfi-visible-B', '书籍 B 不得复用书籍 A 的缓存 CFI');
+
+      // 4. clearAnchorCache 能手动清空
+      assert.equal(typeof persistence.clearAnchorCache, 'function');
+      persistence.clearAnchorCache();
+    } finally {
+      EpubStorage.savePosition = originalSave;
+    }
+  });
 });
 

@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
       removeBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const bookTitle = book.title || book.filename || '该书籍';
-        if (typeof confirm === 'function' && !confirm(`确定要移除《${bookTitle}》吗？这将删除所有阅读记录与本地缓存。`)) {
+        if (typeof confirm === 'function' && !confirm(Utils.formatRemoveBookConfirm(bookTitle))) {
           return;
         }
         try {

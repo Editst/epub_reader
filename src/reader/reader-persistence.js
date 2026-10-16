@@ -311,6 +311,23 @@
       return null;
     }
 
+    function _buildAnchorCacheKey(bookId, href, page, total, vw, vh) {
+      const sig = ReaderState.buildPrefsSignature(state.prefs || {});
+      return [
+        bookId || '',
+        href || '',
+        page,
+        total,
+        vw,
+        vh,
+        sig.fontSize,
+        sig.lineHeight,
+        sig.fontFamily,
+        sig.paragraphIndent ? 1 : 0,
+        sig.spread
+      ].join('|');
+    }
+
     function _buildVisiblePageAnchorCfi(location) {
       if (!_isPaginatedLayout()) return null;
       if (!state.rendition || typeof state.rendition.getContents !== 'function') return null;
@@ -331,7 +348,14 @@
         const page = displayed && typeof displayed.page === 'number' ? displayed.page : 1;
         const total = displayed && typeof displayed.total === 'number' ? displayed.total : 1;
         const href = (location && location.start && location.start.href) || '';
-        const cacheKey = `${href}:${page}:${total}:${viewport.width}:${viewport.height}`;
+        const cacheKey = _buildAnchorCacheKey(
+          state.currentBookId,
+          href,
+          page,
+          total,
+          viewport.width,
+          viewport.height
+        );
 
         if (_anchorCfiCache.key === cacheKey && _anchorCfiCache.cfi) {
           return _anchorCfiCache.cfi;
@@ -808,7 +832,8 @@
       flushSpeedSession,
       flushSessionBundle,
       updateReadingStats,
-      startReadingTimer
+      startReadingTimer,
+      clearAnchorCache: _clearAnchorCfiCache
     };
   }
 

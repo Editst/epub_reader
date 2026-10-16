@@ -13,26 +13,17 @@ const CJK_READING_UNIT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Ka
 const CJK_CHAR_TEST_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const NON_CJK_READING_WORD_PATTERN = /[\p{L}\p{N}\p{M}]+(?:['’][\p{L}\p{N}\p{M}]+)*/gu;
 
-let _escapeDiv = null;
-
 const Utils = {
 
   /**
    * HTML 实体转义，防止将用户内容插入 innerHTML 时产生 XSS。
-   * 实现使用复用的 DOM div 进行 textContent 赋值再读取 innerHTML，由浏览器完成转义。
+   * 严格转义 &, <, >, ", ' 五种 HTML 元字符。
    *
    * @param {*} text
    * @returns {string}
    */
   escapeHtml(text) {
     if (text === null || text === undefined) return '';
-    if (!_escapeDiv && typeof document !== 'undefined' && typeof document.createElement === 'function') {
-      _escapeDiv = document.createElement('div');
-    }
-    if (_escapeDiv) {
-      _escapeDiv.textContent = String(text);
-      return _escapeDiv.innerHTML;
-    }
     return String(text)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -297,6 +288,23 @@ const Utils = {
     if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
       URL.revokeObjectURL(objectUrl);
     }
+  },
+
+  /**
+   * 格式化删除单本书籍的确认提示文案。
+   * @param {string} [label]
+   * @returns {string}
+   */
+  formatRemoveBookConfirm(label) {
+    return `确定要移除《${label || '未命名书籍'}》吗？将永久删除该书的阅读进度、时长、笔记标注、书签、封面与本地文件缓存（不可恢复，建议先导出笔记）。`;
+  },
+
+  /**
+   * 格式化清空书架的确认提示文案。
+   * @returns {string}
+   */
+  formatClearShelfConfirm() {
+    return '确定要清空书架吗？所有书籍的阅读进度、时长、笔记标注、书签、封面与本地文件缓存将被永久删除（不可恢复，建议先导出笔记）。';
   },
 
   /**

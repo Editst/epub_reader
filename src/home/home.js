@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const bookId = card?.dataset?.bookId;
       const bookLabel = card?.dataset?.bookLabel || '该书籍';
       if (!bookId) return;
-      if (typeof confirm === 'function' && !confirm(`确定要移除《${bookLabel}》吗？这将删除所有阅读记录、笔记和缓存。`)) {
+      if (typeof confirm === 'function' && !confirm(Utils.formatRemoveBookConfirm(bookLabel))) {
         return;
       }
       releaseCoverObjectUrl(card);
@@ -519,14 +519,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 所有删除任务完成后统一按权威 recentBooks 刷新，允许单本失败后继续收口。
   btnClearAll.addEventListener('click', async () => {
-    if (confirm('确定要清空书架吗？所有阅读记录和本地缓存将被永久删除。')) {
-      try {
-        await EpubStorage.removeAllBooks();
-      } catch (err) {
-        console.warn('[Home] clear bookshelf failed:', err);
-      } finally {
-        await loadBookshelfSafely();
-      }
+    if (typeof confirm === 'function' && !confirm(Utils.formatClearShelfConfirm())) {
+      return;
+    }
+    try {
+      await EpubStorage.removeAllBooks();
+    } catch (err) {
+      console.warn('[Home] clear bookshelf failed:', err);
+    } finally {
+      await loadBookshelfSafely();
     }
   });
 

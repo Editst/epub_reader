@@ -55,6 +55,7 @@ function loadPopupInSandbox({ mockStorage = {}, mockChrome = {}, initialConfirm 
     chrome,
     EpubStorage: defaultStorage,
     Utils: {
+      ...(global.Utils || {}),
       formatDate: (ts) => (ts ? '刚刚' : ''),
       normalizePercent: (p) => (Number.isFinite(p) ? p : 0)
     },
