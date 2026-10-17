@@ -99,7 +99,6 @@ const EpubStorage = {
       !book.id.trim() ||
       this._deletingBookIds.has(book.id)
     ) return;
-    this._touchFileRecordTimestamp(book.id).catch(() => {});
     return this._runWritableBookTask(book.id, null, () =>
       this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
         if (this._deletingBookIds.has(book.id)) return recent;
@@ -510,9 +509,17 @@ const EpubStorage = {
     return record || null;
   },
 
+  async isBookDeleted(bookId) {
+    if (!bookId) return false;
+    if (this._deletingBookIds.has(bookId)) return true;
+    const deletedAt = await this._get(KEYS.deletedBook(bookId));
+    return Boolean(deletedAt);
+  },
+
   async hasFile(bookId) {
     if (!bookId || this._deletingBookIds.has(bookId)) return false;
     try {
+      if (await this.isBookDeleted(bookId)) return false;
       if (this._dbGateway && typeof this._dbGateway.has === 'function') {
         return await this._dbGateway.has(STORES.files, bookId);
       }
@@ -531,15 +538,14 @@ const EpubStorage = {
 
   async _touchFileRecordTimestamp(bookId) {
     if (!bookId || this._deletingBookIds.has(bookId)) return;
-    try {
+    return this._runWritableBookTask(bookId, STORES.files, async () => {
+      if (await this.isBookDeleted(bookId)) return;
       const stored = await this._dbGateway.get(STORES.files, bookId);
-      if (stored && !this._deletingBookIds.has(bookId)) {
+      if (stored) {
         stored.timestamp = Date.now();
         await this._dbGateway.put(STORES.files, stored);
       }
-    } catch (e) {
-      console.warn('[Storage] _touchFileRecordTimestamp failed for bookId:', bookId, e);
-    }
+    });
   },
 
   /**
@@ -548,25 +554,57 @@ const EpubStorage = {
    * 设计约束：自动淘汰只删除占空间最大的 EPUB 文件缓存。
    * recentBooks、bookMeta、highlights、bookmarks、covers、locations 均保留，
    * 以便用户重新导入同一书籍后继续使用阅读进度、书签和标注。
-   * 按文件最后活跃时间戳（导入或开书更新的 timestamp）降序淘汰；
+   * 按文件最后活跃时间戳（导入时间或 recentBooks 中的最后打开时间）降序淘汰；
    * 淘汰串行执行并逐项隔离失败，避免单本失败阻塞后续清理。
    */
   async enforceFileLRU(maxCount = 10) {
-    const meta = await this._dbGateway.getAllMeta(STORES.files, ['timestamp']);
-    if (!meta || meta.length <= maxCount) return;
+    return this._withStorageLock('epub-reader-storage:lru', 'exclusive', async () => {
+      const [meta, recentBooks] = await Promise.all([
+        this._dbGateway.getAllMeta(STORES.files, ['timestamp']),
+        this.getRecentBooks().catch((e) => {
+          console.warn('[Storage] enforceFileLRU getRecentBooks fallback:', e);
+          return [];
+        })
+      ]);
+      if (!meta || meta.length <= maxCount) return;
 
-    meta.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      const recentMap = new Map();
+      const recentOrder = new Map();
+      (recentBooks || []).forEach((book, idx) => {
+        if (book && book.id) {
+          recentOrder.set(book.id, idx);
+          if (Number.isFinite(book.lastOpened)) {
+            recentMap.set(book.id, book.lastOpened);
+          }
+        }
+      });
 
-    const toRemove = meta.slice(maxCount);
-    for (const m of toRemove) {
-      try {
-        await this._withBookLock(m.bookId, 'exclusive', () =>
-          this._dbGateway.delete(STORES.files, m.bookId)
-        );
-      } catch (e) {
-        console.warn('[Storage] enforceFileLRU: failed to remove file cache', m.bookId, e);
+      const ranked = meta.map((m) => ({
+        bookId: m.bookId,
+        snapshotTs: m.timestamp || 0,
+        recentIdx: recentOrder.has(m.bookId) ? recentOrder.get(m.bookId) : Infinity,
+        effectiveTs: Math.max(m.timestamp || 0, recentMap.get(m.bookId) || 0)
+      }));
+      ranked.sort((a, b) => {
+        if (b.effectiveTs !== a.effectiveTs) return b.effectiveTs - a.effectiveTs;
+        if (a.recentIdx !== b.recentIdx) return a.recentIdx - b.recentIdx;
+        return b.snapshotTs - a.snapshotTs;
+      });
+
+      const toRemove = ranked.slice(maxCount);
+      for (const item of toRemove) {
+        try {
+          await this._withBookLock(item.bookId, 'exclusive', async () => {
+            const fresh = await this._dbGateway.get(STORES.files, item.bookId);
+            if (!fresh) return;
+            if ((fresh.timestamp || 0) > item.snapshotTs) return;
+            await this._dbGateway.delete(STORES.files, item.bookId);
+          });
+        } catch (e) {
+          console.warn('[Storage] enforceFileLRU: failed to remove file cache', item.bookId, e);
+        }
       }
-    }
+    });
   },
 
   // ── Cascading Delete ──────────────────────────────────────────────────────
@@ -645,15 +683,34 @@ const EpubStorage = {
   async removeAllBooks() {
     const bookIds = await this.getAllBookIds();
     const results = await Promise.allSettled(bookIds.map((bookId) => this.removeBook(bookId)));
-    const failure = results.find((result) => result.status === 'rejected');
 
-    // 清理全量墓碑键与时间戳
-    const allItems = await this._getAll();
-    const tombstoneKeys = Object.keys(allItems || {}).filter((k) => k.startsWith(KEY_PREFIXES.deletedBook));
-    if (tombstoneKeys.length > 0) {
-      await this._remove(tombstoneKeys).catch(() => {});
+    const keysToClean = [];
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        keysToClean.push(KEYS.deletedBook(bookIds[i]));
+      }
+    });
+
+    try {
+      const allStorage = await this._getAll();
+      if (allStorage && typeof allStorage === 'object') {
+        for (const key of Object.keys(allStorage)) {
+          if (key.startsWith('pos_') || key.startsWith('time_')) {
+            keysToClean.push(key);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Storage] removeAllBooks scan legacy keys failed:', e);
     }
 
+    if (keysToClean.length > 0) {
+      await this._remove(keysToClean).catch((e) => {
+        console.warn('[Storage] removeAllBooks cleanup keys failed:', e);
+      });
+    }
+
+    const failure = results.find((result) => result.status === 'rejected');
     if (failure) throw failure.reason;
   },
 

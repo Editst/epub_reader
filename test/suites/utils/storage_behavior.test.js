@@ -1420,6 +1420,77 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(updated2.speed.sampledSeconds, 75, '速度采样秒数应累加为 45 + 30 = 75');
     assert.equal(Math.round(updated2.speed.sampledProgress * 100) / 100, 0.08, '速度采样进度应累加为 0.05 + 0.03 = 0.08');
   });
+
+  test.it('当存在删除墓碑时 hasFile 返回 false (M-S1)', async () => {
+    const bookId = 'book-tombstone-hasfile';
+    await EpubStorage._dbGateway.put('files', { bookId, filename: 't.epub', data: new Uint8Array([1]) });
+    assert.equal(await EpubStorage.hasFile(bookId), true, '无墓碑时 hasFile 应为 true');
+
+    // 种入删除墓碑
+    await EpubStorage._set({ [`deletedBook_${bookId}`]: Date.now() });
+    assert.equal(await EpubStorage.hasFile(bookId), false, '有墓碑时 hasFile 必须返回 false');
+  });
+
+  test.it('addRecentBook 不对 files store 执行 put 写入（消除写放大 H1）', async () => {
+    const bookId = 'book-zero-touch';
+    await EpubStorage._dbGateway.put('files', { bookId, filename: 'z.epub', data: new Uint8Array([1]), timestamp: 1000 });
+
+    let filesPutCalled = false;
+    const origPut = EpubStorage._dbGateway.put;
+    EpubStorage._dbGateway.put = async function (store, val) {
+      if (store === 'files') filesPutCalled = true;
+      return origPut.call(this, store, val);
+    };
+
+    try {
+      await EpubStorage.addRecentBook({ id: bookId, title: 'Zero Write' });
+      // 等待宏任务队列排空，确保无滞后后台 put
+      await new Promise((r) => setTimeout(r, 50));
+      assert.equal(filesPutCalled, false, 'addRecentBook 绝不得向 files 执行 put 写入造成写放大');
+    } finally {
+      EpubStorage._dbGateway.put = origPut;
+    }
+  });
+
+  test.it('removeAllBooks 遇到单书失败时仅清除成功书籍的墓碑并清理 1.x 遗留键 (M-S4, M-S6)', async () => {
+    const bookOk = 'book-all-ok';
+    const bookFail = 'book-all-fail';
+
+    await EpubStorage.addRecentBook({ id: bookOk, title: 'OK' });
+    await EpubStorage.addRecentBook({ id: bookFail, title: 'FAIL' });
+
+    // 种入遗留 1.x 键
+    await EpubStorage._set({
+      [`pos_${bookOk}`]: 'epubcfi(/6/2)',
+      [`time_${bookOk}`]: 120,
+      [`deletedBook_${bookOk}`]: Date.now(),
+      [`deletedBook_${bookFail}`]: Date.now()
+    });
+
+    const origRemove = EpubStorage.removeBook;
+    EpubStorage.removeBook = async (id) => {
+      if (id === bookFail) throw new Error('simulated fail');
+      return origRemove.call(EpubStorage, id);
+    };
+
+    try {
+      await assert.rejects(
+        () => EpubStorage.removeAllBooks(),
+        /simulated fail/
+      );
+
+      const all = await EpubStorage._getAll();
+      // 成功书籍的墓碑应被清除
+      assert.equal(all[`deletedBook_${bookOk}`], undefined, '成功删除的书籍墓碑应被清理');
+      // 失败书籍的墓碑必须保留
+      assert.notEqual(all[`deletedBook_${bookFail}`], undefined, '失败书籍的墓碑必须予以保留');
+      // 1.x 遗留键应被清理
+      assert.equal(all[`pos_${bookOk}`], undefined, 'pos_ 遗留键应被清理');
+      assert.equal(all[`time_${bookOk}`], undefined, 'time_ 遗留键应被清理');
+    } finally {
+      EpubStorage.removeBook = origRemove;
+    }
+  });
 });
 
 
