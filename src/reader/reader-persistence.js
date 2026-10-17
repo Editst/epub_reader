@@ -582,7 +582,9 @@
       );
       if (progress !== null) {
         percent = Math.round(progress * 1000) / 10;
-        ui.updateProgress(percent);
+        if (!state.isScrubbing) {
+          ui.updateProgress(percent);
+        }
 
         // 惰性补建 sessionStart (M-C4)
         if (!state.sessionStart && !(typeof document !== 'undefined' && document.hidden)) {

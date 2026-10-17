@@ -75,7 +75,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       } catch (err) {
         console.warn('[Home] remove book failed:', err);
       } finally {
+        _cachedRawHighlights = null;
+        _cachedRecentBooks = null;
         await loadBookshelfSafely();
+        if (document.getElementById('pane-annotations')?.classList.contains('active')) {
+          const activeFilter = document.querySelector('.filter-btn.active');
+          await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', 'newest', true);
+        }
       }
       return;
     }
@@ -268,7 +274,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       for (const file of fileList) {
         try {
-          const res = await EpubStorage.importBookFile(file);
+          const res = await EpubStorage.importBookFile(file, { skipLRU: true });
           if (res) {
             successCount++;
             lastBookLabel = file.name.replace(/\.epub$/i, '');
@@ -277,11 +283,21 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.error('[Home] Failed to import file:', file.name, itemErr);
         }
       }
+      const failCount = fileList.length - successCount;
       if (successCount > 0) {
+        try {
+          await EpubStorage.enforceFileLRU(10);
+        } catch (lruErr) {
+          console.warn('[Home] enforceFileLRU after import failed:', lruErr);
+        }
         await loadBookshelfSafely();
-        showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+        if (failCount > 0) {
+          showToast(`成功导入 ${successCount} 本，${failCount} 本失败`);
+        } else {
+          showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+        }
       } else {
-        alert('无法导入所选文件，请检查文件是否损坏。');
+        alert('无法导入所选文件，请检查文件是否损坏或符合 EPUB 规范。');
       }
     } catch (err) {
       console.error('[Home] Failed to import files:', err);
@@ -309,14 +325,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     e.stopPropagation();
     dragOverlay?.classList.add('is-hidden');
-    const droppedFiles = Array.from(e.dataTransfer?.files || []).filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
-    if (droppedFiles.length === 0) return;
+    const rawFiles = Array.from(e.dataTransfer?.files || []);
+    if (rawFiles.length === 0) return;
+    const droppedFiles = rawFiles.filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
+    if (droppedFiles.length === 0) {
+      alert('所选文件非 .epub 格式，请选择有效的 EPUB 电子书。');
+      return;
+    }
     let successCount = 0;
     let lastBookLabel = '';
     try {
       for (const file of droppedFiles) {
         try {
-          const res = await EpubStorage.importBookFile(file);
+          const res = await EpubStorage.importBookFile(file, { skipLRU: true });
           if (res) {
             successCount++;
             lastBookLabel = file.name.replace(/\.epub$/i, '');
@@ -325,9 +346,21 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.error('[Home] Failed to import dropped file:', file.name, itemErr);
         }
       }
+      const failCount = droppedFiles.length - successCount;
       if (successCount > 0) {
+        try {
+          await EpubStorage.enforceFileLRU(10);
+        } catch (lruErr) {
+          console.warn('[Home] enforceFileLRU after drop import failed:', lruErr);
+        }
         await loadBookshelfSafely();
-        showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+        if (failCount > 0) {
+          showToast(`成功导入 ${successCount} 本，${failCount} 本失败`);
+        } else {
+          showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
+        }
+      } else {
+        alert('无法导入所选文件，请检查文件是否损坏或符合 EPUB 规范。');
       }
     } catch (err) {
       console.error('[Home] Failed to open dropped file:', err);
@@ -527,7 +560,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) {
       console.warn('[Home] clear bookshelf failed:', err);
     } finally {
+      _cachedRawHighlights = null;
+      _cachedRecentBooks = null;
       await loadBookshelfSafely();
+      if (document.getElementById('pane-annotations')?.classList.contains('active')) {
+        const activeFilter = document.querySelector('.filter-btn.active');
+        await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', 'newest', true);
+      }
     }
   });
 

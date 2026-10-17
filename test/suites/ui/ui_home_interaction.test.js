@@ -402,4 +402,102 @@ test.describe('Home 书架页 UI 交互行为测试', () => {
     assert.equal(fileInputClicked, true, '应触发文件选择器重新导入');
   });
 
+  test.it('M-E1 & M-E2: 全局拖入非 .epub 文件或全失败时给出友好 alert，部分失败展示统计 Toast', async () => {
+    let alertMsg = '';
+    let toastMsg = '';
+    const mockStorage = {
+      async importBookFile(file) {
+        if (file.name === 'corrupt.epub') throw new Error('Invalid EPUB archive');
+        return { bookId: 'valid-book' };
+      },
+      async enforceFileLRU() {},
+      async getRecentBooks() { return []; },
+      async hasFile() { return true; }
+    };
+    const { document, windowMock, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    windowMock._alertHandler = (msg) => { alertMsg = msg; };
+
+    // 拦截 document.createElement 创建的 toast 元素
+    const origCreateElement = document.createElement.bind(document);
+    document.createElement = (tag) => {
+      const el = origCreateElement(tag);
+      if (tag === 'div') {
+        const origAdd = el.classList.add.bind(el.classList);
+        el.classList.add = (c) => {
+          origAdd(c);
+          if (c === 'show' && el.textContent) {
+            toastMsg = el.textContent;
+          }
+        };
+      }
+      return el;
+    };
+
+    await dispatchReady();
+
+    // 1. 拖入非 epub 文件
+    document.dispatchEvent('drop', {
+      preventDefault() {},
+      dataTransfer: { files: [{ name: 'test.pdf', size: 100 }] }
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(alertMsg.includes('非 .epub 格式'), '拖入非 epub 文件应弹出格式提示');
+
+    // 2. 拖入全失败的 epub 文件
+    alertMsg = '';
+    document.dispatchEvent('drop', {
+      preventDefault() {},
+      dataTransfer: { files: [{ name: 'corrupt.epub', size: 100 }] }
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    assert.ok(alertMsg.includes('无法导入所选文件'), '全失败时应提示检查文件');
+
+    // 3. 部分成功、部分失败
+    document.dispatchEvent('drop', {
+      preventDefault() {},
+      dataTransfer: {
+        files: [
+          { name: 'valid.epub', size: 100 },
+          { name: 'corrupt.epub', size: 100 }
+        ]
+      }
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    assert.ok(toastMsg.includes('成功导入 1 本，1 本失败'), `应展示部分成功 Toast，实际: ${toastMsg}`);
+  });
+
+  test.it('M-E7: 删除单书后处于标注面板时自动刷新标注 DOM', async () => {
+    let annotationsLoadedCount = 0;
+    const mockStorage = {
+      async getRecentBooks() {
+        return [{ id: 'b1', title: 'Book One', filename: 'book1.epub' }];
+      },
+      async removeBook() {},
+      async hasFile() { return true; },
+      async getAllHighlights() {
+        annotationsLoadedCount++;
+        return { b1: [{ cfi: 'epubcfi(/6/2!/4/2)', text: 'note', color: '#ff0' }] };
+      }
+    };
+    const { booksContainer, document, dispatchReady } = loadHomeInSandbox({ mockStorage });
+    await dispatchReady();
+    await new Promise((r) => setTimeout(r, 30));
+
+    // 激活标注 pane
+    const paneAnnotations = document.getElementById('pane-annotations');
+    paneAnnotations.classList.add('active');
+
+    const initialLoadCount = annotationsLoadedCount;
+
+    // 触发单书删除
+    const deleteBtn = booksContainer.querySelector('.book-delete');
+    assert.ok(deleteBtn, '卡片应有删除按钮');
+    deleteBtn.click();
+
+    await new Promise((r) => setTimeout(r, 60));
+    assert.ok(annotationsLoadedCount > initialLoadCount, '删除书籍后处于标注面板应重新拉取标注数据');
+  });
+
 });
+
+

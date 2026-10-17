@@ -1277,9 +1277,10 @@ test.describe('EpubStorage 行为覆盖', () => {
 
   test.it('importBookFile 一站式完成 ArrayBuffer 读取、哈希生成与落盘', async () => {
     resetAll();
-    const fakeContent = new Uint8Array([1, 2, 3, 4, 5]);
+    const fakeContent = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4, 5]);
     const fakeFile = {
       name: 'test-import.epub',
+      size: fakeContent.byteLength,
       async arrayBuffer() {
         return fakeContent.buffer;
       }
@@ -1296,7 +1297,8 @@ test.describe('EpubStorage 行为覆盖', () => {
     resetAll();
     const fakeFile = {
       name: 'my-novel.epub',
-      async arrayBuffer() { return new Uint8Array([10, 20, 30]).buffer; }
+      size: 7,
+      async arrayBuffer() { return new Uint8Array([0x50, 0x4b, 0x03, 0x04, 10, 20, 30]).buffer; }
     };
     const result = await EpubStorage.importBookFile(fakeFile);
     const recent = await EpubStorage.getRecentBooks();
@@ -1311,7 +1313,8 @@ test.describe('EpubStorage 行为覆盖', () => {
     resetAll();
     const fakeFile = {
       name: 'book.epub',
-      async arrayBuffer() { return new Uint8Array([7, 8, 9]).buffer; }
+      size: 7,
+      async arrayBuffer() { return new Uint8Array([0x50, 0x4b, 0x03, 0x04, 7, 8, 9]).buffer; }
     };
     // 首次导入
     const { bookId } = await EpubStorage.importBookFile(fakeFile);
@@ -1326,6 +1329,47 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.ok(entry, '重复导入后书籍应仍在 recentBooks');
     assert.equal(entry.title, '百年孤独', '应保留 reader 已更新的真实书名');
     assert.equal(entry.author, '马尔克斯', '应保留 reader 已更新的真实作者');
+  });
+
+  test.it('M-E3: importBookFile 校验空文件与非 ZIP 魔数文件抛出 Invalid EPUB archive', async () => {
+    resetAll();
+    const emptyFile = {
+      name: 'empty.epub',
+      size: 0,
+      async arrayBuffer() { return new ArrayBuffer(0); }
+    };
+    await assert.rejects(
+      async () => { await EpubStorage.importBookFile(emptyFile); },
+      /Invalid EPUB archive/
+    );
+
+    const corruptFile = {
+      name: 'corrupt.epub',
+      size: 10,
+      async arrayBuffer() { return new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).buffer; }
+    };
+    await assert.rejects(
+      async () => { await EpubStorage.importBookFile(corruptFile); },
+      /Invalid EPUB archive/
+    );
+  });
+
+  test.it('M-E4: importBookFile 支持 options.skipLRU 跳过单次 LRU 淘汰', async () => {
+    resetAll();
+    let lruCalled = false;
+    const originalLRU = EpubStorage.enforceFileLRU;
+    EpubStorage.enforceFileLRU = async () => { lruCalled = true; };
+    try {
+      const fakeFile = {
+        name: 'skip-lru.epub',
+        size: 5,
+        async arrayBuffer() { return new Uint8Array([0x50, 0x4b, 0x03, 0x04, 99]).buffer; }
+      };
+      await EpubStorage.importBookFile(fakeFile, { skipLRU: true });
+      assert.strictEqual(lruCalled, false, 'skipLRU 为 true 时不应调用 enforceFileLRU');
+    } finally {
+      EpubStorage.enforceFileLRU = originalLRU;
+    }
   });
 
   test.it('_updateBookRecordList 使用 slice() 浅拷贝数组，未修改记录保留原对象引用', async () => {

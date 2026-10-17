@@ -470,10 +470,38 @@ const EpubStorage = {
 
   // ── Files (IndexedDB) ─────────────────────────────────────────────────────
 
-  async importBookFile(file) {
+  async importBookFile(file, options = {}) {
     if (!file) throw new Error('No file provided');
+    if (file.size === 0) throw new Error('Invalid EPUB archive');
+
+    let headerBytes = null;
+    if (typeof file.slice === 'function') {
+      const slice = file.slice(0, 4);
+      if (typeof slice.arrayBuffer === 'function') {
+        headerBytes = new Uint8Array(await slice.arrayBuffer());
+      } else if (slice instanceof ArrayBuffer) {
+        headerBytes = new Uint8Array(slice);
+      } else if (ArrayBuffer.isView(slice)) {
+        headerBytes = new Uint8Array(slice.buffer, slice.byteOffset, slice.byteLength);
+      }
+    }
+    if (!headerBytes && typeof file.arrayBuffer === 'function') {
+      const full = await file.arrayBuffer();
+      headerBytes = new Uint8Array(full.slice(0, 4));
+    } else if (!headerBytes && file instanceof ArrayBuffer) {
+      headerBytes = new Uint8Array(file.slice(0, 4));
+    } else if (!headerBytes && ArrayBuffer.isView(file)) {
+      headerBytes = new Uint8Array(file.buffer, file.byteOffset, Math.min(file.byteLength, 4));
+    }
+
+    if (!headerBytes || headerBytes.length < 4 ||
+        headerBytes[0] !== 0x50 || headerBytes[1] !== 0x4b ||
+        headerBytes[2] !== 0x03 || headerBytes[3] !== 0x04) {
+      throw new Error('Invalid EPUB archive');
+    }
+
     const bookId = await this.generateBookId(file.name, file);
-    await this.storeFile(file.name, file, bookId);
+    await this.storeFile(file.name, file, bookId, options);
     const filename = file.name || '';
     // 查询已有 recentBooks 记录，避免覆盖 reader 解析后设置的真实书名与作者
     const recent = await this.getRecentBooks();
@@ -487,7 +515,7 @@ const EpubStorage = {
     return { bookId, filename, fileData: file };
   },
 
-  async storeFile(filename, data, bookId) {
+  async storeFile(filename, data, bookId, options = {}) {
     if (!filename || !data || !bookId) return;
     await this._withBookLock(bookId, 'exclusive', () =>
       this._trackBookResourceWrite(bookId, async () => {
@@ -495,7 +523,9 @@ const EpubStorage = {
         await this._remove(KEYS.deletedBook(bookId));
       })
     );
-    await this.enforceFileLRU(10);
+    if (!options?.skipLRU) {
+      await this.enforceFileLRU(10);
+    }
   },
 
   async getFile(bookId) {

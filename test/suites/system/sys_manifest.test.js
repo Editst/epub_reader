@@ -23,11 +23,11 @@ test.describe('Manifest 配置检查', () => {
     assert.ok(manifest.includes("'unsafe-inline'"));
   });
 
-  test.it('P-6: manifest CSP 已配置 style-src 允许 fonts.googleapis.com', () => {
+  test.it('P-6: manifest CSP 已配置 style-src 与 connect-src', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
     const csp = manifest.content_security_policy?.extension_pages || '';
     assert.ok(csp.includes('fonts.googleapis.com'), 'style-src 应包含 fonts.googleapis.com');
-    assert.ok(!csp.includes('connect-src'), 'manifest 当前未配置 connect-src');
+    assert.ok(csp.includes("connect-src 'self' blob:"), 'manifest 应配置 connect-src 限制');
   });
 
   test.it('无后台职责时不注册空 service worker', () => {

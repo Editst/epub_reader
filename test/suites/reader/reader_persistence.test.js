@@ -2239,5 +2239,41 @@ test.describe('ReaderPersistence', () => {
     assert.equal(state.sessionStart.progress, 0.35);
     assert.ok(typeof state.sessionStart.timestamp === 'number');
   });
+
+  test.it('M-U4: onRelocated 在 state.isScrubbing 为 true 时跳过 ui.updateProgress', () => {
+    let updateProgressCalled = false;
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      isRestoreAnchorProtected: false,
+      isScrubbing: true,
+      currentBookId: 'book-mu4',
+      isBookLoaded: true,
+      lastProgress: null,
+      sessionStart: null,
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi: (cfi) => 0.5
+        }
+      },
+      rendition: {
+        currentLocation: () => ({ start: { cfi: 'cfi-start' } })
+      }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: {
+        updateProgress() { updateProgressCalled = true; },
+        updateChapterTitle() {},
+        updateBookmarkButtonState() {},
+        updateReadingStatsText() {}
+      }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'cfi-start', href: 'ch1.xhtml' } });
+    assert.strictEqual(updateProgressCalled, false, '拖拽进度条过程中不应调用 ui.updateProgress');
+  });
 });
+
 

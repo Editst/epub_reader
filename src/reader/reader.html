@@ -67,7 +67,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <h2>目录</h2>
-      <button class="sidebar-close" id="btn-toc-close">
+      <button class="sidebar-close" id="btn-toc-close" aria-label="关闭目录">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -79,7 +79,7 @@
   <div class="settings-panel" id="settings-panel">
     <div class="settings-header">
       <h2>阅读设置</h2>
-      <button class="sidebar-close" id="btn-settings-close">
+      <button class="sidebar-close" id="btn-settings-close" aria-label="关闭阅读设置">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -188,7 +188,7 @@
   <div class="bookmarks-panel" id="bookmarks-panel">
     <div class="settings-header">
       <h2>书签</h2>
-      <button class="sidebar-close" id="btn-bookmarks-close">
+      <button class="sidebar-close" id="btn-bookmarks-close" aria-label="关闭书签">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -199,7 +199,7 @@
   <div class="bookmarks-panel" id="search-panel">
     <div class="settings-header">
       <h2>全文搜索</h2>
-      <button class="sidebar-close" id="btn-search-close">
+      <button class="sidebar-close" id="btn-search-close" aria-label="关闭全文搜索">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
@@ -239,9 +239,9 @@
 
   <!-- Image Viewer Overlay -->
   <div class="image-viewer-overlay is-hidden" id="image-viewer">
-    <div class="image-viewer-close" id="image-viewer-close">
+    <button type="button" class="image-viewer-close" id="image-viewer-close" aria-label="关闭图片预览">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </div>
+    </button>
     <div class="image-viewer-container" id="image-viewer-container">
       <img id="image-viewer-img" src="" alt="">
     </div>
@@ -263,7 +263,7 @@
   <div class="annotation-popup" id="annotation-popup">
     <div class="annotation-popup-header">
       <span class="annotation-popup-title" id="annotation-title">注释</span>
-      <button class="annotation-popup-close" id="annotation-close">
+      <button class="annotation-popup-close" id="annotation-close" aria-label="关闭注释">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>

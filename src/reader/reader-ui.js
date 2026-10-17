@@ -686,12 +686,21 @@
     function bindProgress() {
       if (!dom.progressSlider) return;
       dom.progressSlider.addEventListener('input', (e) => {
+        state.isScrubbing = true;
         if (dom.progressCurrent) {
           dom.progressCurrent.textContent = parseFloat(e.target.value).toFixed(1) + '%';
         }
       });
       dom.progressSlider.addEventListener('change', (e) => {
-        if (!state.book || !ReaderState.hasLocations(state.book.locations)) return;
+        state.isScrubbing = false;
+        if (!state.book || !ReaderState.hasLocations(state.book.locations)) {
+          const resetPercent = state.lastProgress != null ? (state.lastProgress * 100).toFixed(1) : '0.0';
+          dom.progressSlider.value = resetPercent;
+          if (dom.progressCurrent) {
+            dom.progressCurrent.textContent = resetPercent + '%';
+          }
+          return;
+        }
         if (_runtime) _runtime.displayPercentage(parseFloat(e.target.value));
       });
       dom.progressSlider.addEventListener('keydown', (e) => {

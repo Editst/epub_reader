@@ -158,7 +158,7 @@ html, body {
   background: var(--bg-toolbar);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border-color);
-  z-index: 100;
+  z-index: 200;
   transition: transform 0.3s ease, background 0.3s ease;
 }
 
@@ -228,14 +228,16 @@ html, body {
   background: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   z-index: 200;
-  transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+  transition: left 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, visibility 0.35s;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-lg);
+  visibility: hidden;
 }
 
 .sidebar.open {
   left: 0;
+  visibility: visible;
 }
 
 .sidebar-overlay {
@@ -347,14 +349,16 @@ html, body {
   border-radius: 0 0 0 16px;
   box-shadow: var(--shadow-lg);
   z-index: 200;
-  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, visibility 0.35s;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  visibility: hidden;
 }
 
 .settings-panel.open {
   right: 0;
+  visibility: visible;
 }
 
 .settings-header {
@@ -432,6 +436,7 @@ html, body {
 
 /* Custom Theme Options */
 .custom-theme-options {
+  display: none;
   margin-top: 12px;
   padding: 12px;
   background: var(--reader-bg);
@@ -1087,14 +1092,16 @@ html, body {
   /* z-index must exceed overlay (190) so panels are not covered when overlay is visible.
      sidebar is 200; panels use the same value so clicks reach panel elements. */
   z-index: 200;
-  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease;
+  transition: right 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s ease, visibility 0.35s;
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  visibility: hidden;
 }
 
 .bookmarks-panel.open {
   right: 0;
+  visibility: visible;
 }
 
 .bookmarks-list {
@@ -1272,7 +1279,7 @@ html, body {
 }
 
 .action-btn-mini:hover {
-  background: var(--bg-hover);
+  background: var(--toc-hover-bg);
   color: var(--text-primary);
 }
 
@@ -1324,7 +1331,7 @@ html, body {
   width: 100%;
   height: 80px;
   border: 1px solid var(--border-color);
-  background: var(--bg-body);
+  background: var(--bg-primary);
   color: var(--text-primary);
   border-radius: 8px;
   padding: 10px;
@@ -1451,3 +1458,27 @@ body.image-viewer-open {
 .image-viewer-zoomable {
   cursor: zoom-in !important;
 }
+
+/* Touch device optimization: prevent invisible click obstruction */
+@media (hover: none) {
+  .nav-arrow {
+    display: none;
+    pointer-events: none;
+  }
+}
+
+/* Responsive bottom bar for narrow screens */
+@media (max-width: 720px) {
+  .progress-info #progress-time,
+  .progress-info #progress-location {
+    display: none;
+  }
+  .progress-info {
+    min-width: auto;
+    gap: 6px;
+  }
+  .progress-container {
+    gap: 8px;
+  }
+}
+

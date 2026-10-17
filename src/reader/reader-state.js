@@ -31,6 +31,7 @@
       isRestoringPosition: false,   // openBook 位置恢复期间为 true，防止 relocated 覆写已保存进度
       isLayoutStable:      false,   // 字体加载/布局重排完成前为 false，阻止翻页与跳转
       isRestoreAnchorProtected: false, // 恢复/目标跳转后的锚点保护，用户导航前不被边界 CFI 覆盖
+      isScrubbing:         false,   // 进度条拖拽中状态，防止 relocated 强行覆写进度滑块
       navLock:             false,   // 翻页防连击锁
 
       // ── 阅读计时 ──────────────────────────────────────────────────────────

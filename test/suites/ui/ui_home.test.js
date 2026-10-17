@@ -61,7 +61,7 @@ test.describe('Home 书架页面安全与防注入契约', () => {
     assert.ok(js.includes("document.addEventListener('dragover'"), 'home.js 必须监听 dragover');
     assert.ok(js.includes("document.addEventListener('dragleave'"), 'home.js 必须监听 dragleave');
     assert.ok(js.includes("document.addEventListener('drop'"), 'home.js 必须监听 drop');
-    assert.ok(js.includes('EpubStorage.importBookFile(file)'), 'drop 事件必须接入 EpubStorage.importBookFile');
+    assert.ok(/EpubStorage\.importBookFile\(file/.test(js), 'drop 事件必须接入 EpubStorage.importBookFile');
   });
 
 });
