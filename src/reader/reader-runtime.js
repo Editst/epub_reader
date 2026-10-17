@@ -902,6 +902,12 @@
         ui.showLoading(true);
         let record = await EpubStorage.getFile(bookId);
         if (!record) {
+          if (await EpubStorage.isBookDeleted(bookId)) {
+            if (sessionSeq !== openSessionSeq) return;
+            ui.showLoading(false);
+            ui.showLoadError('该书籍已从书架移除。如需继续阅读，请重新导入 EPUB 文件。');
+            return;
+          }
           for (let attempt = 0; attempt < FILE_LOAD_RETRY_ATTEMPTS; attempt++) {
             await _delay(FILE_LOAD_RETRY_INTERVAL_MS);
             if (sessionSeq !== openSessionSeq) return;

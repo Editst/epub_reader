@@ -490,23 +490,25 @@
       if (!state.sessionStart || !state.currentBookId || !state.isBookLoaded) return null;
 
       const sessionStart = state.sessionStart;
+      const prevSession = { ...sessionStart };
       const now = Date.now();
       const deltaProgress = state.lastProgress - sessionStart.progress;
       const deltaSeconds  = (now - sessionStart.timestamp) / 1000;
 
       // 在任何 await 前转移会话所有权；迟到的旧写入不得清除后来建立的新会话。
-      state.sessionStart = (newStartProgress !== null)
+      state.sessionStart = (newStartProgress !== null && Number.isFinite(newStartProgress))
         ? { progress: newStartProgress, timestamp: now }
         : null;
 
+      let sample = null;
       if (deltaProgress > SPEED_MIN_PROGRESS_DELTA && deltaProgress < SPEED_MAX_PROGRESS_DELTA && deltaSeconds > SPEED_MIN_SESSION_SECONDS) {
         const weight = Utils.computeSessionWeight(deltaProgress, deltaSeconds);
-        return {
+        sample = {
           sampledSeconds: deltaSeconds * weight,
           sampledProgress: deltaProgress * weight
         };
       }
-      return null;
+      return { sample, prevSession };
     }
 
     /**
@@ -523,7 +525,8 @@
     async function flushSpeedSession(newStartProgress = null) {
       const bookId = state.currentBookId;
       if (!bookId || !state.isBookLoaded) return;
-      const sample = _extractFlushSpeedPayload(newStartProgress);
+      const speedPayload = _extractFlushSpeedPayload(newStartProgress);
+      const sample = speedPayload?.sample;
       if (sample) {
         try {
           if (!state.cachedSpeed) {
@@ -538,6 +541,9 @@
             state.cachedSpeed = { ...state.cachedSpeed, ...storedSpeed };
           }
         } catch (e) {
+          if (bookId === state.currentBookId && speedPayload?.prevSession && !state.sessionStart) {
+            state.sessionStart = speedPayload.prevSession;
+          }
           console.warn('[Persistence] Failed to save speed sample:', e);
         }
       }
@@ -578,8 +584,11 @@
         percent = Math.round(progress * 1000) / 10;
         ui.updateProgress(percent);
 
-        // 跳跃检测：>5% 视为手动跳转，结束当前 session 并以新位置续期
-        if (state.sessionStart && Math.abs(progress - state.lastProgress) > _getJumpDetectionThreshold()) {
+        // 惰性补建 sessionStart (M-C4)
+        if (!state.sessionStart && !(typeof document !== 'undefined' && document.hidden)) {
+          state.sessionStart = { progress, timestamp: Date.now() };
+        } else if (state.sessionStart && Math.abs(progress - state.lastProgress) > _getJumpDetectionThreshold()) {
+          // 跳跃检测：>5% 视为手动跳转，结束当前 session 并以新位置续期
           flushSpeedSession(progress).catch((e) => {
             console.warn('[Persistence] flushSpeedSession failed:', e);
           });
@@ -738,7 +747,8 @@
       if (!bookId) return state.lastPositionSave || Promise.resolve();
       const pos = _extractFlushPositionPayload();
       const readingSeconds = _extractFlushReadingTimePayload();
-      const speedSample = _extractFlushSpeedPayload(null);
+      const speedPayload = _extractFlushSpeedPayload(null);
+      const speedSample = speedPayload?.sample || null;
 
       if (!pos && readingSeconds <= 0 && !speedSample) {
         return state.lastPositionSave || Promise.resolve();
@@ -763,6 +773,9 @@
         .catch((e) => {
           if (bookId === state.currentBookId && readingSeconds > 0) {
             state.pendingReadingSeconds = _getPendingReadingSeconds() + readingSeconds;
+          }
+          if (bookId === state.currentBookId && speedPayload?.prevSession && !state.sessionStart) {
+            state.sessionStart = speedPayload.prevSession;
           }
           console.warn('[Persistence] flush session bundle failed:', e);
         });

@@ -129,6 +129,9 @@
     if (panelController) panelController.closePanelWithOverlayCheck(panel);
     else if (panel) panel.classList.remove('open');
     // Cancel any active searches if panel is closed
+    if (statusEl && statusEl.textContent === '搜索中...') {
+      statusEl.textContent = '';
+    }
     isSearching = false;
     currentSearchId++;
     if (searchBtn) searchBtn.disabled = false;

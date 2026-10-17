@@ -3538,5 +3538,38 @@ test.describe('ReaderRuntime', () => {
     await runtime.setLayout('scrolled');
     assert.equal(fontReadyPolled, false, '布局切换时传入 skipFontWait: true 不应等待 fonts.ready');
   });
+
+  test.it('loadFileByBookId 遇到已删除墓碑书籍直接报错并跳过轮询 (M-C6)', async () => {
+    let errorMsg = '';
+    const ui = {
+      showLoading() {},
+      showLoadError(msg) { errorMsg = msg; }
+    };
+    const state = {};
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui,
+      persistence: {},
+      moduleLifecycle: {}
+    });
+
+    const bookId = 'book-deleted-tombstone';
+    await EpubStorage._set({ [`deletedBook_${bookId}`]: Date.now() });
+
+    let getFileCalls = 0;
+    const origGetFile = EpubStorage.getFile;
+    EpubStorage.getFile = async () => {
+      getFileCalls++;
+      return null;
+    };
+
+    try {
+      await runtime.loadFileByBookId(bookId);
+      assert.equal(getFileCalls, 1, '已删除书籍在首轮未命中后必须立即报错，跳过后续 5 次轮询');
+      assert.match(errorMsg, /该书籍已从书架移除/, '必须明确提示书籍已从书架移除');
+    } finally {
+      EpubStorage.getFile = origGetFile;
+    }
+  });
 });
 

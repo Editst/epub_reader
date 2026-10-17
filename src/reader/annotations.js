@@ -392,6 +392,7 @@ function _checkFootnoteTextSignals(link, ctx, signals) {
     if (!_hasSup(link)) {
       const block = link.closest('p, li, div, dd, td') || link.parentElement;
       if (block && block.textContent.trim().startsWith(text)) return false;
+      if (!/^[\[(【]|[*†‡§‖¶\u00B9\u00B2\u00B3\u2070-\u2079]/.test(text)) return false;
     }
     return true;
   }
@@ -805,7 +806,7 @@ const Annotations = {
     if (!link || !ctx) return false;
     const href = link.getAttribute('href') || '';
     if (!href) return false;
-    if (/^(https?:|mailto:|javascript:)/i.test(href)) return false;
+    if (/^(https?:|mailto:|javascript:|data:|tel:)/i.test(href)) return false;
     if (ctx.isGlobalTocDoc) return false;
     if (ctx.hasTocLinks && ctx.tocLinkNodes.has(link)) return false;
 
@@ -874,6 +875,7 @@ const Annotations = {
           this._displayContent(this._extractContent(target), displayHref || href, context);
           return true;
         }
+        return false;
       } else {
         sectionHref = parsedHref.sectionHref;
         targetId = parsedHref.fragmentId;
@@ -1115,7 +1117,7 @@ const Annotations = {
       }
 
       // Method 4: brute-force
-      if (targetId) {
+      if (targetId && sectionHref) {
         for (let i = 0; i < activeBook.spine.length; i++) {
           if (cancelToken?.cancelled) return null;
           if (!this._isCurrentContext(context)) return null;

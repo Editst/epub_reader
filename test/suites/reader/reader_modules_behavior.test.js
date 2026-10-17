@@ -3800,6 +3800,132 @@ test.describe('Reader 模块基础行为', () => {
     listener({ preferences: { newValue: { ...state.prefs, spread: 'none' } } }, 'local');
     assert.equal(spreadSet, 'none', '跨标签页 spread 变化应调用 rendition.spread');
   });
+
+  test.it('Search 关闭面板时若状态为“搜索中...”则重置为空 (M-F1)', () => {
+    const { document } = createMockDocument([
+      'search-panel',
+      'sidebar-overlay',
+      'search-input',
+      'btn-do-search',
+      'search-results-list',
+      'search-status',
+      'btn-search',
+      'btn-search-close',
+      'sidebar',
+      'bookmarks-panel'
+    ]);
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', { document });
+    Search.init();
+    const statusEl = document.getElementById('search-status');
+    statusEl.textContent = '搜索中...';
+    Search.closePanel();
+    assert.equal(statusEl.textContent, '', '关闭面板后搜索中提示必须清空');
+  });
+
+  test.it('Annotations 同文档内缺失目标 ID 时直接返回 null 不进行 Method 4 全书扫描 (M-F2)', async () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    let spineGetCalled = false;
+    const mockBook = {
+      spine: {
+        length: 5,
+        get() {
+          spineGetCalled = true;
+          return { load: async () => ({}) };
+        }
+      }
+    };
+    Annotations.setBook(mockBook);
+    const mockDoc = {
+      getElementById: () => null
+    };
+    const contents = { document: mockDoc };
+
+    const shown = await Annotations.showFootnote('#missing-anchor', contents, { cancelled: false });
+    assert.equal(shown, false);
+    assert.equal(spineGetCalled, false, '同文档缺失锚点不得触发全书 spine 扫描');
+  });
+
+  test.it('Annotations.isFootnoteLink 拦截 data: 与 tel: 协议链接 (M-F5)', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet()
+    };
+    const createLink = (href) => ({
+      getAttribute: (name) => (name === 'href' ? href : ''),
+      getAttributeNS: () => '',
+      textContent: '[1]',
+      closest: () => null,
+      parentElement: null
+    });
+
+    assert.equal(Annotations.isFootnoteLink(createLink('data:text/html;base64,xxx#fn1'), ctx), false);
+    assert.equal(Annotations.isFootnoteLink(createLink('tel:123456#fn1'), ctx), false);
+  });
+
+  test.it('Annotations.isFootnoteLink 排除正文段落中无上标的纯数字链接 (M-F6)', () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const parent = {
+      tagName: 'P',
+      textContent: 'According to report 42 published recently.'
+    };
+    const link = {
+      tagName: 'A',
+      parentElement: parent,
+      closest: (sel) => (/^(p|li|div|dd|td)$/i.test(sel) ? parent : null),
+      firstElementChild: null,
+      getAttribute: (name) => (name === 'href' ? '#p42' : ''),
+      getAttributeNS: () => '',
+      textContent: '42'
+    };
+    const ctx = {
+      isGlobalTocDoc: false,
+      hasTocLinks: false,
+      tocLinkNodes: new WeakSet(),
+      hasFootnoteSections: false,
+      footnoteSectionNodes: new WeakSet(),
+      hasNavBlocks: false,
+      doc: {}
+    };
+
+    const res = Annotations.isFootnoteLink(link, ctx);
+    assert.equal(res, false, '段落中间的无上标纯数字普通链接必须返回 false');
+  });
+
+  test.it('ImageViewer 拖拽平移位移大于 4px 时抑制 click 关闭 (M-F4)', () => {
+    const { document } = createMockDocument([
+      'image-viewer',
+      'image-viewer-container',
+      'image-viewer-img',
+      'image-viewer-close',
+      'img-zoom-in',
+      'img-zoom-out',
+      'img-zoom-reset'
+    ]);
+    const ImageViewer = loadIsolatedWindowExport('src/reader/image-viewer.js', 'ImageViewer', {
+      document,
+      window: global
+    });
+    ImageViewer.init();
+    ImageViewer.open('test.png');
+
+    const overlay = document.getElementById('image-viewer');
+    const container = document.getElementById('image-viewer-container');
+
+    // 模拟平移：mousedown at (10, 10), mousemove to (30, 30) (位移 28px > 4px)
+    container.dispatch('mousedown', { button: 0, clientX: 10, clientY: 10 });
+    document.dispatchEvent('mousemove', { clientX: 30, clientY: 30 });
+    document.dispatchEvent('mouseup', {});
+
+    // 平移释放后触发 click，应当被拦截，不会关闭
+    overlay.dispatch('click', { target: container });
+    assert.equal(overlay.classList.contains('is-hidden'), false, '平移拖拽后不应关闭图片查看器');
+
+    // 无拖拽的直接点击应当能正常关闭
+    overlay.dispatch('click', { target: overlay });
+    assert.equal(overlay.classList.contains('is-hidden'), true, '空白处直接点击应正常关闭');
+  });
 });
 
 

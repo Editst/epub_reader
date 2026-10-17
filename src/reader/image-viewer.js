@@ -38,6 +38,10 @@
     // Close handlers
     document.getElementById('image-viewer-close')?.addEventListener('click', () => this.close());
     this.overlay?.addEventListener('click', (e) => {
+      if (this._suppressNextClick) {
+        this._suppressNextClick = false;
+        return;
+      }
       if (e.target === this.overlay || e.target === this.container) this.close();
     });
 
@@ -54,8 +58,14 @@
     }, { passive: false });
 
     // Drag to pan (bind mousemove/mouseup on demand to eliminate idle event overhead)
+    let dragStartX = 0;
+    let dragStartY = 0;
+
     const onMouseMove = (e) => {
       if (!this.isDragging) return;
+      if (Math.hypot((e.clientX || 0) - dragStartX, (e.clientY || 0) - dragStartY) > 4) {
+        this._suppressNextClick = true;
+      }
       this.translateX = e.clientX - this.startX;
       this.translateY = e.clientY - this.startY;
       this.applyTransform();
@@ -73,6 +83,8 @@
     this.container?.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       this.isDragging = true;
+      dragStartX = e.clientX || 0;
+      dragStartY = e.clientY || 0;
       if (this.img) this.img.style.transition = 'none';
       this.startX = e.clientX - this.translateX;
       this.startY = e.clientY - this.translateY;
@@ -115,6 +127,7 @@
 
   close() {
     this.isDragging = false;
+    this._suppressNextClick = false;
     if (this.overlay) this.overlay.classList.add('is-hidden');
     if (this.img) this.img.src = '';
     document.body?.classList.remove('image-viewer-open');
@@ -127,6 +140,7 @@
 
   resetTransform() {
     this.isDragging = false;
+    this._suppressNextClick = false;
     this.scale = 1;
     this.translateX = 0;
     this.translateY = 0;

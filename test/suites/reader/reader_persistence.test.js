@@ -2180,5 +2180,64 @@ test.describe('ReaderPersistence', () => {
       EpubStorage.savePosition = originalSave;
     }
   });
+
+  test.it('flushSessionBundle 写入失败时回滚 state.sessionStart (M-C2)', async () => {
+    const origFlush = EpubStorage.flushSessionBundle;
+    EpubStorage.flushSessionBundle = async () => {
+      throw new Error('simulated disk failure');
+    };
+    const now = Date.now();
+    const state = {
+      currentBookId: 'book-rollback-test',
+      isBookLoaded: true,
+      pendingReadingSeconds: 0,
+      activeReadingSeconds: 100,
+      sessionStart: { progress: 0.1, timestamp: now - 60000 },
+      lastProgress: 0.2,
+      prefs: { layout: 'paginated' }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    try {
+      await persistence.flushSessionBundle('book-rollback-test');
+      assert.deepEqual(state.sessionStart, { progress: 0.1, timestamp: now - 60000 }, '写入失败时 sessionStart 必须完整回滚');
+    } finally {
+      EpubStorage.flushSessionBundle = origFlush;
+    }
+  });
+
+  test.it('onRelocated 获得有效数值进度时惰性补建 sessionStart (M-C4)', () => {
+    const state = {
+      isResizing: false,
+      isRestoringPosition: false,
+      isRestoreAnchorProtected: false,
+      currentBookId: 'book-mc4',
+      isBookLoaded: true,
+      lastProgress: null,
+      sessionStart: null,
+      book: {
+        locations: {
+          length: () => 100,
+          percentageFromCfi: (cfi) => (cfi === 'cfi-start' ? 0.35 : null)
+        }
+      },
+      rendition: {
+        currentLocation: () => ({ start: { cfi: 'cfi-start' } })
+      }
+    };
+    const persistence = ReaderPersistence.createReaderPersistence({
+      state,
+      ui: { updateProgress() {}, updateChapterTitle() {}, updateBookmarkButtonState() {}, updateReadingStatsText() {} }
+    });
+
+    persistence.onRelocated({ start: { cfi: 'cfi-start', href: 'chapter1.xhtml' } });
+
+    assert.ok(state.sessionStart, 'sessionStart 应被惰性建立');
+    assert.equal(state.sessionStart.progress, 0.35);
+    assert.ok(typeof state.sessionStart.timestamp === 'number');
+  });
 });
 
