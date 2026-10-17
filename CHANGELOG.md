@@ -4,6 +4,49 @@
 
 ---
 
+## [2.6.6] - 2026-10-17
+
+### fix
+- **全文搜索正则元字符与高亮槽位隔离 (`search.js`, `highlights.js`)**：
+  - 修复 `search.js` 中 `item.find()` 误传转义后的正则表达式导致包含 `.`、`+`、`?` 等元字符的词条搜索无结果的缺陷；保留 `safeQuery` 仅供结果高亮渲染使用；
+  - 修复点击搜索结果覆盖已有用户标注导致笔记丢失的槽位冲突，新增 `Highlights.reRenderCfi` 在清除临时搜索定位高亮后无缝恢复同位置用户高亮。
+- **UI 弹窗穿透与遮罩层级修复 (`reader-ui.js`, `reader.css`)**：
+  - 修复在笔记输入框及选区工具条点击时被全局外部点击监听器误识别为面板外部而意外关闭弹窗的问题；
+  - 将 `.toolbar` 的 `z-index` 调整为 200（高于 `.sidebar-overlay` 的 190），允许用户在侧栏打开时一键鼠标点击切换至其它工具栏面板。
+- **阅读位置恢复锚点跨书污染隔离与完整签名 (`reader-state.js`, `reader-persistence.js`, `reader-runtime.js`)**：
+  - 修复 `_anchorCfiCache` 缓存键缺少 `bookId` 与 `spread` 分栏签名导致切书或单双栏切换时复用旧书恢复锚点的缺陷；
+  - 导出 `clearAnchorCache`，在切书、清理破坏布局与丢弃书籍时通过 `persistence.clearAnchorCache()` 彻底重置缓存。
+- **模块重挂载生命周期与跨标签页同步强化 (`toc.js`, `search.js`, `image-viewer.js`, `highlights.js`, `reader-ui.js`)**：
+  - 修复切书或切换分页/滚动布局后四大模块快捷键与外部点击监听丢失的缺陷，在 `mount()` 入口重置幂等绑定；`toc.js` 兼容大写 `T` 快捷键；
+  - 修复跨标签页偏好同步缺少字段级 Diff 造成的无差别重排风暴，仅对字号、行距、字体、段落缩进、单双栏及布局做带锁排版刷新，避免主题或其它页面状态导致频繁闪烁。
+- **存储层写放大根除与墓碑一致性 (`storage.js`)**：
+  - 彻底移除 `addRecentBook` 触发的 `_touchFileRecordTimestamp` 写操作，开书读取真正回归 100% 纯读取与零写放大；
+  - `enforceFileLRU` 引入全局互斥锁 `epub-reader-storage:lru`，融合 `recentBooks` 活跃时间并锁内二次核验时间戳，杜绝陈旧快照误删与多标签页并发驱逐竞态；
+  - `hasFile` 优先校验删除墓碑；`removeAllBooks` 全局扫描清理 1.x 遗留键并仅删除成功书籍的墓碑；
+  - 导入文件前 4 字节校验 ZIP 魔数（`0x50, 0x4B, 0x03, 0x04`）与非空检查，非法 EPUB 拒绝入库并支持 `skipLRU` 批量导入。
+- **会话计时回滚与错误隔离 (`reader-persistence.js`, `reader-runtime.js`)**：
+  - 修复 `flushSessionBundle` 与 `flushSpeedSession` 刷盘失败时 `sessionStart` 丢失问题，保存失败主动回滚未完成阅读会话；
+  - `onRelocated` 有效进度到达时惰性补建 `sessionStart`；`loadFileByBookId` 发现已删除墓碑时即时报错并跳过 5 次重试轮询。
+- **注脚解析与图片查看器交互修复 (`annotations.js`, `image-viewer.js`)**：
+  - 针对同章节缺失的目标锚点短路返回，彻底杜绝全书 spine 章节暴力遍历引发的卡顿；
+  - 注脚链接协议黑名单扩充 `data:` 与 `tel:`；正文段落中间普通无上标的纯数字/罗马数字链接不再误判为注脚；
+  - 图片查看器拖拽平移距离超过 4px 时抑制松开时的关闭事件，避免拖动误触关闭。
+- **无障碍属性、主题对比度与交互响应式完善 (`reader.html`, `reader.css`, `themes.css`, `home.js`, `manifest.json`)**：
+  - 所有面板关闭按钮补充 `aria-label`，`#image-viewer-close` 升级为语义化聚焦 `<button>`；
+  - 侧栏与弹窗面板收起时追加 `visibility: hidden;`，杜绝键盘 Tab 焦点跳入屏幕外隐藏面板；
+  - 修复 `reader.css` 中未定义的 `--bg-body` 与 `--bg-hover`；将全套主题 `--text-muted` 调优至满足 WCAG AA 4.5:1 对比度标准；
+  - 进度滑块拖拽时置 `isScrubbing` 标志防止 `relocated` 抢夺手势；触屏设备隐藏透明翻页箭头盲区，窄屏底栏自适应；
+  - 书架页拖拽与批量导入提供细化统计与友好失败反馈；单书删除与清空书架后自动失效标注缓存并实时刷新；
+  - `manifest.json` CSP 正式声明 `connect-src 'self' blob:;`。
+
+### test
+- **全面补齐 P0~P4 行为与边界单测**：
+  - 新增搜索元字符、标注恢复、跨书恢复锚点隔离、跨标签页偏好 Diff 测试；
+  - 新增会话回滚、墓碑即时拦截、ZIP 魔数校验、批量 LRU 优化、拖拽异常统计与标注缓存自动刷新测试；
+  - 消除转义 Mock，Manifest CSP 正向断言 `connect-src 'self' blob:;`，全量 363 个测试套件 100% 通过。
+
+---
+
 ## [2.6.5] - 2026-09-21
 
 ### fix
