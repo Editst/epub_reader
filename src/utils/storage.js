@@ -848,7 +848,9 @@ const EpubStorage = {
           : this._isRecord(stored);
         const current = isCompatible ? stored : defaultValue;
         const mutableValue = Array.isArray(current) ? current.slice() : current;
-        const updated = (await mutator(mutableValue)) || mutableValue;
+        const mutatorResult = await mutator(mutableValue);
+        if (mutatorResult === false) return;
+        const updated = mutatorResult !== undefined ? mutatorResult : mutableValue;
         await this._set({ [key]: updated });
       }));
     this[queueField] = next.catch(() => {});
