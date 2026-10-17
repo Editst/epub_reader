@@ -279,4 +279,66 @@ test.describe('DbGateway 行为与 Schema 契约', () => {
       gateway._dbPromise = originalDbPromise;
     }
   });
+
+  test.it('DbGateway.has() 正确反映记录是否存在且在事务 abort 时拒绝 Promise', async () => {
+    const gateway = global.DbGateway;
+    const originalDbPromise = gateway._dbPromise;
+    let transaction = null;
+    let countReq = null;
+    let requestedKey = null;
+
+    gateway._dbPromise = Promise.resolve({
+      objectStoreNames: {
+        contains(name) {
+          return name === 'files';
+        }
+      },
+      transaction(storeName) {
+        transaction = {
+          error: new Error('has transaction aborted'),
+          onabort: null,
+          objectStore() {
+            return {
+              count(key) {
+                requestedKey = key;
+                countReq = {
+                  onsuccess: null,
+                  onerror: null,
+                  result: key === 'existing-book' ? 1 : 0
+                };
+                if (key === 'abort-key') {
+                  setImmediate(() => transaction.onabort?.());
+                } else {
+                  setImmediate(() => countReq.onsuccess?.());
+                }
+                return countReq;
+              }
+            };
+          }
+        };
+        return transaction;
+      }
+    });
+
+    try {
+      // 1. 不存在的 store
+      const notFoundStore = await gateway.has('non_existent', 'any-key');
+      assert.equal(notFoundStore, false);
+
+      // 2. 存在的 key
+      const hasExisting = await gateway.has('files', 'existing-book');
+      assert.equal(requestedKey, 'existing-book');
+      assert.equal(hasExisting, true);
+
+      // 3. 不存在的 key
+      const hasMissing = await gateway.has('files', 'missing-book');
+      assert.equal(requestedKey, 'missing-book');
+      assert.equal(hasMissing, false);
+
+      // 4. 事务 abort 异常捕获
+      await assert.rejects(gateway.has('files', 'abort-key'), /has transaction aborted/);
+    } finally {
+      gateway._dbPromise = originalDbPromise;
+    }
+  });
 });

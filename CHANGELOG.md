@@ -4,6 +4,40 @@
 
 ---
 
+## [2.6.7] - 2026-10-17
+
+### fix
+- **四大阅读器子模块生命周期与事件泄漏根治 (`toc.js`, `search.js`, `image-viewer.js`, `highlights.js`)**：
+  - 对齐 `annotations.js` 的幂等绑定模式，`unmount()` 维持 `_boundDocument = document`，杜绝宿主固定 DOM（如 `#btn-toc`、搜索按钮、图片操作按钮、颜色选择按钮）重复注册匿名监听器导致的目录点击自关失灵、搜索并发风暴、缩放步长倍增与高亮重复创建；
+  - 提取 `_bindGlobalEvents` 独立启停全局键盘与点击监听；
+  - `image-viewer.js` 提取 `_stopDragging`，在 `close()` 与 `unmount()` 中强制注销全局 `mousemove`/`mouseup`，根治拖拽中途按 Esc 或切书造成的拖拽泄漏。
+- **批量导入 LRU 保护与排版重排锚点升级 (`reader-ui.js`, `reader.js`)**：
+  - 修复 `_openLocalFiles` 批量导入未传 `{ skipLRU: true }` 导致超过 10 本时首书被自身批次提前淘汰的缺陷；导入前增加非法文件格式提示，导入后统一执行一次 `enforceFileLRU(10)`；
+  - 重排锁 `_withCfiLock` 优先采用稳定定位锚点 `state.currentStableLocator?.restoreCfi`，消融只写不读的 `_preTypographyCfi` 废弃变量；
+  - 修复跨标签页偏好同步在 `isResizing` 期间丢包的问题，先更新内存偏好与 UI 控件，再受控过滤引擎重排；
+  - `dom.spreadSelect` 分栏切换异步任务追加 `.catch()` 异常处理，并在滚动模式（`scrolled`）下联动禁用/隐藏分栏项（`#spread-settings-group`）；
+  - `ReaderUi.unmount()` 补齐 `document` 导航/面板/拖拽及 `chrome.storage.onChanged` 监听清理；`reader.js` 保存并注销 `subscribeBookDeletion` 监听。
+- **高亮渲染去重与注解解析短路修复 (`highlights.js`, `annotations.js`)**：
+  - 消融 `Highlights.reRenderCfi` 冗余实现并直接委托给 `reRenderHighlight`，修复因漏调用 `remove` 导致的同一 CFI 下划线 SVG 节点重复叠加泄漏问题；
+  - `Annotations._loadFromBook` 仅在 `!targetId` 时回退读取整章 `<body>`，修复锚点缺失时整章正文误判为注脚弹出且短路 Method 3.5/4 的问题；
+  - `_compensatePaginationOffset` 采用 `rect.left >= viewWidth` 判定双栏/多栏后页可视区域偏移，并防御定时器回调与视图未加载。
+- **并发存储锁模式对齐、封面重复提取消融与样式安全 (`storage.js`, `reader-runtime.js`, `themes.css`, `popup.js`, `popup.html`, `reader.html`)**：
+  - `addRecentBook` 锁内合并保留已有记录的真实书名与作者，消除 `importBookFile` 锁外读取 `recentBooks` 的 TOCTOU 竞态；
+  - `reader-runtime.js` 封面前置检查 `EpubStorage.getCover`，消除已缓存封面的无意义提取与写放大；
+  - 默认亮色主题 `--text-muted` 调优为 `#6e6a66`（对比度提升至 5.1:1，满足 WCAG AA 4.5:1）；
+  - 移除 `reader.html` 与 `popup.html` 中阻塞离线首屏的 Google Fonts `<link>`，确保真正的 Local-First 离线立即可用；
+  - `popup.js` 显隐切换由直写 `style.display` 升级为 CSS `.is-hidden` 类控制；
+  - 消融死代码：`EpubStorage._touchFileRecordTimestamp`、`ReaderUi.openLocalFile`、`search.js` 循环内死变量 `safeQuery`。
+
+### test
+- **测试基建完善与断言加固**：
+  - `test/run_tests.js` 补齐 `_mockDb.has()` 并增补 `DbGateway.has()` 契约测试；
+  - `sys_integrity.test.js` 消除无效模块过滤并将 `popup.js` 纳入禁止直写样式的严格白名单检查；
+  - `reader_entry.test.js` 消除恒真断言，升级为严格的四层依赖拓扑序验证；
+  - 增补切书后 TOC 按钮点击自关防护测试与 ImageViewer 拖拽中断清理测试，全量 368 个测试套件 100% 通过。
+
+---
+
 ## [2.6.6] - 2026-10-17
 
 ### fix

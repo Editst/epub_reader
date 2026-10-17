@@ -102,9 +102,22 @@ const EpubStorage = {
     return this._runWritableBookTask(book.id, null, () =>
       this._enqueueKeyWrite('_recentBooksQueue', KEYS.recentBooks, [], (recent) => {
         if (this._deletingBookIds.has(book.id)) return recent;
-        recent = this._normalizeRecordList(recent, 'id').filter(b => b.id !== book.id);
-        recent.unshift({ ...book, lastOpened: Date.now() });
-        return recent.slice(0, 20);
+        const normalized = this._normalizeRecordList(recent, 'id');
+        const existing = normalized.find(b => b.id === book.id);
+        const filtered = normalized.filter(b => b.id !== book.id);
+        const mergedBook = {
+          ...existing,
+          ...book,
+          title: book.title || existing?.title || '未知书名',
+          author: (book.author !== undefined && book.author !== '') ? book.author : (existing?.author || ''),
+          filename: book.filename || existing?.filename || '',
+          lastOpened: Date.now()
+        };
+        if (existing?.title && book.filename && book.title === book.filename.replace(/\.epub$/i, '') && existing.title !== book.title) {
+          mergedBook.title = existing.title;
+        }
+        filtered.unshift(mergedBook);
+        return filtered.slice(0, 20);
       })
     );
   },
@@ -503,13 +516,10 @@ const EpubStorage = {
     const bookId = await this.generateBookId(file.name, file);
     await this.storeFile(file.name, file, bookId, options);
     const filename = file.name || '';
-    // 查询已有 recentBooks 记录，避免覆盖 reader 解析后设置的真实书名与作者
-    const recent = await this.getRecentBooks();
-    const existing = recent.find((b) => b.id === bookId);
     await this.addRecentBook({
       id: bookId,
-      title: existing?.title || filename.replace(/\.epub$/i, '') || '未知书名',
-      author: existing?.author || '',
+      title: filename.replace(/\.epub$/i, '') || '未知书名',
+      author: '',
       filename: filename
     });
     return { bookId, filename, fileData: file };
@@ -564,18 +574,6 @@ const EpubStorage = {
   async removeFile(bookId) {
     if (!bookId) return;
     return this._dbGateway.delete(STORES.files, bookId);
-  },
-
-  async _touchFileRecordTimestamp(bookId) {
-    if (!bookId || this._deletingBookIds.has(bookId)) return;
-    return this._runWritableBookTask(bookId, STORES.files, async () => {
-      if (await this.isBookDeleted(bookId)) return;
-      const stored = await this._dbGateway.get(STORES.files, bookId);
-      if (stored) {
-        stored.timestamp = Date.now();
-        await this._dbGateway.put(STORES.files, stored);
-      }
-    });
   },
 
   /**

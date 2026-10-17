@@ -14,13 +14,17 @@
   panelController: null,
   _boundDocument: null,
   _keydownHandler: null,
+  _isKeyDownBound: false,
 
   init() {
     this.container = document.getElementById('toc-container');
     this.sidebar = document.getElementById('sidebar');
     this.overlay = document.getElementById('sidebar-overlay');
 
-    if (this._boundDocument === document) return;
+    if (this._boundDocument === document) {
+      this._bindGlobalEvents();
+      return;
+    }
     this._boundDocument = document;
 
     // Toggle buttons
@@ -41,7 +45,14 @@
         }
       }
     };
+    this._isKeyDownBound = false;
+    this._bindGlobalEvents();
+  },
+
+  _bindGlobalEvents() {
+    if (!this._keydownHandler || this._isKeyDownBound) return;
     document.addEventListener('keydown', this._keydownHandler);
+    this._isKeyDownBound = true;
   },
 
   /**
@@ -58,11 +69,10 @@
   },
 
   unmount() {
-    if (this._keydownHandler) {
+    if (this._keydownHandler && this._isKeyDownBound) {
       document.removeEventListener('keydown', this._keydownHandler);
-      this._keydownHandler = null;
+      this._isKeyDownBound = false;
     }
-    this._boundDocument = null;
     this.reset();
   },
 

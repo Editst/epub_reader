@@ -26,13 +26,19 @@
   _contextSeq: 0,
   _rendition: null,
   _keydownHandler: null,
+  _isKeyDownBound: false,
+  _onMouseMove: null,
+  _onMouseUp: null,
 
   init() {
     this.overlay = document.getElementById('image-viewer');
     this.img = document.getElementById('image-viewer-img');
     this.container = document.getElementById('image-viewer-container');
 
-    if (this._boundDocument === document) return;
+    if (this._boundDocument === document) {
+      this._bindGlobalEvents();
+      return;
+    }
     this._boundDocument = document;
 
     // Close handlers
@@ -61,7 +67,7 @@
     let dragStartX = 0;
     let dragStartY = 0;
 
-    const onMouseMove = (e) => {
+    this._onMouseMove = (e) => {
       if (!this.isDragging) return;
       if (Math.hypot((e.clientX || 0) - dragStartX, (e.clientY || 0) - dragStartY) > 4) {
         this._suppressNextClick = true;
@@ -71,13 +77,8 @@
       this.applyTransform();
     };
 
-    const onMouseUp = () => {
-      if (this.isDragging) {
-        this.isDragging = false;
-        if (this.img) this.img.style.transition = 'transform 0.2s ease';
-      }
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+    this._onMouseUp = () => {
+      this._stopDragging();
     };
 
     this.container?.addEventListener('mousedown', (e) => {
@@ -89,8 +90,8 @@
       this.startX = e.clientX - this.translateX;
       this.startY = e.clientY - this.translateY;
       e.preventDefault();
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
+      document.addEventListener('mousemove', this._onMouseMove);
+      document.addEventListener('mouseup', this._onMouseUp);
     });
 
     // Keyboard
@@ -110,7 +111,27 @@
         this.resetTransform();
       }
     };
+    this._isKeyDownBound = false;
+    this._bindGlobalEvents();
+  },
+
+  _bindGlobalEvents() {
+    if (!this._keydownHandler || this._isKeyDownBound) return;
     document.addEventListener('keydown', this._keydownHandler);
+    this._isKeyDownBound = true;
+  },
+
+  _stopDragging() {
+    if (this.isDragging) {
+      this.isDragging = false;
+      if (this.img) this.img.style.transition = 'transform 0.2s ease';
+    }
+    if (this._onMouseMove) {
+      document.removeEventListener('mousemove', this._onMouseMove);
+    }
+    if (this._onMouseUp) {
+      document.removeEventListener('mouseup', this._onMouseUp);
+    }
   },
 
   /**
@@ -126,7 +147,7 @@
   },
 
   close() {
-    this.isDragging = false;
+    this._stopDragging();
     this._suppressNextClick = false;
     if (this.overlay) this.overlay.classList.add('is-hidden');
     if (this.img) this.img.src = '';
@@ -139,7 +160,7 @@
   },
 
   resetTransform() {
-    this.isDragging = false;
+    this._stopDragging();
     this._suppressNextClick = false;
     this.scale = 1;
     this.translateX = 0;
@@ -163,11 +184,11 @@
   unmount() {
     this._contextSeq++;
     this._rendition = null;
-    if (this._keydownHandler) {
+    if (this._keydownHandler && this._isKeyDownBound) {
       document.removeEventListener('keydown', this._keydownHandler);
-      this._keydownHandler = null;
+      this._isKeyDownBound = false;
     }
-    this._boundDocument = null;
+    this._stopDragging();
     this.close();
   },
 

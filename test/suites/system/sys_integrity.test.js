@@ -67,14 +67,13 @@ test.describe('项目工程完整性检查', () => {
       'src/reader/reader.js', 'src/home/home.js',
       'src/reader/search.js', 'src/reader/toc.js',
       'src/reader/bookmarks.js', 'src/reader/annotations.js',
+      'src/popup/popup.js',
     ];
     const prohibitedProps = ['style.display', 'style.visibility', 'style.cssText', 'style.cursor'];
     for (const f of strictFiles) {
       const src = fs.readFileSync(f, 'utf8');
       for (const prop of prohibitedProps) {
-        if (f.includes('reader.js') || f.includes('home.js')) {
-            assert.ok(!src.includes(prop), `${f} 仍有禁止的 ${prop} 直写`);
-        }
+        assert.ok(!src.includes(prop), `${f} 仍有禁止的 ${prop} 直写`);
       }
     }
   });

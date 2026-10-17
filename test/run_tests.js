@@ -125,6 +125,7 @@ const _mockDb = {
   _store: _dbStore,
   _reset() { Object.keys(_dbStore).forEach(k => delete _dbStore[k]); },
   async get(store, key) { return _dbStore[`${store}:${key}`] || null; },
+  async has(store, key) { return Boolean(_dbStore[`${store}:${key}`]); },
   async put(store, data) { const k = data.bookId || data.id; _dbStore[`${store}:${k}`] = data; },
   async delete(store, key) { delete _dbStore[`${store}:${key}`]; },
   async getAllMeta(store, fields) { 

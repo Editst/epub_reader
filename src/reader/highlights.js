@@ -19,6 +19,7 @@
   let _activeHighlightCfi = null;
   let _renderedHighlightCfis = new Set();
   let _boundDocument = null;
+  let _isMouseDownBound = false;
   let _contextSeq = 0;
   const _hookedRenditions = new WeakSet();
   const _hookedContentDocuments = new WeakSet();
@@ -85,33 +86,37 @@
     return hl && hl.color === 'transparent';
   }
 
-  function init() {
-    if (_boundDocument === document) return;
+  function _bindGlobalEvents() {
+    if (_isMouseDownBound) return;
+    window.addEventListener('mousedown', _onWindowMouseDown);
+    _isMouseDownBound = true;
+  }
 
+  function init() {
     toolbar = document.getElementById('selection-toolbar');
     btnAddNote = document.getElementById('btn-add-note');
     btnClearHl = document.getElementById('btn-clear-hl');
-    colorBtns = toolbar.querySelectorAll('.color-btn');
+    if (toolbar) {
+      colorBtns = toolbar.querySelectorAll('.color-btn');
+    }
     notePopup = document.getElementById('note-popup');
     noteTextarea = document.getElementById('note-textarea');
     btnCancelNote = document.getElementById('btn-cancel-note');
     btnSaveNote = document.getElementById('btn-save-note');
+
+    if (_boundDocument === document) {
+      _bindGlobalEvents();
+      return;
+    }
+    _boundDocument = document;
+
     bindDomEvents();
 
-    // 顶层监听只在 init 中绑定一次，避免切书或切换布局时重复累积。
-
-    // Handler: close panels when the user clicks anywhere outside toolbar/popup
-    // on the main (host) page.  Clicks inside the epub.js iframe are handled by
-    // the per-contents mousedown hook registered in setBookDetails.
-    window.addEventListener('mousedown', _onWindowMouseDown);
-
-    // Handler: "Modify Highlight" button inside the note popup.
-    // Only one button exists in the DOM, so one registration is enough.
     const btnShowToolbar = document.getElementById('btn-show-toolbar');
     if (btnShowToolbar) {
       btnShowToolbar.addEventListener('click', _onShowToolbarClick);
     }
-    _boundDocument = document;
+    _bindGlobalEvents();
   }
 
   function _onWindowMouseDown(e) {
@@ -676,10 +681,12 @@
     }
     clearRenderedHighlights();
     closePanels();
-    try { window.removeEventListener('mousedown', _onWindowMouseDown); } catch (e) {
-      console.warn('[Highlights] unmount removeEventListener failed:', e);
+    if (_isMouseDownBound) {
+      try { window.removeEventListener('mousedown', _onWindowMouseDown); } catch (e) {
+        console.warn('[Highlights] unmount removeEventListener failed:', e);
+      }
+      _isMouseDownBound = false;
     }
-    _boundDocument = null;
     highlights = [];
     _bookId = '';
     _rendition = null;
@@ -687,10 +694,8 @@
 
   function reRenderCfi(cfi) {
     if (!cfi || !_rendition) return;
-    const existing = highlights.find((h) => h && h.cfi === cfi);
-    if (existing) {
-      _renderedHighlightCfis.delete(cfi);
-      renderHighlight(existing);
+    if (highlights.some((h) => h && h.cfi === cfi)) {
+      reRenderHighlight(cfi);
     }
   }
 

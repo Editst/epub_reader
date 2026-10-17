@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function showEmptyState() {
     clearRenderedRecentItems();
     recentList.appendChild(emptyState);
-    emptyState.style.display = 'block';
+    emptyState.classList.remove('is-hidden');
   }
 
   function loadRecentBooksSafely() {
@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ]);
     if (renderSeq !== recentBooksRenderSeq) return;
 
-    emptyState.style.display = 'none';
+    emptyState.classList.add('is-hidden');
     clearRenderedRecentItems();
 
     const fragment = typeof document.createDocumentFragment === 'function'

@@ -29,10 +29,10 @@ test.describe('Reader 入口与装配契约', () => {
     assert.notEqual(runtimeIdx, -1);
     assert.notEqual(persistenceIdx, -1);
     assert.notEqual(uiIdx, -1);
-    assert.notEqual(readerIdx, -1);
-    assert.ok(stateIdx < runtimeIdx);
-    assert.ok(runtimeIdx < persistenceIdx || persistenceIdx < runtimeIdx);
-    assert.ok(uiIdx < readerIdx);
+    assert.ok(stateIdx < uiIdx, 'reader-state.js 应在 reader-ui.js 之前加载');
+    assert.ok(uiIdx < persistenceIdx, 'reader-ui.js 应在 reader-persistence.js 之前加载');
+    assert.ok(persistenceIdx < runtimeIdx, 'reader-persistence.js 应在 reader-runtime.js 之前加载');
+    assert.ok(runtimeIdx < readerIdx, 'reader-runtime.js 应在 reader.js 之前加载');
   });
 
   test.it('reader.html 关键显示节点不依赖内联 display:none', () => {

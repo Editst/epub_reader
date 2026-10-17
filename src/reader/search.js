@@ -35,6 +35,14 @@
     }
   }
 
+  let _isKeyDownBound = false;
+
+  function _bindGlobalEvents() {
+    if (!_keydownHandler || _isKeyDownBound) return;
+    document.addEventListener('keydown', _keydownHandler);
+    _isKeyDownBound = true;
+  }
+
   function init() {
     cancelPendingFocus();
     panel = document.getElementById('search-panel');
@@ -43,7 +51,10 @@
     resultsList = document.getElementById('search-results-list');
     statusEl = document.getElementById('search-status');
 
-    if (_boundDocument === document) return;
+    if (_boundDocument === document) {
+      _bindGlobalEvents();
+      return;
+    }
     _boundDocument = document;
 
     const btnSearch = document.getElementById('btn-search');
@@ -83,7 +94,8 @@
         }
       }
     };
-    document.addEventListener('keydown', _keydownHandler);
+    _isKeyDownBound = false;
+    _bindGlobalEvents();
   }
 
   function setBook(b, r) {
@@ -202,7 +214,6 @@
             break;
           }
           // item.find returns array of { cfi, excerpt } using literal substring search
-          const safeQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           itemResults = item.find(query);
         } catch(e) {
           console.warn('Search error in chapter', i, e);
@@ -330,11 +341,10 @@
   }
 
   function unmount() {
-    if (_keydownHandler) {
+    if (_keydownHandler && _isKeyDownBound) {
       document.removeEventListener('keydown', _keydownHandler);
-      _keydownHandler = null;
+      _isKeyDownBound = false;
     }
-    _boundDocument = null;
     reset();
   }
 

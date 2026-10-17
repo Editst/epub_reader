@@ -768,6 +768,7 @@
       (async () => {
         let coverUrl = null;
         try {
+          if (await EpubStorage.getCover(bookId)) return;
           coverUrl = await activeBook.coverUrl();
           if (coverUrl) {
             const blob = await (await fetch(coverUrl)).blob();

@@ -1065,16 +1065,16 @@ const Annotations = {
               const html = this._extractContent(el);
               return { html, href: section.href };
             }
+          } else {
+            const bodyEl = loaded.querySelector?.('body');
+            const html   = bodyEl
+              ? _limitFootnoteHtml(
+                  bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl),
+                  bodyEl.textContent
+                )
+              : '';
+            if (html) return { html, href: section.href };
           }
-
-          const bodyEl = loaded.querySelector?.('body');
-          const html   = bodyEl
-            ? _limitFootnoteHtml(
-                bodyEl.innerHTML || new XMLSerializer().serializeToString(bodyEl),
-                bodyEl.textContent
-              )
-            : '';
-          if (html) return { html, href: section.href };
         } finally {
           if (loadedResult.shouldUnload) {
             try { section.unload(); } catch (err) {
@@ -1216,13 +1216,17 @@ const Annotations = {
     const fragment = _parseHref(href).fragmentId;
     if (!fragment || !this._isCurrentContext(context) || !context.rendition) return;
 
-    await new Promise(r => setTimeout(r, _PAGINATION_SETTLE_MS));
+    await new Promise(r => (typeof setTimeout === 'function' ? setTimeout(r, _PAGINATION_SETTLE_MS) : r()));
     if (!this._isCurrentContext(context)) return;
 
     try {
       const contents = context.rendition.getContents?.()?.[0];
       if (!contents?.document) return;
-      if (!this._findTarget(contents.document, fragment)) {
+      const target = this._findTarget(contents.document, fragment);
+      if (!target || typeof target.getBoundingClientRect !== 'function') return;
+      const rect = target.getBoundingClientRect();
+      const viewWidth = contents.window?.innerWidth || contents.document.documentElement?.clientWidth || 0;
+      if (viewWidth > 0 && rect.left >= viewWidth) {
         await context.rendition.next?.();
       }
     } catch (err) {

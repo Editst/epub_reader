@@ -132,7 +132,7 @@ test.describe('Popup 弹出页 UI 交互行为测试', () => {
 
     await dispatchReady();
 
-    assert.equal(emptyState.style.display, 'block', '无书籍时 emptyState 应设为 block');
+    assert.equal(emptyState.classList.contains('is-hidden'), false, '无书籍时 emptyState 应展示（无 is-hidden）');
   });
 
   test.it('最近书籍有内容时渲染书籍卡片，点击卡片打开 reader', async () => {
@@ -152,7 +152,7 @@ test.describe('Popup 弹出页 UI 交互行为测试', () => {
 
     await dispatchReady();
 
-    assert.equal(emptyState.style.display, 'none', '有书籍时 emptyState 应隐藏');
+    assert.equal(emptyState.classList.contains('is-hidden'), true, '有书籍时 emptyState 应隐藏（有 is-hidden）');
 
     const item = recentList.querySelector('.recent-item');
     assert.ok(item, '应渲染出 .recent-item 卡片');
@@ -198,7 +198,7 @@ test.describe('Popup 弹出页 UI 交互行为测试', () => {
 
     assert.equal(removedBookId, 'book-del', '确认删除应调用 EpubStorage.removeBook(id)');
     assert.equal(createdTabs.length, 0, '删除操作阻止冒泡，不得误触发卡片打开 reader');
-    assert.equal(emptyState.style.display, 'block', '删除最后单本后应刷新并展示空状态');
+    assert.equal(emptyState.classList.contains('is-hidden'), false, '删除最后单本后应刷新并展示空状态');
   });
 
 });

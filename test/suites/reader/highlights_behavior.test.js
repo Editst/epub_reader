@@ -719,7 +719,7 @@ test.describe('Reader Highlights 行为', () => {
     // 调用 reRenderCfi
     Highlights.reRenderCfi('epubcfi(/6/2[c1]!/4/2/1:0)');
     const updatedCount = rendition.annotations.getAnnotations().filter((a) => a.type === 'highlight').length;
-    assert.equal(updatedCount, 2, 'reRenderCfi 应再次调用 highlight 挂载');
+    assert.equal(updatedCount, 1, 'reRenderCfi 应先清理旧注解再重新挂载，不产生叠加');
   });
 
   test.it('点击 #note-popup 内部不会触发关闭 (C4)', async () => {

@@ -3926,6 +3926,141 @@ test.describe('Reader 模块基础行为', () => {
     overlay.dispatch('click', { target: overlay });
     assert.equal(overlay.classList.contains('is-hidden'), true, '空白处直接点击应正常关闭');
   });
+
+  test.it('TOC 切书后重挂载不会重复绑定 #btn-toc 点击监听器导致自关 (P0)', () => {
+    const { document } = createMockDocument([
+      'toc-container',
+      'sidebar',
+      'sidebar-overlay',
+      'btn-toc',
+      'btn-toc-close'
+    ]);
+    const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', {
+      document,
+      window: global
+    });
+    const fakeBook = { navigation: { toc: [] } };
+    const fakeRendition = {};
+
+    // 第一次挂载
+    TOC.mount({ book: fakeBook, rendition: fakeRendition });
+    // 卸载（模拟切书）
+    TOC.unmount();
+    // 第二次挂载
+    TOC.mount({ book: fakeBook, rendition: fakeRendition });
+
+    const sidebar = document.getElementById('sidebar');
+    const btnToc = document.getElementById('btn-toc');
+    assert.equal(sidebar.classList.contains('open'), false, '初始状态目录应关闭');
+
+    // 点击一次目录按钮
+    btnToc.dispatch('click', {});
+    assert.equal(sidebar.classList.contains('open'), true, '切书后点击一次目录按钮应正确打开，不被重复监听器立即关闭');
+
+    // 再次点击应关闭
+    btnToc.dispatch('click', {});
+    assert.equal(sidebar.classList.contains('open'), false, '再次点击应关闭目录');
+  });
+
+  test.it('ImageViewer 拖拽中途按 Escape 关闭或 unmount 时立即清理 document 拖拽监听器 (P0)', () => {
+    const { document } = createMockDocument([
+      'image-viewer',
+      'image-viewer-container',
+      'image-viewer-img',
+      'image-viewer-close',
+      'img-zoom-in',
+      'img-zoom-out',
+      'img-zoom-reset'
+    ]);
+    const ImageViewer = loadIsolatedWindowExport('src/reader/image-viewer.js', 'ImageViewer', {
+      document,
+      window: global
+    });
+    ImageViewer.init();
+    ImageViewer.open('test.png');
+
+    const container = document.getElementById('image-viewer-container');
+    container.dispatch('mousedown', { button: 0, clientX: 50, clientY: 50 });
+    assert.equal(ImageViewer.isDragging, true, '按下左键后进入拖拽状态');
+
+    // 拖拽中途触发 close
+    ImageViewer.close();
+    assert.equal(ImageViewer.isDragging, false, 'close 后 isDragging 应为 false');
+
+    // 模拟移动鼠标，应当不产生 transform 变化
+    const prevTransform = ImageViewer.translateX;
+    document.dispatchEvent('mousemove', { clientX: 200, clientY: 200 });
+    assert.equal(ImageViewer.translateX, prevTransform, '拖拽监听器清理后 mousemove 不应再更新位置');
+  });
+
+  test.it('Annotations._loadFromBook 指定 targetId 但原章节未找到锚点时不会误返回整章 body (P1)', async () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    const fakeBook = {
+      spine: {
+        length: 1,
+        get(key) {
+          if (key === 'chapter1.xhtml' || key === 0) {
+            return {
+              href: 'chapter1.xhtml',
+              load: async () => ({
+                querySelector(sel) {
+                  if (sel === 'body') return { innerHTML: '<p>Whole Chapter Body Content</p>', textContent: 'Whole Chapter Body Content' };
+                  return null; // 找不到 targetId el
+                },
+                querySelectorAll() { return []; },
+                getElementById() { return null; }
+              }),
+              unload() {}
+            };
+          }
+          return null;
+        }
+      }
+    };
+    Annotations.setBook(fakeBook);
+
+    // 1. 当有 targetId 但章节内不存在时，应返回 null，不将整章 body 作为注释弹出
+    const resultWithTarget = await Annotations._loadFromBook('chapter1.xhtml', 'non-existent-fn');
+    assert.equal(resultWithTarget, null, '未找到 targetId 时不应降级返回整章正文');
+
+    // 2. 当无 targetId 时（整章尾注），允许读取 body
+    const resultWithoutTarget = await Annotations._loadFromBook('chapter1.xhtml', '');
+    assert.notEqual(resultWithoutTarget, null);
+    assert.ok(resultWithoutTarget.html.includes('Whole Chapter Body Content'));
+  });
+
+  test.it('Annotations._compensatePaginationOffset 在目标落在多栏右侧分页时触发 rendition.next() (P1)', async () => {
+    const Annotations = loadIsolatedWindowExport('src/reader/annotations.js', 'Annotations');
+    let nextCalled = 0;
+    const mockTarget = {
+      getBoundingClientRect() {
+        return { left: 900, top: 100, width: 20, height: 20 };
+      }
+    };
+    const mockDoc = {
+      getElementById(id) { return id === 'fn1' ? mockTarget : null; },
+      querySelector(sel) { return sel === '#fn1' ? mockTarget : null; },
+      documentElement: { clientWidth: 800 }
+    };
+    const mockRendition = {
+      getContents() {
+        return [{
+          document: mockDoc,
+          window: { innerWidth: 800 }
+        }];
+      },
+      async next() { nextCalled++; }
+    };
+    const context = {
+      book: {},
+      rendition: mockRendition
+    };
+    Annotations._currentContext = () => context;
+    Annotations._isCurrentContext = () => true;
+
+    await Annotations._compensatePaginationOffset('chapter1.xhtml#fn1', context);
+    assert.equal(nextCalled, 1, '目标 left(900) >= viewWidth(800) 时应翻至下一页');
+  });
 });
 
 

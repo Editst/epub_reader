@@ -68,6 +68,12 @@
     let _resizeRendition = null;
     let _resizePersistence = null;
     let _typographyDebounceTimer = null;
+    let _navKeyDownHandler = null;
+    let _documentClickHandler = null;
+    let _dragOverHandler = null;
+    let _dragLeaveHandler = null;
+    let _dropHandler = null;
+    let _storageOnChangedHandler = null;
 
     // ── DOM Cache ─────────────────────────────────────────────────────────────
 
@@ -94,6 +100,7 @@
       fontFamilySelect:   document.getElementById('font-family-select'),
       paragraphIndentCheckbox: document.getElementById('paragraph-indent-checkbox'),
       spreadSelect:       document.getElementById('spread-select'),
+      spreadSettingsGroup: document.getElementById('spread-settings-group'),
       settingsPanel:      document.getElementById('settings-panel'),
       customThemeOptions: document.getElementById('custom-theme-options'),
       customBgColor:      document.getElementById('custom-bg-color'),
@@ -457,8 +464,13 @@
         return;
       }
       const rendition = state.rendition;
+      const locator = state.currentStableLocator;
+      const hasMatchingRestoreCfi = locator &&
+        locator.sourceCfi === state.currentStableCfi &&
+        typeof locator.restoreCfi === 'string' &&
+        locator.restoreCfi;
       const loc = rendition.currentLocation();
-      const savedCfi = (loc && loc.start) ? loc.start.cfi : state.currentStableCfi;
+      const savedCfi = hasMatchingRestoreCfi || (loc && loc.start ? loc.start.cfi : state.currentStableCfi);
       const context = _beginReflow(rendition);
       try {
         fn();
@@ -656,6 +668,9 @@
       if (dom.spreadSelect) {
         dom.spreadSelect.value = state.prefs.spread || 'auto';
       }
+      if (dom.spreadSettingsGroup) {
+        dom.spreadSettingsGroup.classList.toggle('is-hidden', state.prefs.layout === 'scrolled');
+      }
       document.querySelectorAll('.layout-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.layout === state.prefs.layout);
       });
@@ -680,7 +695,8 @@
 
       dom.readerMain?.addEventListener('click', () => ensureFocus());
 
-      document.addEventListener('keydown', (e) => _handleKeyNav(e, _runtime));
+      _navKeyDownHandler = (e) => _handleKeyNav(e, _runtime);
+      document.addEventListener('keydown', _navKeyDownHandler);
     }
 
     function bindProgress() {
@@ -717,7 +733,11 @@
       document.querySelectorAll('.layout-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (!_runtime) return;
-          Promise.resolve(_runtime.setLayout(btn.dataset.layout)).catch((e) => {
+          const targetLayout = btn.dataset.layout;
+          if (dom.spreadSettingsGroup) {
+            dom.spreadSettingsGroup.classList.toggle('is-hidden', targetLayout === 'scrolled');
+          }
+          Promise.resolve(_runtime.setLayout(targetLayout)).catch((e) => {
             console.warn('[ReaderUi] layout switch failed:', e);
           });
         });
@@ -747,14 +767,8 @@
       }
     }
 
-    let _preTypographyCfi = null;
-
     function _beginTypographyAdjustment() {
       if (!state.rendition || !state.isBookLoaded) return;
-      if (!_preTypographyCfi) {
-        const loc = state.rendition.currentLocation();
-        _preTypographyCfi = (loc && loc.start) ? loc.start.cfi : state.currentStableCfi;
-      }
       state.isResizing = true;
       state.isRestoringPosition = true;
     }
@@ -765,7 +779,6 @@
       }
       _typographyDebounceTimer = _safeSetTimeout(() => {
         _typographyDebounceTimer = null;
-        _preTypographyCfi = null;
         _withCfiLock(() => updateCustomStyles(), persistence);
       }, TYPOGRAPHY_REFLOW_DEBOUNCE_MS);
     }
@@ -774,7 +787,6 @@
       if (_typographyDebounceTimer !== null) {
         _safeClearTimeout(_typographyDebounceTimer);
         _typographyDebounceTimer = null;
-        _preTypographyCfi = null;
         _withCfiLock(() => updateCustomStyles(), persistence);
       }
     }
@@ -841,7 +853,9 @@
         e.target.value = spread;
         _savePreferencesSafely({ spread });
         if (_runtime && typeof _runtime.setLayout === 'function') {
-          _runtime.setLayout(state.prefs.layout);
+          Promise.resolve(_runtime.setLayout(state.prefs.layout)).catch((err) => {
+            console.warn('[ReaderUi] spreadSelect setLayout failed:', err);
+          });
         }
       });
     }
@@ -851,7 +865,7 @@
       document.getElementById('btn-settings-close')?.addEventListener('click', () => closeSettings());
       document.getElementById('btn-bookmark')?.addEventListener('click', () => _toggleBookmarkAtCurrent());
 
-      document.addEventListener('click', (e) => {
+      _documentClickHandler = (e) => {
         const isInsidePanel = e.target.closest('#settings-panel') ||
           e.target.closest('#bookmarks-panel') ||
           e.target.closest('#sidebar') ||
@@ -861,28 +875,34 @@
           e.target.closest('#note-popup') ||
           e.target.closest('#selection-toolbar');
         if (!isInsidePanel) closeAllPanels();
-      });
+      };
+      document.addEventListener('click', _documentClickHandler);
     }
 
     function bindDragAndDrop() {
-      document.addEventListener('dragover', (e) => {
+      _dragOverHandler = (e) => {
         e.preventDefault();
         e.stopPropagation();
         dom.dragOverlay?.classList.remove('is-hidden');
-      });
-      document.addEventListener('dragleave', (e) => {
+      };
+      document.addEventListener('dragover', _dragOverHandler);
+
+      _dragLeaveHandler = (e) => {
         if (e.relatedTarget === null || e.relatedTarget === document.documentElement) {
           dom.dragOverlay?.classList.add('is-hidden');
         }
-      });
-      document.addEventListener('drop', async (e) => {
+      };
+      document.addEventListener('dragleave', _dragLeaveHandler);
+
+      _dropHandler = async (e) => {
         e.preventDefault();
         e.stopPropagation();
         dom.dragOverlay?.classList.add('is-hidden');
         const files = e.dataTransfer?.files;
         if (!files || files.length === 0) return;
         if (_runtime) await openLocalFiles(files, _runtime);
-      });
+      };
+      document.addEventListener('drop', _dropHandler);
     }
 
     function bindResize(persistence) {
@@ -948,14 +968,19 @@
         ? files
         : (files && typeof files[Symbol.iterator] === 'function' ? Array.from(files) : [files]);
       const fileList = rawList.filter((f) => f && f.name && f.name.toLowerCase().endsWith('.epub'));
-      if (fileList.length === 0) return;
+      if (fileList.length === 0) {
+        if (rawList.length > 0 && typeof alert === 'function') {
+          alert('请选择有效的 .epub 格式电子书文件。');
+        }
+        return;
+      }
 
       try {
         showLoading(true);
         let firstResult = null;
         for (const file of fileList) {
           try {
-            const res = await EpubStorage.importBookFile(file);
+            const res = await EpubStorage.importBookFile(file, { skipLRU: true });
             if (!firstResult && res) {
               firstResult = { res, file };
             }
@@ -965,6 +990,16 @@
         }
         if (firstResult) {
           const { bookId, fileData } = firstResult.res;
+          if (fileList.length > 1 && typeof EpubStorage.addRecentBook === 'function') {
+            await EpubStorage.addRecentBook({
+              id: bookId,
+              title: firstResult.file.name.replace(/\.epub$/i, ''),
+              filename: firstResult.file.name
+            });
+          }
+          if (typeof EpubStorage.enforceFileLRU === 'function') {
+            await EpubStorage.enforceFileLRU(10);
+          }
           await runtime.openBook(fileData || firstResult.file, bookId, firstResult.file.name);
           const readerUrl = chrome.runtime.getURL('reader/reader.html') +
             '?bookId=' + encodeURIComponent(bookId);
@@ -982,10 +1017,6 @@
       const task = _openLocalFileQueue.then(() => _openLocalFiles(files, runtime));
       _openLocalFileQueue = task.catch(() => {});
       return task;
-    }
-
-    function openLocalFile(file, runtime) {
-      return openLocalFiles(file ? [file] : [], runtime);
     }
 
     /**
@@ -1024,9 +1055,8 @@
       bindResize(_resizePersistence);
 
       if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
-        chrome.storage.onChanged.addListener((changes, area) => {
+        _storageOnChangedHandler = (changes, area) => {
           if (area !== 'local' || !changes.preferences?.newValue) return;
-          if (state.isResizing) return;
 
           const prev = normalizePreferences(state.prefs || {});
           const next = normalizePreferences(changes.preferences.newValue);
@@ -1050,7 +1080,7 @@
           state.prefs = next;
           syncPrefsToControls();
 
-          if (!state.rendition || !state.isBookLoaded) return;
+          if (!state.rendition || !state.isBookLoaded || state.isResizing) return;
 
           if (layoutChanged && _runtime && typeof _runtime.setLayout === 'function') {
             Promise.resolve(_runtime.setLayout(state.prefs.layout)).catch((e) => {
@@ -1073,7 +1103,8 @@
             applyThemeToRendition(state.prefs.theme);
             updateCustomStyles();
           }
-        });
+        };
+        chrome.storage.onChanged.addListener(_storageOnChangedHandler);
       }
     }
 
@@ -1096,6 +1127,34 @@
       if (_typographyDebounceTimer !== null) {
         _safeClearTimeout(_typographyDebounceTimer);
         _typographyDebounceTimer = null;
+      }
+      if (_navKeyDownHandler) {
+        document.removeEventListener('keydown', _navKeyDownHandler);
+        _navKeyDownHandler = null;
+      }
+      if (_documentClickHandler) {
+        document.removeEventListener('click', _documentClickHandler);
+        _documentClickHandler = null;
+      }
+      if (_dragOverHandler) {
+        document.removeEventListener('dragover', _dragOverHandler);
+        _dragOverHandler = null;
+      }
+      if (_dragLeaveHandler) {
+        document.removeEventListener('dragleave', _dragLeaveHandler);
+        _dragLeaveHandler = null;
+      }
+      if (_dropHandler) {
+        document.removeEventListener('drop', _dropHandler);
+        _dropHandler = null;
+      }
+      if (_storageOnChangedHandler && typeof chrome !== 'undefined' && chrome.storage?.onChanged?.removeListener) {
+        try {
+          chrome.storage.onChanged.removeListener(_storageOnChangedHandler);
+        } catch (e) {
+          console.warn('[ReaderUi] remove storage.onChanged listener failed:', e);
+        }
+        _storageOnChangedHandler = null;
       }
       _preResizeCfi = null;
       _resizeRendition = null;
