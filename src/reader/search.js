@@ -319,6 +319,7 @@
   }
 
   function mount(context) {
+    init();
     if (!context) return;
     navigate = typeof context.navigate === 'function' ? context.navigate : null;
     panelController = context.panelController || null;

@@ -660,6 +660,7 @@
   }
 
   function mount(context) {
+    init();
     if (!context) return;
     return setBookDetails(context.bookId, context.rendition);
   }

@@ -3679,6 +3679,127 @@ test.describe('Reader 模块基础行为', () => {
       '关闭面板时应调用 Highlights.reRenderCfi 恢复同位置的用户高亮'
     );
   });
+
+  test.it('TOC 和 Search 在 unmount 后重新 mount 仍能响应快捷键 (H4)', async () => {
+    const { document } = createMockDocument([
+      'sidebar', 'sidebar-overlay', 'toc-container', 'btn-toc', 'btn-toc-close',
+      'search-panel', 'search-input', 'btn-do-search', 'search-results-list',
+      'search-status', 'btn-search', 'btn-search-close', 'bookmarks-panel'
+    ]);
+    const TOC = loadIsolatedWindowExport('src/reader/toc.js', 'TOC', {
+      document,
+      window: { document, focus() {}, addEventListener() {} }
+    });
+    const Search = loadIsolatedWindowExport('src/reader/search.js', 'Search', {
+      document,
+      window: { document, focus() {}, addEventListener() {} },
+      setTimeout,
+      clearTimeout
+    });
+
+    TOC.init();
+    Search.init();
+
+    const mockCtx = {
+      book: { navigation: { toc: [] }, spine: { length: 0, get() { return null; } } },
+      rendition: { display: async () => {} }
+    };
+
+    // 模拟切书触发 unmount -> mount
+    TOC.unmount();
+    TOC.mount(mockCtx);
+
+    Search.unmount();
+    Search.mount(mockCtx);
+
+    const sidebar = document.getElementById('sidebar');
+    const searchPanel = document.getElementById('search-panel');
+
+    // 验证按 T 能够切换 TOC 面板
+    document.dispatchEvent('keydown', { key: 't', target: document.body });
+    assert.equal(sidebar.classList.contains('open'), true, 'TOC unmount 后重新 mount 应正常响应 T 快捷键');
+
+    // 验证按大写 T 也能兼容切换
+    document.dispatchEvent('keydown', { key: 'T', target: document.body });
+    assert.equal(sidebar.classList.contains('open'), false, 'TOC 应对大写 T 同样支持切换');
+
+    // 验证按 F 能够切换 Search 面板
+    document.dispatchEvent('keydown', { key: 'f', target: document.body });
+    assert.equal(searchPanel.classList.contains('open'), true, 'Search unmount 后重新 mount 应正常响应 F 快捷键');
+  });
+
+  test.it('ReaderUi 响应跨标签页 preferences 变更，精准区分 layout、排版与主题更新 (H2, H3)', async () => {
+    let capturedLayout = null;
+    let customStylesCount = 0;
+    const elements = [
+      'welcome-screen', 'loading-overlay', 'loading-text', 'reader-main', 'bottom-bar',
+      'toolbar', 'file-input', 'book-title', 'chapter-title', 'progress-slider',
+      'progress-current', 'progress-location', 'progress-time', 'font-size-slider',
+      'font-size-value', 'line-height-slider', 'line-height-value', 'font-family-select',
+      'paragraph-indent-checkbox', 'spread-select',
+      'settings-panel', 'custom-theme-options', 'custom-bg-color', 'custom-text-color',
+      'drag-overlay', 'welcome-open-btn', 'btn-open', 'btn-home', 'btn-prev', 'btn-next',
+      'btn-settings', 'btn-settings-close', 'btn-bookmark', 'sidebar', 'bookmarks-panel',
+      'search-panel', 'sidebar-overlay'
+    ];
+    const { document } = createMockDocument(elements);
+    const storageListeners = [];
+    const chromeMock = {
+      storage: {
+        local: {
+          get: async () => ({}),
+          set: async () => ({})
+        },
+        onChanged: {
+          addListener(fn) { storageListeners.push(fn); }
+        }
+      }
+    };
+
+    let spreadSet = null;
+    const mockRendition = {
+      spread(val) { spreadSet = val; },
+      themes: { select() {}, fontSize() {}, override() {}, default() {} },
+      currentLocation() { return { start: { cfi: 'epubcfi(/6/2)' } }; },
+      display: async () => {}
+    };
+
+    const state = {
+      prefs: { layout: 'paginated', spread: 'auto', fontSize: 18, lineHeight: 1.8, fontFamily: '', theme: 'light', paragraphIndent: true },
+      isBookLoaded: true,
+      isResizing: false,
+      rendition: mockRendition
+    };
+
+    const ReaderUi = loadIsolatedWindowExport('src/reader/reader-ui.js', 'ReaderUi', {
+      document,
+      window: { document, focus() {}, addEventListener() {}, requestAnimationFrame(cb) { cb(); } },
+      requestAnimationFrame: (cb) => cb(),
+      chrome: chromeMock,
+      EpubStorage: { async savePreferences() {} }
+    });
+
+    const ui = ReaderUi.createReaderUi({ state, persistence: { onRelocated() {} } });
+    ui.bindRuntime({
+      setLayout: async (l) => { capturedLayout = l; }
+    });
+
+    assert.equal(storageListeners.length, 1, '应注册 storage.onChanged 监听');
+    const listener = storageListeners[0];
+
+    // 1. 无关字段变更（如仅 homeTheme）：短路返回
+    listener({ preferences: { newValue: { ...state.prefs, homeTheme: 'dark' } } }, 'local');
+    assert.equal(capturedLayout, null);
+    assert.equal(spreadSet, null);
+
+    // 2. 跨标签页修改 layout：应触发 runtime.setLayout
+    listener({ preferences: { newValue: { ...state.prefs, layout: 'scrolled' } } }, 'local');
+    assert.equal(capturedLayout, 'scrolled', '跨标签页 layout 变化应触发 runtime.setLayout');
+
+    // 3. 跨标签页修改 spread：应在排版重排中调用 rendition.spread
+    listener({ preferences: { newValue: { ...state.prefs, spread: 'none' } } }, 'local');
+    assert.equal(spreadSet, 'none', '跨标签页 spread 变化应调用 rendition.spread');
+  });
 });
 
 

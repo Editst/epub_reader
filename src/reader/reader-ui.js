@@ -1016,15 +1016,53 @@
 
       if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
         chrome.storage.onChanged.addListener((changes, area) => {
-          if (area === 'local' && changes.preferences && changes.preferences.newValue) {
-            if (!state.isResizing) {
-              state.prefs = normalizePreferences(changes.preferences.newValue);
-              syncPrefsToControls();
-              if (state.rendition && state.isBookLoaded) {
-                applyThemeToRendition(state.prefs.theme);
-                updateCustomStyles();
+          if (area !== 'local' || !changes.preferences?.newValue) return;
+          if (state.isResizing) return;
+
+          const prev = normalizePreferences(state.prefs || {});
+          const next = normalizePreferences(changes.preferences.newValue);
+
+          const layoutChanged = next.layout !== prev.layout;
+          const spreadChanged = next.spread !== prev.spread;
+          const typographyChanged =
+            next.fontSize !== prev.fontSize ||
+            next.lineHeight !== prev.lineHeight ||
+            next.fontFamily !== prev.fontFamily ||
+            Boolean(next.paragraphIndent) !== Boolean(prev.paragraphIndent);
+          const themeChanged =
+            next.theme !== prev.theme ||
+            next.customBg !== prev.customBg ||
+            next.customText !== prev.customText;
+
+          if (!layoutChanged && !spreadChanged && !typographyChanged && !themeChanged) {
+            return;
+          }
+
+          state.prefs = next;
+          syncPrefsToControls();
+
+          if (!state.rendition || !state.isBookLoaded) return;
+
+          if (layoutChanged && _runtime && typeof _runtime.setLayout === 'function') {
+            Promise.resolve(_runtime.setLayout(state.prefs.layout)).catch((e) => {
+              console.warn('[ReaderUi] cross-tab setLayout failed:', e);
+            });
+            return;
+          }
+
+          if (typographyChanged || spreadChanged) {
+            _withCfiLock(() => {
+              if (spreadChanged && typeof state.rendition.spread === 'function') {
+                state.rendition.spread(state.prefs.spread);
               }
-            }
+              if (themeChanged) {
+                applyThemeToRendition(state.prefs.theme);
+              }
+              updateCustomStyles();
+            }, _resizePersistence);
+          } else if (themeChanged) {
+            applyThemeToRendition(state.prefs.theme);
+            updateCustomStyles();
           }
         });
       }

@@ -141,6 +141,7 @@
 
 
   mount(context) {
+    this.init();
     if (!context?.rendition) return;
     this.hookRendition(context.rendition);
   },

@@ -34,7 +34,7 @@
 
     // Keyboard shortcut
     this._keydownHandler = (e) => {
-      if (e.key === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key && e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (!Utils.isEditableTarget(e.target)) {
           e.preventDefault();
           this.toggle();
@@ -50,6 +50,7 @@
    * @param {object} rendition - epub.js rendition
    */
   mount(context) {
+    this.init();
     if (!context?.book || !context?.rendition) return;
     this.navigate = typeof context.navigate === 'function' ? context.navigate : null;
     this.panelController = context.panelController || null;
