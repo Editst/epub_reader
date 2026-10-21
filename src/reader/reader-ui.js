@@ -35,6 +35,7 @@
     'sans-serif'
   ]);
 
+  // isolated 测试沙箱可能没有全局定时器；浏览器环境始终走 window.setTimeout。
   function _safeSetTimeout(fn, ms) {
     if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
       return window.setTimeout(fn, ms);
@@ -1232,10 +1233,8 @@
       ensureFocus,
       setupRenditionKeyEvents,
       injectCustomStyleElement,
-      updateCustomStyles,
       openExclusivePanel,
       closePanelWithOverlayCheck,
-      closeAllPanels,
       syncPrefsToControls
     };
   }

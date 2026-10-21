@@ -286,15 +286,6 @@ function _indexSpineContext(ctx, book, contents) {
   }
 }
 
-function _escapeHtmlText(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 function _stripHtmlToText(html) {
   return _normalizeInlineText(String(html || '').replace(/<[^>]+>/g, ' '));
 }
@@ -305,7 +296,7 @@ function _nodeText(node) {
 
 function _serializeNode(node) {
   if (!node) return '';
-  if (node.nodeType === 3) return _escapeHtmlText(node.nodeValue ?? node.textContent ?? '');
+  if (node.nodeType === 3) return Utils.escapeHtml(node.nodeValue ?? node.textContent ?? '');
   if (typeof node.outerHTML === 'string') return node.outerHTML;
   try {
     if (typeof XMLSerializer !== 'undefined') {
@@ -314,13 +305,13 @@ function _serializeNode(node) {
   } catch (err) {
     console.warn('[Annotations] _serializeNode XMLSerializer failed:', err);
   }
-  return _escapeHtmlText(_nodeText(node));
+  return Utils.escapeHtml(_nodeText(node));
 }
 
 function _limitFootnoteHtml(html, plainText) {
   const text = _normalizeInlineText(plainText || _stripHtmlToText(html));
   if (text.length <= _MAX_FOOTNOTE_TEXT) return html;
-  return `<p>${_escapeHtmlText(text.slice(0, _MAX_FOOTNOTE_TEXT))}${_FOOTNOTE_TRUNCATION_HINT}</p>`;
+  return `<p>${Utils.escapeHtml(text.slice(0, _MAX_FOOTNOTE_TEXT))}${_FOOTNOTE_TRUNCATION_HINT}</p>`;
 }
 
 function _isEmptyAnchorBoundary(node) {
@@ -449,7 +440,7 @@ function _sanitizePopupHtml(html) {
 
   const template = document.createElement('template');
   if (!template || !('innerHTML' in template)) {
-    return `<p>${_escapeHtmlText(_stripHtmlToText(stripped))}</p>`;
+    return `<p>${Utils.escapeHtml(_stripHtmlToText(stripped))}</p>`;
   }
 
   template.innerHTML = stripped;

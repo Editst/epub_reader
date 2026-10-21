@@ -20,17 +20,12 @@
   --text-accent: #e94560;
 
   --border-color: rgba(0, 0, 0, 0.06);
-  --border-strong: rgba(0, 0, 0, 0.12);
 
-  --btn-primary-bg: linear-gradient(135deg, #e94560, #c23152);
-  --btn-primary-text: #ffffff;
   --btn-hover-bg: rgba(0, 0, 0, 0.04);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.15);
   --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.12);
   --shadow-popup: 0 12px 40px rgba(0, 0, 0, 0.15);
 
@@ -38,7 +33,6 @@
   --reader-text: #2d2d2d;
 
   --progress-bg: rgba(0, 0, 0, 0.06);
-  --progress-fill: linear-gradient(90deg, #e94560, #c23152);
 
   --toc-active-bg: rgba(233, 69, 96, 0.08);
   --toc-hover-bg: rgba(0, 0, 0, 0.03);
@@ -59,17 +53,12 @@
   --text-accent: #ff6b81;
 
   --border-color: rgba(255, 255, 255, 0.06);
-  --border-strong: rgba(255, 255, 255, 0.12);
 
-  --btn-primary-bg: linear-gradient(135deg, #ff6b81, #e94560);
-  --btn-primary-text: #ffffff;
   --btn-hover-bg: rgba(255, 255, 255, 0.06);
 
   --scrollbar-thumb: rgba(255, 255, 255, 0.15);
   --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.5);
   --shadow-popup: 0 12px 40px rgba(0, 0, 0, 0.6);
 
@@ -77,7 +66,6 @@
   --reader-text: #d4d0c8;
 
   --progress-bg: rgba(255, 255, 255, 0.06);
-  --progress-fill: linear-gradient(90deg, #ff6b81, #e94560);
 
   --toc-active-bg: rgba(255, 107, 129, 0.12);
   --toc-hover-bg: rgba(255, 255, 255, 0.04);
@@ -98,17 +86,12 @@
   --text-accent: #c0523e;
 
   --border-color: rgba(100, 70, 30, 0.1);
-  --border-strong: rgba(100, 70, 30, 0.18);
 
-  --btn-primary-bg: linear-gradient(135deg, #c0523e, #a0402e);
-  --btn-primary-text: #ffffff;
   --btn-hover-bg: rgba(100, 70, 30, 0.06);
 
   --scrollbar-thumb: rgba(100, 70, 30, 0.2);
   --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 3px rgba(100, 70, 30, 0.08);
-  --shadow-md: 0 4px 12px rgba(100, 70, 30, 0.1);
   --shadow-lg: 0 8px 30px rgba(100, 70, 30, 0.12);
   --shadow-popup: 0 12px 40px rgba(100, 70, 30, 0.15);
 
@@ -116,7 +99,6 @@
   --reader-text: #3e2f1c;
 
   --progress-bg: rgba(100, 70, 30, 0.08);
-  --progress-fill: linear-gradient(90deg, #c0523e, #a0402e);
 
   --toc-active-bg: rgba(192, 82, 62, 0.1);
   --toc-hover-bg: rgba(100, 70, 30, 0.04);
@@ -137,17 +119,12 @@
   --text-accent: #3a7d44;
 
   --border-color: rgba(40, 80, 40, 0.1);
-  --border-strong: rgba(40, 80, 40, 0.18);
 
-  --btn-primary-bg: linear-gradient(135deg, #3a7d44, #2d6636);
-  --btn-primary-text: #ffffff;
   --btn-hover-bg: rgba(40, 80, 40, 0.06);
 
   --scrollbar-thumb: rgba(40, 80, 40, 0.2);
   --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 3px rgba(40, 80, 40, 0.08);
-  --shadow-md: 0 4px 12px rgba(40, 80, 40, 0.1);
   --shadow-lg: 0 8px 30px rgba(40, 80, 40, 0.12);
   --shadow-popup: 0 12px 40px rgba(40, 80, 40, 0.15);
 
@@ -155,7 +132,6 @@
   --reader-text: #2b3a2b;
 
   --progress-bg: rgba(40, 80, 40, 0.08);
-  --progress-fill: linear-gradient(90deg, #3a7d44, #2d6636);
 
   --toc-active-bg: rgba(58, 125, 68, 0.1);
   --toc-hover-bg: rgba(40, 80, 40, 0.04);
@@ -177,17 +153,12 @@
   --text-accent: #e94560;
 
   --border-color: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.12);
 
-  --btn-primary-bg: linear-gradient(135deg, #e94560, #c23152);
-  --btn-primary-text: #ffffff;
   --btn-hover-bg: rgba(0, 0, 0, 0.06);
 
   --scrollbar-thumb: rgba(0, 0, 0, 0.2);
   --scrollbar-track: transparent;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.12);
   --shadow-popup: 0 12px 40px rgba(0, 0, 0, 0.15);
 
@@ -195,7 +166,6 @@
   --reader-text: #2d2d2d;
 
   --progress-bg: rgba(0, 0, 0, 0.08);
-  --progress-fill: linear-gradient(90deg, #e94560, #c23152);
 
   --toc-active-bg: rgba(233, 69, 96, 0.1);
   --toc-hover-bg: rgba(0, 0, 0, 0.04);

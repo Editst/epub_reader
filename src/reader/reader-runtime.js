@@ -158,6 +158,12 @@
       return state.currentBookId === bookId && state.book === activeBook;
     }
 
+    function _refreshReadingStats() {
+      if (persistence && typeof persistence.updateReadingStats === 'function') {
+        persistence.updateReadingStats();
+      }
+    }
+
     function _getSectionReadingText(item, loadedContent) {
       const doc = item && item.document
         ? item.document
@@ -252,16 +258,12 @@
       const spine = activeBook && activeBook.spine;
       if (!spine || !Number.isFinite(spine.length) || typeof spine.get !== 'function') {
         state.contentUnitStatus = 'failed';
-        if (persistence && typeof persistence.updateReadingStats === 'function') {
-          persistence.updateReadingStats();
-        }
+        _refreshReadingStats();
         return;
       }
 
       state.contentUnitStatus = 'pending';
-      if (persistence && typeof persistence.updateReadingStats === 'function') {
-        persistence.updateReadingStats();
-      }
+      _refreshReadingStats();
 
       scheduleLocationsGeneration(async () => {
         if (!_isActiveBook(bookId, activeBook)) return;
@@ -284,9 +286,7 @@
           console.warn('[Runtime] content unit count failed:', e);
         }
 
-        if (persistence && typeof persistence.updateReadingStats === 'function') {
-          persistence.updateReadingStats();
-        }
+        _refreshReadingStats();
       });
     }
 
@@ -703,9 +703,7 @@
           if (typeof ui.setLocationIndexStatus === 'function') {
             ui.setLocationIndexStatus('failed', '阅读定位索引不可用');
           }
-          if (persistence && typeof persistence.updateReadingStats === 'function') {
-            persistence.updateReadingStats();
-          }
+          _refreshReadingStats();
         }
 
         if (_isActiveBook(bookId, activeBook)) {
@@ -1281,7 +1279,6 @@
       cancelPendingLoad,
       loadFileByBookId,
       discardDeletedBook,
-      scheduleLocationsGeneration,
       navigateTo,
       next,
       prev,

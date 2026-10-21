@@ -119,14 +119,11 @@
      */
     function _isPositionMeaningfullyChanged(newCfi, oldCfi) {
       if (!newCfi && !oldCfi) return false;
-      if (!newCfi || !oldCfi) return true;
       return newCfi !== oldCfi;
     }
 
     function _isPercentMeaningfullyChanged(newPercent, oldPercent) {
-      if (newPercent === null || newPercent === undefined) return false;
-      if (oldPercent === null || oldPercent === undefined) return true;
-      return newPercent !== oldPercent;
+      return newPercent !== null && newPercent !== undefined && newPercent !== oldPercent;
     }
 
     function _isLocatorMeaningfullyChanged(newLocator, oldLocator) {

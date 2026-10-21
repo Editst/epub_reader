@@ -1,7 +1,7 @@
 /**
  * src/utils/utils.js
  * 共享工具函数 — 跨页面通用函数集合
- * 除 escapeHtml 使用 document.createElement 外，不依赖扩展 API。
+ * 纯函数集合，不依赖扩展 API 与 DOM。
  */
 (function () {
   'use strict';

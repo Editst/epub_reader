@@ -937,9 +937,9 @@ test.describe('EpubStorage 行为覆盖', () => {
         highlights: 'highlights_', bookmarks: 'bookmarks_'
       }).some((prefix) => key.startsWith(prefix))
     ), false);
-    assert.deepEqual(await EpubStorage._dbGateway.getAll('files'), []);
-    assert.deepEqual(await EpubStorage._dbGateway.getAll('covers'), []);
-    assert.deepEqual(await EpubStorage._dbGateway.getAll('locations'), []);
+    assert.deepEqual(await EpubStorage._dbGateway.getAllMeta('files'), []);
+    assert.deepEqual(await EpubStorage._dbGateway.getAllMeta('covers'), []);
+    assert.deepEqual(await EpubStorage._dbGateway.getAllMeta('locations'), []);
   });
 
   test.it('enforceFileLRU 按时间戳从旧到新排序驱逐（LRU 顺序）', async () => {

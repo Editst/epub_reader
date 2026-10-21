@@ -307,7 +307,6 @@ interface IDbGateway {
   has(storeName: string, key: any): Promise<boolean>;
   put(storeName: string, data: object): Promise<void>;
   delete(storeName: string, key: any): Promise<void>;
-  getAll(storeName: string): Promise<any[]>;
   getAllMeta(storeName: string, fields?: string[]): Promise<object[]>;
 }
 ```
@@ -376,7 +375,6 @@ interface IReaderRuntime {
   cancelPendingLoad(): void;
   loadFileByBookId(bookId: string, options?: { targetCfi?: string | null }): Promise<void>;
   discardDeletedBook(bookId: string): boolean;
-  scheduleLocationsGeneration(task: Function): void;
   navigateTo(target: string): Promise<boolean>;
   next(): Promise<boolean>;
   prev(): Promise<boolean>;
@@ -464,10 +462,8 @@ interface IReaderUi {
   ensureFocus(): void;
   setupRenditionKeyEvents(rend: object, persistence: object, runtime: object): void;
   injectCustomStyleElement(contents: object): void;
-  updateCustomStyles(): void;
   openExclusivePanel(panelElement: HTMLElement): void;
   closePanelWithOverlayCheck(panelElement: HTMLElement): void;
-  closeAllPanels(): void;
   syncPrefsToControls(): void;
 }
 ```

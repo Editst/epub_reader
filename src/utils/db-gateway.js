@@ -93,74 +93,61 @@ const DbGateway = {
     return connectionPromise;
   },
 
-  async get(storeName, key) {
+  async _runStoreRequest(storeName, mode, options, run) {
+    const {
+      label = mode,
+      missing = null,
+      warning = '',
+      project = (value) => value
+    } = options;
     const db = await this.connect();
     return new Promise((resolve, reject) => {
       if (!db.objectStoreNames.contains(storeName)) {
-        console.warn(`[DbGateway] Store "${storeName}" not found.`);
-        return resolve(null);
+        if (warning) console.warn(warning);
+        return resolve(missing);
       }
-      const tx  = db.transaction(storeName, 'readonly');
-      const req = tx.objectStore(storeName).get(key);
-      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] get aborted for store "${storeName}"`));
-      req.onsuccess = () => resolve(req.result ?? null);
-      req.onerror   = () => reject(req.error);
+      const tx = db.transaction(storeName, mode);
+      const request = run(tx.objectStore(storeName));
+      tx.onabort = () => reject(tx.error || new Error(`[DbGateway] ${label} aborted for store "${storeName}"`));
+      tx.onerror = () => reject(tx.error);
+      request.onerror = () => reject(request.error);
+      if (mode === 'readwrite') {
+        tx.oncomplete = () => resolve();
+      } else {
+        request.onsuccess = () => resolve(project(request.result));
+      }
     });
+  },
+
+  async get(storeName, key) {
+    return this._runStoreRequest(storeName, 'readonly', {
+      label: 'get',
+      warning: `[DbGateway] Store "${storeName}" not found.`,
+      project: (value) => value ?? null
+    }, (store) => store.get(key));
   },
 
   async has(storeName, key) {
-    const db = await this.connect();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(storeName)) return resolve(false);
-      const tx  = db.transaction(storeName, 'readonly');
-      const req = tx.objectStore(storeName).count(key);
-      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] has aborted for store "${storeName}"`));
-      req.onsuccess = () => resolve(req.result > 0);
-      req.onerror   = () => reject(req.error);
-    });
+    return this._runStoreRequest(storeName, 'readonly', {
+      label: 'has',
+      missing: false,
+      project: (value) => value > 0
+    }, (store) => store.count(key));
   },
 
   async put(storeName, data) {
-    const db = await this.connect();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(storeName)) {
-        console.warn(`[DbGateway] Store "${storeName}" not found, skipping put.`);
-        return resolve();
-      }
-      const tx    = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req   = store.put(data);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
-      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] put aborted for store "${storeName}"`));
-      req.onerror   = () => reject(req.error);
-    });
+    return this._runStoreRequest(storeName, 'readwrite', {
+      label: 'put',
+      missing: undefined,
+      warning: `[DbGateway] Store "${storeName}" not found, skipping put.`
+    }, (store) => store.put(data));
   },
 
   async delete(storeName, key) {
-    const db = await this.connect();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(storeName)) return resolve();
-      const tx    = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      const req   = store.delete(key);
-      tx.oncomplete = () => resolve();
-      tx.onerror    = () => reject(tx.error);
-      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] delete aborted for store "${storeName}"`));
-      req.onerror   = () => reject(req.error);
-    });
-  },
-
-  async getAll(storeName) {
-    const db = await this.connect();
-    return new Promise((resolve, reject) => {
-      if (!db.objectStoreNames.contains(storeName)) return resolve([]);
-      const tx  = db.transaction(storeName, 'readonly');
-      const req = tx.objectStore(storeName).getAll();
-      tx.onabort    = () => reject(tx.error || new Error(`[DbGateway] getAll aborted for store "${storeName}"`));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror   = () => reject(req.error);
-    });
+    return this._runStoreRequest(storeName, 'readwrite', {
+      label: 'delete',
+      missing: undefined
+    }, (store) => store.delete(key));
   },
 
   /**
