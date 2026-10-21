@@ -74,13 +74,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         await EpubStorage.removeBook(bookId);
       } catch (err) {
         console.warn('[Home] remove book failed:', err);
+        showToast('删除失败，请重试');
       } finally {
         _cachedRawHighlights = null;
         _cachedRecentBooks = null;
         await loadBookshelfSafely();
         if (document.getElementById('pane-annotations')?.classList.contains('active')) {
           const activeFilter = document.querySelector('.filter-btn.active');
-          await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', 'newest', true);
+          await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', true);
         }
       }
       return;
@@ -143,6 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       await loadBookshelf();
     } catch (err) {
       console.warn('[Home] load bookshelf failed:', err);
+      showToast('书架加载失败，请刷新重试');
     }
   }
 
@@ -254,25 +256,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnUpload.addEventListener('click', () => fileInput.click());
 
-  fileInput.addEventListener('change', async (e) => {
-    const rawFiles = Array.from(e.target.files || []);
-    const fileList = rawFiles.filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
-    if (fileList.length === 0 && rawFiles.length > 0) {
+  async function importEpubFiles(rawFiles, sourceLabel) {
+    const files = Array.from(rawFiles || []);
+    const epubFiles = files.filter(f => f && f.name && f.name.toLowerCase().endsWith('.epub'));
+    if (files.length > 0 && epubFiles.length === 0) {
       alert('所选文件非 .epub 格式，请选择有效的 EPUB 电子书。');
       return;
     }
-    if (fileList.length === 0) return;
-    e.target.value = '';
-    
+    if (epubFiles.length === 0) return;
+
     const originalBtnText = btnUpload.innerHTML;
     btnUpload.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> 导入中...';
-    btnUpload.style.pointerEvents = 'none';
-    btnUpload.style.opacity = '0.7';
+    btnUpload.classList.add('is-importing');
 
     let successCount = 0;
     let lastBookLabel = '';
     try {
-      for (const file of fileList) {
+      for (const file of epubFiles) {
         try {
           const res = await EpubStorage.importBookFile(file, { skipLRU: true });
           if (res) {
@@ -280,10 +280,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             lastBookLabel = file.name.replace(/\.epub$/i, '');
           }
         } catch (itemErr) {
-          console.error('[Home] Failed to import file:', file.name, itemErr);
+          console.error(`[Home] Failed to import file from ${sourceLabel}:`, file.name, itemErr);
         }
       }
-      const failCount = fileList.length - successCount;
+      const failCount = epubFiles.length - successCount;
       if (successCount > 0) {
         try {
           await EpubStorage.enforceFileLRU(10);
@@ -300,13 +300,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         alert('无法导入所选文件，请检查文件是否损坏或符合 EPUB 规范。');
       }
     } catch (err) {
-      console.error('[Home] Failed to import files:', err);
-      alert('无法导入文件: ' + err.message);
+      console.error(`[Home] Failed to import files from ${sourceLabel}:`, err);
+      alert('无法导入文件: ' + (err.message || '未知错误'));
     } finally {
       btnUpload.innerHTML = originalBtnText;
-      btnUpload.style.pointerEvents = 'auto';
-      btnUpload.style.opacity = '1';
+      btnUpload.classList.remove('is-importing');
     }
+  }
+
+  fileInput.addEventListener('change', async (e) => {
+    const rawFiles = Array.from(e.target.files || []);
+    // 先重置 input，确保再次选择同一文件仍能触发 change。
+    e.target.value = '';
+    await importEpubFiles(rawFiles, 'file input');
   });
 
   document.addEventListener('dragover', (e) => {
@@ -325,47 +331,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
     e.stopPropagation();
     dragOverlay?.classList.add('is-hidden');
-    const rawFiles = Array.from(e.dataTransfer?.files || []);
-    if (rawFiles.length === 0) return;
-    const droppedFiles = rawFiles.filter(f => f.name && f.name.toLowerCase().endsWith('.epub'));
-    if (droppedFiles.length === 0) {
-      alert('所选文件非 .epub 格式，请选择有效的 EPUB 电子书。');
-      return;
-    }
-    let successCount = 0;
-    let lastBookLabel = '';
-    try {
-      for (const file of droppedFiles) {
-        try {
-          const res = await EpubStorage.importBookFile(file, { skipLRU: true });
-          if (res) {
-            successCount++;
-            lastBookLabel = file.name.replace(/\.epub$/i, '');
-          }
-        } catch (itemErr) {
-          console.error('[Home] Failed to import dropped file:', file.name, itemErr);
-        }
-      }
-      const failCount = droppedFiles.length - successCount;
-      if (successCount > 0) {
-        try {
-          await EpubStorage.enforceFileLRU(10);
-        } catch (lruErr) {
-          console.warn('[Home] enforceFileLRU after drop import failed:', lruErr);
-        }
-        await loadBookshelfSafely();
-        if (failCount > 0) {
-          showToast(`成功导入 ${successCount} 本，${failCount} 本失败`);
-        } else {
-          showToast(successCount === 1 ? `已成功导入《${lastBookLabel}》` : `已成功导入 ${successCount} 本书籍`);
-        }
-      } else {
-        alert('无法导入所选文件，请检查文件是否损坏或符合 EPUB 规范。');
-      }
-    } catch (err) {
-      console.error('[Home] Failed to open dropped file:', err);
-      alert('无法导入文件: ' + (err.message || '未知错误'));
-    }
+    await importEpubFiles(e.dataTransfer?.files, 'drag and drop');
   });
 
   // --- Bookshelf ---
@@ -431,8 +397,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (renderSeq !== bookshelfRenderSeq) return;
 
       card = document.createElement('div');
-      card.className = isFileCached ? 'book-card' : 'book-card is-evicted';
-      card.classList.add('book-card');
+      card.className = 'book-card';
       if (!isFileCached) {
         card.classList.add('is-evicted');
         card.dataset.evicted = 'true';
@@ -559,18 +524,35 @@ document.addEventListener('DOMContentLoaded', async () => {
       await EpubStorage.removeAllBooks();
     } catch (err) {
       console.warn('[Home] clear bookshelf failed:', err);
+      showToast('部分书籍删除失败，请重试');
     } finally {
       _cachedRawHighlights = null;
       _cachedRecentBooks = null;
       await loadBookshelfSafely();
       if (document.getElementById('pane-annotations')?.classList.contains('active')) {
         const activeFilter = document.querySelector('.filter-btn.active');
-        await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', 'newest', true);
+        await loadAnnotationsSafely(activeFilter ? activeFilter.dataset.filter : 'all', true);
       }
     }
   });
 
   // --- Annotations Management ---
+  async function enrichBookMetaMap(bookMetaMap, bookIds) {
+    const missingIds = bookIds.filter((id) => !bookMetaMap[id]);
+    if (missingIds.length === 0 || typeof EpubStorage.getBookMetaBatch !== 'function') return;
+    try {
+      const metaMap = await EpubStorage.getBookMetaBatch(missingIds);
+      for (const id of missingIds) {
+        const meta = metaMap[id];
+        if (meta && (meta.title || meta.author)) {
+          bookMetaMap[id] = { id, title: meta.title || '', author: meta.author || '' };
+        }
+      }
+    } catch (err) {
+      console.warn('[Home] load annotation book identities failed:', err);
+    }
+  }
+
   async function loadAnnotations(filterType = 'all', forceReload = false) {
     const renderSeq = ++annotationsRenderSeq;
     if (forceReload || !_cachedRawHighlights || !_cachedRecentBooks) {
@@ -587,6 +569,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bookKeys = Object.keys(allHighlights);
     const bookMetaMap = {};
     for (const b of recentBooks) bookMetaMap[b.id] = b;
+    await enrichBookMetaMap(bookMetaMap, bookKeys);
+    if (renderSeq !== annotationsRenderSeq) return;
 
     let flatAnnotations = [];
     annotationsContainer.innerHTML = '';
@@ -667,6 +651,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const recentBooks   = await EpubStorage.getRecentBooks();
         const bookMetaMap   = {};
         for (const b of recentBooks) bookMetaMap[b.id] = b;
+        await enrichBookMetaMap(bookMetaMap, Object.keys(allHighlights));
 
         let md = '# 📖 阅读笔记与标注\n\n导出时间：' + new Date().toLocaleString() + '\n\n';
         let hasData = false;

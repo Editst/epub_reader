@@ -45,6 +45,7 @@
     let openSessionSeq = 0;
     let isMounted = true;
     let openBookQueue = Promise.resolve();
+    let appliedLayout = null;
 
     function _createAbortError(message) {
       const error = new Error(message);
@@ -386,7 +387,9 @@
           .filter(Boolean);
         if (fontPromises.length) {
           await Promise.race([
-            Promise.all(fontPromises).catch(() => {}),
+            Promise.all(fontPromises).catch((fontErr) => {
+              console.warn('[Runtime] font ready failed:', fontErr);
+            }),
             _delay(FONT_READY_TIMEOUT_MS)
           ]);
         }
@@ -464,18 +467,18 @@
      * fresh rendition 首次 display 后 currentLocation 可能短暂回报旧分页；
      * 若同章节页码不一致，只重放同一个 displayCfi 一次，避免 next/prev 快速翻动。
      *
-     * @returns {{ matched: boolean, corrected: boolean }} 章节是否匹配，是否执行过翻页校正
+     * @returns {{ matched: boolean }} 章节是否匹配
      */
     async function _correctRestoredPage(savedPos, displayCfi) {
       const locator = savedPos && savedPos.locator;
-      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false, corrected: false };
+      if (!locator || locator.strategy !== 'epubjs-displayed-page-v1') return { matched: false };
       if (locator.layout !== 'paginated' || state.prefs.layout === 'scrolled') {
         state.currentStableLocator = null;
-        return { matched: false, corrected: false };
+        return { matched: false };
       }
       if (!_isSignatureCompatible(locator.prefsSignature)) {
         state.currentStableLocator = null;
-        return { matched: false, corrected: false };
+        return { matched: false };
       }
 
       await _nextFrame();
@@ -483,13 +486,13 @@
       let currentPage = await _readCurrentDisplayedPage();
       if (!currentPage) {
         state.currentStableLocator = null;
-        return { matched: false, corrected: false };
+        return { matched: false };
       }
 
       const matched = _isDisplayedPageInLocatorSection(currentPage, locator);
       if (!matched) {
         state.currentStableLocator = null;
-        return { matched: false, corrected: false };
+        return { matched: false };
       }
 
       const canRedisplay =
@@ -504,16 +507,16 @@
           await state.rendition.display(displayCfi);
         } catch (err) {
           console.warn('[Runtime] restore page redisplay failed:', err);
-          return { matched: true, corrected: false };
+          return { matched: true };
         }
         currentPage = await _readCurrentDisplayedPage();
         if (!_isDisplayedPageInLocatorSection(currentPage, locator)) {
           state.currentStableLocator = null;
-          return { matched: false, corrected: false };
+          return { matched: false };
         }
       }
 
-      return { matched: true, corrected: false };
+      return { matched: true };
     }
 
     // ── Data Normalization ────────────────────────────────────────────────────
@@ -529,6 +532,8 @@
     }
 
     function _destroyActiveBookResources() {
+      if (typeof ui.cancelReflow === 'function') ui.cancelReflow();
+      appliedLayout = null;
       try {
         moduleLifecycle.unmount();
       } catch (e) {
@@ -551,6 +556,7 @@
         state.isBookLoaded = false;
         state.isLayoutStable = false;
         state.navLock = false;
+        appliedLayout = null;
         ReaderState.resetReadingSession(state);
         return;
       }
@@ -720,6 +726,7 @@
       state.isBookLoaded = false;
       state.isLayoutStable = false;
       state.navLock = false;
+      appliedLayout = null;
 
       // ── 并行加载 meta、prefs 与 locations 缓存 ─────────────────────────────
       const [prefs, meta, rawLocsJSON] = await Promise.all([
@@ -754,7 +761,8 @@
       state.book = ePub(normalizeBookData(fileData));
 
       // ── Rendition ───────────────────────────────────────────────────────────
-      state.rendition = _createRendition(state.prefs.layout);
+      const openedLayout = state.prefs.layout;
+      state.rendition = _createRendition(openedLayout);
 
       // ── 子模块挂钩 ──────────────────────────────────────────────────────────
       _hookRenditionEvents(state.rendition, state.prefs.theme);
@@ -785,6 +793,14 @@
       ]);
       _assertOpenActive(openLifecycleSeq);
       ui.setBookTitle(bookMeta?.title || state.currentFileName);
+      _attemptStorage(
+        'store book identity',
+        () => EpubStorage.saveBookIdentity(bookId, {
+          title: bookMeta?.title || '',
+          author: bookMeta?.creator || ''
+        }),
+        undefined
+      );
 
       // ── savedPos → 进度条初始值 ─────────────────────────────────────────────
       const savedPos = meta && meta.pos ? meta.pos : null;
@@ -808,6 +824,11 @@
         const displayCfi = targetCfi || progressFallbackCfi || _getRestoreDisplayCfi(savedPos, restoreLocator);
         state.currentStableCfi = targetCfi || progressFallbackCfi || (savedPos && savedPos.cfi ? savedPos.cfi : null);
         state.currentStableLocator = targetCfi || progressFallbackCfi ? null : restoreLocator;
+        state.currentStableObservedAt = targetCfi
+          ? Date.now()
+          : (savedPos && Number.isFinite(savedPos.observedAt)
+            ? savedPos.observedAt
+            : (savedPos && Number.isFinite(savedPos.timestamp) ? savedPos.timestamp : 0));
         state.isRestoreAnchorProtected = !!displayCfi && state.prefs.layout !== 'scrolled';
         if (targetCfi) {
           state.lastPercent = null;
@@ -851,7 +872,7 @@
           filename: state.currentFileName
         }),
         undefined
-      ).catch(() => {});
+      );
 
       // ── 子模块 mount（统一生命周期） ─────────────────────────────────────────
       _mountFeatureModules();
@@ -861,6 +882,7 @@
       if (typeof ui.setReaderDimmed === 'function') ui.setReaderDimmed(false);
       ui.showLoading(false);
       state.isBookLoaded = true;
+      appliedLayout = openedLayout;
 
       const openedBook = state.book;
       const openedRendition = state.rendition;
@@ -889,8 +911,19 @@
         _assertOpenActive(openLifecycleSeq);
         return _openBook(fileData, bookId, fileName, targetCfi, openLifecycleSeq);
       });
-      openBookQueue = task.catch(() => {});
+      openBookQueue = task.catch((e) => {
+        // 打开失败由 task 的调用方处理；队列尾只保证后续打开不被阻断。
+        console.warn('[Runtime] previous open task failed:', e);
+      });
       return task;
+    }
+
+    /**
+     * 让尚未完成的 loadFileByBookId 缓存加载失效。
+     * 用户主动选择本地文件时调用，避免旧 URL 书籍随后入队覆盖本次选择。
+     */
+    function cancelPendingLoad() {
+      openSessionSeq++;
     }
 
     // ── Load Helpers ──────────────────────────────────────────────────────────
@@ -1108,6 +1141,7 @@
           () => _isCurrentLayoutContext(layoutId, activeBook, rendition)
         );
         if (!displayed) return null;
+        appliedLayout = previousLayout;
         return rendition;
       } catch (e) {
         if (_isCurrentLayoutContext(layoutId, activeBook, rollbackRendition)) {
@@ -1137,9 +1171,13 @@
 
       const layoutId = ++layoutSeq;
       const activeBook = state.book;
-      const previousLayout = state.prefs.layout;
+      const previousLayout = appliedLayout || state.prefs.layout;
       const previousRendition = state.rendition;
       const currentCfi = _getLayoutRestoreCfi(previousRendition);
+
+      // rendition 即将销毁，先取消所有在途重排，避免旧回调因身份不匹配
+      // 跳过释放而把 isResizing 永久留在 true。
+      if (typeof ui.cancelReflow === 'function') ui.cancelReflow();
 
       let activeRendition = previousRendition;
       let layoutCompleted = false;
@@ -1168,6 +1206,7 @@
         if (!displayed) return false;
         if (!_isCurrentLayoutContext(layoutId, activeBook, activeRendition)) return false;
         layoutCompleted = true;
+        appliedLayout = layout;
         _saveLayoutPreferenceSafely(layout);
         return true;
       } catch (e) {
@@ -1239,6 +1278,7 @@
       mount,
       unmount,
       openBook,
+      cancelPendingLoad,
       loadFileByBookId,
       discardDeletedBook,
       scheduleLocationsGeneration,

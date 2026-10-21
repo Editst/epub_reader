@@ -9,10 +9,11 @@
  *     'recentBooks'          → [{ id, title, author, filename, lastOpened }]
  *
  *   每本书（3 keys，按写入频率分组）：
- *     'bookMeta_<bookId>'    → { pos, time, speed }
- *       pos:   { cfi, percentage, timestamp }
+ *     'bookMeta_<bookId>'    → { pos, time, speed, title?, author? }
+ *       pos:   { cfi, percentage, timestamp, observedAt?, locator? }
  *       time:  number                          累计阅读秒数
  *       speed: { sampledSeconds, sampledProgress, contentUnitCount, contentUnitVersion }
+ *       title/author 由 saveBookIdentity 补全，不覆盖位置、时长、速度。
  *     'highlights_<bookId>'  → [{cfi, text, color, note, timestamp}]
  *     'bookmarks_<bookId>'   → [{cfi, chapter, progress, timestamp}]
  *     'deletedBook_<bookId>' → timestamp（跨页面删除标记，重新导入时解除）
@@ -180,12 +181,38 @@ const EpubStorage = {
     });
   },
 
+  /** 仅补充书名/作者，不覆盖位置、时长与速度字段。 */
+  async saveBookIdentity(bookId, identity) {
+    if (!bookId || !this._isRecord(identity)) return;
+    await this._enqueueBookMetaWrite(bookId, (current) => {
+      if (typeof identity.title === 'string' && identity.title) current.title = identity.title;
+      if (typeof identity.author === 'string' && identity.author) current.author = identity.author;
+      return current;
+    });
+  },
+
+  /**
+   * 判断一次位置写入是否已被更新的观察覆盖。
+   * observedAt 是“看到该位置的时刻”；优先与上一条位置记录的 observedAt 比较，
+   * 避免把写入完成时间误当成观察时间。旧记录没有 observedAt 时退回 timestamp。
+   */
+  _isStalePositionWrite(current, observedAt) {
+    const pos = current && current.pos;
+    if (!pos || !Number.isFinite(observedAt)) return false;
+    const storedObservedAt = Number(pos.observedAt);
+    if (Number.isFinite(storedObservedAt)) return storedObservedAt > observedAt;
+    const storedAt = Number(pos.timestamp);
+    return Number.isFinite(storedAt) && storedAt > observedAt;
+  },
+
   /** Patch 位置字段，由 Reader 的位置事件与生命周期 flush 调用。 */
-  async savePosition(bookId, cfi, percentage = null, locator = undefined) {
+  async savePosition(bookId, cfi, percentage = null, locator = undefined, observedAt = undefined) {
     if (!bookId) return;
     await this._enqueueBookMetaWrite(bookId, (current) => {
+      if (this._isStalePositionWrite(current, observedAt)) return current;
       current.pos = { cfi, percentage, timestamp: Date.now() };
       if (locator !== undefined) current.pos.locator = locator;
+      if (Number.isFinite(observedAt)) current.pos.observedAt = observedAt;
       return current;
     });
   },
@@ -310,7 +337,8 @@ const EpubStorage = {
     const { pos, readingSeconds, speedSample, speedPatch } = bundle;
     return this._enqueueBookMetaWrite(bookId, (current) => {
       // 1. 位置更新
-      if (pos && typeof pos.cfi === 'string' && pos.cfi) {
+      if (pos && typeof pos.cfi === 'string' && pos.cfi &&
+          !this._isStalePositionWrite(current, pos.observedAt)) {
         current.pos = {
           cfi: pos.cfi,
           percentage: Number.isFinite(pos.percentage) ? pos.percentage : null,
@@ -318,6 +346,9 @@ const EpubStorage = {
         };
         if (pos.locator !== undefined) {
           current.pos.locator = pos.locator;
+        }
+        if (Number.isFinite(pos.observedAt)) {
+          current.pos.observedAt = pos.observedAt;
         }
       }
 
@@ -837,7 +868,10 @@ const EpubStorage = {
   async _enqueueKeyWrite(queueField, key, defaultValue, mutator) {
     const prev = this[queueField] || Promise.resolve();
     const next = prev
-      .catch(() => {})
+      .catch((e) => {
+        // 前一个写任务失败不应阻塞后续写；错误已由该任务的调用方处理。
+        console.warn('[Storage] previous key write failed:', e);
+      })
       .then(() => this._withStorageLock('key:' + key, 'exclusive', async () => {
         const stored = await this._get(key);
         const expectsArray = Array.isArray(defaultValue);
@@ -851,7 +885,8 @@ const EpubStorage = {
         const updated = mutatorResult !== undefined ? mutatorResult : mutableValue;
         await this._set({ [key]: updated });
       }));
-    this[queueField] = next.catch(() => {});
+    // 仅防止队列尾产生 unhandledrejection；真实错误由返回的 next 抛给调用方。
+    this[queueField] = next.catch(() => undefined);
     return next;
   },
 
@@ -915,13 +950,16 @@ const EpubStorage = {
     let result;
     const prev = this._bookMetaQueue.get(bookId) || Promise.resolve();
     const next = prev
-      .catch(() => {})
+      .catch((e) => {
+        // 前一个 meta 写任务失败不应阻塞后续写；错误已由该任务的调用方处理。
+        console.warn('[Storage] previous book meta write failed:', e);
+      })
       .then(async () => {
         if (this._deletingBookIds.has(bookId)) return;
         result = await this._runWritableBookTask(bookId, 'book-meta', task);
       });
     const queued = next
-      .catch(() => {})
+      .catch(() => undefined)   // 仅防队列尾 unhandledrejection，错误由 next 抛给调用方
       .finally(() => {
         if (this._bookMetaQueue.get(bookId) === queued) this._bookMetaQueue.delete(bookId);
       });

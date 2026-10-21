@@ -1558,6 +1558,39 @@ test.describe('Reader 模块基础行为', () => {
     assert.equal(document.getElementById('sidebar-overlay').classList.contains('visible'), false);
   });
 
+  test.it('Bookmarks 精确 CFI 未命中时按同章节 + 进度容差识别 (M2)', async () => {
+    const { document } = createMockDocument([
+      'bookmarks-panel',
+      'bookmarks-list',
+      'btn-bookmarks',
+      'btn-bookmarks-close',
+      'sidebar',
+      'sidebar-overlay'
+    ]);
+    let saved = [{ cfi: 'epubcfi(/6/2)', chapter: '第一章', progress: 10, timestamp: 1 }];
+    const Bookmarks = loadIsolatedWindowExport('src/reader/bookmarks.js', 'Bookmarks', {
+      document,
+      EpubStorage: {
+        async getBookmarks() { return saved.slice(); },
+        async updateBookmarks(_bookId, mutator) {
+          const next = await mutator(saved.slice());
+          if (next !== false) saved = next;
+          return saved;
+        }
+      }
+    });
+    Bookmarks.init();
+    Bookmarks.mount({ bookId: 'book-1', rendition: { display() {} }, navigate() {} });
+
+    assert.equal(await Bookmarks.isBookmarked('epubcfi(/6/9)', '第一章', 0.1), true,
+      'CFI 漂移后应命中同章节同进度书签');
+    assert.equal(await Bookmarks.isBookmarked('epubcfi(/6/9)', '第二章', 0.1), false,
+      '不同章节不得被进度容差误判');
+
+    await Bookmarks.toggle('epubcfi(/6/9)', '第一章', 0.1);
+    assert.equal(saved.length, 0, '容差命中的旧书签应被移除而不是新增重复项');
+  });
+
   test.it('Bookmarks 切书后忽略上一书的延迟加载结果', async () => {
     const { document } = createMockDocument([
       'bookmarks-panel',
@@ -3799,6 +3832,12 @@ test.describe('Reader 模块基础行为', () => {
     // 3. 跨标签页修改 spread：应在排版重排中调用 rendition.spread
     listener({ preferences: { newValue: { ...state.prefs, spread: 'none' } } }, 'local');
     assert.equal(spreadSet, 'none', '跨标签页 spread 变化应调用 rendition.spread');
+
+    state.isResizing = true;
+    state.isRestoringPosition = true;
+    ui.cancelReflow();
+    assert.equal(state.isResizing, false, 'cancelReflow 必须清除重排锁 (C1)');
+    assert.equal(state.isRestoringPosition, false, 'cancelReflow 必须清除恢复保护 (C1)');
   });
 
   test.it('Search 关闭面板时若状态为“搜索中...”则重置为空 (M-F1)', () => {

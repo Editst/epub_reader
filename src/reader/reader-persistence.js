@@ -53,11 +53,14 @@
 
     // ── Position ─────────────────────────────────────────────────────────────
 
-    function _savePositionSafely(bookId, cfi, percent, locator) {
+    function _savePositionSafely(bookId, cfi, percent, locator, observedAt) {
       state.lastPositionSave = Utils.safeWrite(
-        () => locator === undefined
-          ? EpubStorage.savePosition(bookId, cfi, percent)
-          : EpubStorage.savePosition(bookId, cfi, percent, locator),
+        () => {
+          const args = [bookId, cfi, percent];
+          if (locator !== undefined || observedAt !== undefined) args.push(locator);
+          if (observedAt !== undefined) args.push(observedAt);
+          return EpubStorage.savePosition(...args);
+        },
         '[Persistence] save position failed:'
       );
       return state.lastPositionSave;
@@ -145,8 +148,8 @@
       return false;
     }
 
-    function schedulePositionSave(bookId, cfi, percent, locator) {
-      _savePositionSafely(bookId, cfi, percent, locator);
+    function schedulePositionSave(bookId, cfi, percent, locator, observedAt) {
+      _savePositionSafely(bookId, cfi, percent, locator, observedAt);
       clearTimeout(state.posTimer);
       state.posTimer = setTimeout(() => {
         state.posTimer = null;
@@ -434,8 +437,14 @@
       const location = state.rendition.currentLocation();
       const position = _buildPositionFromLocation(location, { resolveAnchor: true });
       if (!position.cfi) return;
+      const changed =
+        _isPositionMeaningfullyChanged(position.cfi, state.currentStableCfi) ||
+        _isLocatorMeaningfullyChanged(position.locator, state.currentStableLocator);
       state.currentStableCfi = position.cfi;
       state.currentStableLocator = position.locator;
+      if (changed || !Number.isFinite(state.currentStableObservedAt) || state.currentStableObservedAt <= 0) {
+        state.currentStableObservedAt = Date.now();
+      }
       if (position.percent !== null) state.lastPercent = position.percent;
     }
 
@@ -465,7 +474,8 @@
         return {
           cfi: state.currentStableCfi,
           percentage: state.lastPercent,
-          locator: state.currentStableLocator
+          locator: state.currentStableLocator,
+          observedAt: state.currentStableObservedAt
         };
       }
       return null;
@@ -478,7 +488,8 @@
           state.currentBookId,
           pos.cfi,
           pos.percentage,
-          pos.locator
+          pos.locator,
+          pos.observedAt
         );
       }
       return state.lastPositionSave || Promise.resolve();
@@ -632,8 +643,15 @@
         if (cfiChanged || locatorChanged || percentChanged) {
           state.currentStableCfi = cfi;
           state.currentStableLocator = position.locator;
+          state.currentStableObservedAt = Date.now();
           state.lastPercent = nextPercent;
-          schedulePositionSave(state.currentBookId, state.currentStableCfi, state.lastPercent, state.currentStableLocator);
+          schedulePositionSave(
+            state.currentBookId,
+            state.currentStableCfi,
+            state.lastPercent,
+            state.currentStableLocator,
+            state.currentStableObservedAt
+          );
         } else {
           // CFI 未变，仅更新百分比（可能因 locations 加载而变化）
           if (nextPercent !== null) state.lastPercent = nextPercent;
@@ -654,8 +672,17 @@
       const bookmarkSeq = ++_bookmarkStateSeq;
       const bookId = state.currentBookId;
       const cfi = location.start.cfi;
+      const tocItem = ReaderState.findTocItem(
+        state.book && state.book.navigation ? state.book.navigation.toc : [],
+        location.start.href
+      );
+      const chapterName = ReaderState.getTocItemLabel(tocItem);
+      const progress = ReaderState.getLocationProgress(
+        state.book && state.book.locations,
+        cfi
+      );
       try {
-        const isBookmarked = await Bookmarks.isBookmarked(cfi);
+        const isBookmarked = await Bookmarks.isBookmarked(cfi, chapterName, progress);
         if (bookmarkSeq !== _bookmarkStateSeq || bookId !== state.currentBookId) return;
         ui.updateBookmarkButtonState(isBookmarked);
       } catch (e) {
@@ -732,7 +759,8 @@
     function startReadingTimer() {
       if (state.readingTimer) clearInterval(state.readingTimer);
       state.readingTimer = setInterval(() => {
-        if (!document.hidden && state.currentBookId && state.isBookLoaded) {
+        const hasFocus = typeof document.hasFocus !== 'function' || document.hasFocus();
+        if (!document.hidden && hasFocus && state.currentBookId && state.isBookLoaded) {
           state.activeReadingSeconds++;
           state.pendingReadingSeconds = _getPendingReadingSeconds() + 1;
           // 每 10s 写入 storage

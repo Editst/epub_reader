@@ -44,13 +44,29 @@
     this._loadBookmarksSafely();
   },
 
+  /**
+   * 精确 CFI 优先；重排后页首 CFI 会变化，用同章节 + 进度容差兜底。
+   * @returns {number} 匹配下标，未命中返回 -1
+   */
+  _findBookmarkIndex(bookmarks, cfi, chapterName, percent) {
+    const exact = bookmarks.findIndex(b => b.cfi === cfi);
+    if (exact >= 0) return exact;
+    if (!Number.isFinite(percent)) return -1;
+    return bookmarks.findIndex(b =>
+      b.chapter === chapterName &&
+      Number.isFinite(Number(b.progress)) &&
+      Math.abs(Number(b.progress) - percent) <= 0.5
+    );
+  },
+
   async toggle(cfi, chapterName, progress) {
     const bookId = this.bookId;
-    const safeProgress = Number.isFinite(progress) ? Math.round(progress * 1000) / 10 : 0;
+    const progressPercent = Number.isFinite(progress) ? Math.round(progress * 1000) / 10 : null;
+    const safeProgress = progressPercent === null ? 0 : progressPercent;
     try {
       const bookmarks = await EpubStorage.updateBookmarks(bookId, (current) => {
         if (bookId !== this.bookId) return false;
-        const existing = current.findIndex(b => b.cfi === cfi);
+        const existing = this._findBookmarkIndex(current, cfi, chapterName, progressPercent);
         if (existing >= 0) {
           current.splice(existing, 1);
         } else {
@@ -71,12 +87,13 @@
     }
   },
 
-  async isBookmarked(cfi) {
+  async isBookmarked(cfi, chapterName, progress) {
     const bookId = this.bookId;
+    const progressPercent = Number.isFinite(progress) ? Math.round(progress * 1000) / 10 : null;
     try {
       const bookmarks = await EpubStorage.getBookmarks(bookId);
       if (bookId !== this.bookId || !Array.isArray(bookmarks)) return false;
-      return bookmarks.some(b => b.cfi === cfi);
+      return this._findBookmarkIndex(bookmarks, cfi, chapterName, progressPercent) >= 0;
     } catch (err) {
       console.warn('[Bookmarks] isBookmarked error:', bookId, cfi, err);
       return false;

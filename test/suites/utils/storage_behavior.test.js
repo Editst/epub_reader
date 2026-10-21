@@ -443,6 +443,44 @@ test.describe('EpubStorage 行为覆盖', () => {
     assert.equal(legacy.locator, undefined);
   });
 
+  test.it('savePosition / flushSessionBundle 使用 observedAt 阻止陈旧位置覆盖 (H4)', async () => {
+    const id = 'book-stale-position';
+    await EpubStorage.savePosition(id, 'epubcfi(/6/8)', 55, undefined, 2000);
+    await EpubStorage.savePosition(id, 'epubcfi(/6/2)', 10, undefined, 1000);
+
+    let pos = await EpubStorage.getPosition(id);
+    assert.equal(pos.cfi, 'epubcfi(/6/8)', '旧 observedAt 不得覆盖新位置');
+    assert.equal(pos.percentage, 55);
+    assert.equal(pos.observedAt, 2000, '位置记录应保存观察时刻');
+
+    // 下一次观察比上次写入完成时间更早，但比上次观察更新，仍应写入。
+    await EpubStorage.savePosition(id, 'epubcfi(/6/8!/4/2)', 56, undefined, 2001);
+    pos = await EpubStorage.getPosition(id);
+    assert.equal(pos.cfi, 'epubcfi(/6/8!/4/2)', '仅比上次观察更新的位置不得被误判为陈旧');
+
+    await EpubStorage.flushSessionBundle(id, {
+      pos: { cfi: 'epubcfi(/6/2)', percentage: 10, observedAt: 500 },
+      readingSeconds: 7
+    });
+
+    pos = await EpubStorage.getPosition(id);
+    assert.equal(pos.cfi, 'epubcfi(/6/8!/4/2)', '旧标签 flush 不得回退位置');
+    assert.equal(await EpubStorage.getReadingTime(id), 7, '陈旧位置被忽略时时长仍应累加');
+  });
+
+  test.it('saveBookIdentity 仅补书名作者，不覆盖位置与阅读时长 (M5)', async () => {
+    const id = 'book-identity';
+    await EpubStorage.savePosition(id, 'epubcfi(/6/6)', 66);
+    await EpubStorage.addReadingTime(id, 42);
+    await EpubStorage.saveBookIdentity(id, { title: '真实书名', author: '作者甲' });
+
+    const meta = await EpubStorage.getBookMeta(id);
+    assert.equal(meta.title, '真实书名');
+    assert.equal(meta.author, '作者甲');
+    assert.equal(meta.pos.cfi, 'epubcfi(/6/6)');
+    assert.equal(meta.time, 42);
+  });
+
   test.it('getAllHighlights 同时覆盖 recentBooks 外的遗留 highlights key', async () => {
     await EpubStorage.addRecentBook({ id: 'book-a', title: 'A' });
     await EpubStorage.saveHighlights('book-a', [{ cfi: 'a' }]);

@@ -13,9 +13,9 @@ const path = require('node:path');
 
 test.describe('Manifest 配置检查', () => {
 
-  test.it('manifest 版本升级到 2.6.7', () => {
+  test.it('manifest 版本升级到 2.6.8', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join('src', 'manifest.json'), 'utf8'));
-    assert.strictEqual(manifest.version, '2.6.7');
+    assert.strictEqual(manifest.version, '2.6.8');
   });
 
   test.it('C-7: manifest 暂保留 unsafe-inline (image-viewer 依赖)', () => {
@@ -23,10 +23,12 @@ test.describe('Manifest 配置检查', () => {
     assert.ok(manifest.includes("'unsafe-inline'"));
   });
 
-  test.it('P-6: manifest CSP 已配置 style-src 与 connect-src', () => {
+  test.it('P-6: manifest CSP 已配置 style-src 与 connect-src，且不再放行外部字体', () => {
     const manifest = JSON.parse(fs.readFileSync('src/manifest.json', 'utf8'));
     const csp = manifest.content_security_policy?.extension_pages || '';
-    assert.ok(csp.includes('fonts.googleapis.com'), 'style-src 应包含 fonts.googleapis.com');
+    assert.ok(csp.includes("style-src 'self' 'unsafe-inline'"), 'style-src 应仅允许本地与内联样式');
+    assert.ok(!csp.includes('fonts.googleapis.com'), 'style-src 不应再放行 Google Fonts');
+    assert.ok(!csp.includes('fonts.gstatic.com'), 'font-src 不应再放行 Google Fonts');
     assert.ok(csp.includes("connect-src 'self' blob:"), 'manifest 应配置 connect-src 限制');
   });
 

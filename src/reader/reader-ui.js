@@ -61,6 +61,7 @@
     let _runtime = null;
     let _isRuntimeBound = false;
     let _reflowSeq = 0;
+    let _reflowOwner = null;
     let _openLocalFileQueue = Promise.resolve();
     let _resizeHandler = null;
     let _resizeTimer = null;
@@ -414,10 +415,12 @@
 
     function _beginReflow(rendition) {
       const operationId = ++_reflowSeq;
+      const context = { operationId, rendition };
+      _reflowOwner = context;
       state.isResizing = true;
       state.isRestoringPosition = true;
       dom.readerMain?.classList.add('reader-reflowing');
-      return { operationId, rendition };
+      return context;
     }
 
     function _isCurrentReflow(context) {
@@ -427,10 +430,9 @@
     }
 
     function _releaseReflow(context) {
-      if (!_isCurrentReflow(context)) {
-        dom.readerMain?.classList.remove('reader-reflowing');
-        return false;
-      }
+      // 只有当前锁持有者可以释放；新重排已接管时不得清掉新锁。
+      if (!context || _reflowOwner !== context) return false;
+      _reflowOwner = null;
       state.isResizing = false;
       state.isRestoringPosition = false;
       if (typeof requestAnimationFrame === 'function') {
@@ -443,6 +445,28 @@
         dom.readerMain?.classList.remove('reader-reflowing');
       }
       return true;
+    }
+
+    /**
+     * 取消所有在途重排。用于 rendition 即将被销毁/替换的场景（如布局切换、
+     * 切书），避免旧回调因 rendition 身份不匹配而跳过锁释放。
+     */
+    function cancelReflow() {
+      _reflowSeq++;
+      _reflowOwner = null;
+      state.isResizing = false;
+      state.isRestoringPosition = false;
+      dom.readerMain?.classList.remove('reader-reflowing');
+      if (_resizeTimer !== null) {
+        _safeClearTimeout(_resizeTimer);
+        _resizeTimer = null;
+      }
+      _preResizeCfi = null;
+      _resizeRendition = null;
+      if (_typographyDebounceTimer !== null) {
+        _safeClearTimeout(_typographyDebounceTimer);
+        _typographyDebounceTimer = null;
+      }
     }
 
     /**
@@ -480,15 +504,24 @@
         return;
       }
       requestAnimationFrame(() => {
-        if (!_isCurrentReflow(context)) return;
+        if (!_isCurrentReflow(context)) {
+          _releaseReflow(context);
+          return;
+        }
         requestAnimationFrame(async () => {
-          if (!_isCurrentReflow(context)) return;
+          if (!_isCurrentReflow(context)) {
+            _releaseReflow(context);
+            return;
+          }
           try {
             if (savedCfi) await rendition.display(savedCfi);
           } catch (e) {
             console.warn('[Ui] _withCfiLock display failed:', e);
           } finally {
-            if (!_isCurrentReflow(context)) return;
+            if (!_isCurrentReflow(context)) {
+              _releaseReflow(context);
+              return;
+            }
             state.isResizing = false;
             // 等待 relocated 事件处理完毕后解除恢复保护
             await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -942,12 +975,18 @@
             _preResizeCfi = null;
             if (_resizeRendition === rendition) _resizeRendition = null;
           }
-          if (!_isCurrentReflow(context)) return;
+          if (!_isCurrentReflow(context)) {
+            _releaseReflow(context);
+            return;
+          }
           let newLoc = null;
           try {
             rendition.resize();
             await new Promise(resolve => requestAnimationFrame(resolve));
-            if (!_isCurrentReflow(context)) return;
+            if (!_isCurrentReflow(context)) {
+              _releaseReflow(context);
+              return;
+            }
             if (targetCfi) await rendition.display(targetCfi);
             await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
             if (_isCurrentReflow(context)) newLoc = rendition.currentLocation();
@@ -973,6 +1012,12 @@
           alert('请选择有效的 .epub 格式电子书文件。');
         }
         return;
+      }
+
+      // 用户主动选择本地文件后，作废尚未完成的 URL 缓存书籍加载，
+      // 避免旧任务在导入完成后入队并覆盖本次选择。
+      if (runtime && typeof runtime.cancelPendingLoad === 'function') {
+        runtime.cancelPendingLoad();
       }
 
       try {
@@ -1015,7 +1060,9 @@
 
     function openLocalFiles(files, runtime) {
       const task = _openLocalFileQueue.then(() => _openLocalFiles(files, runtime));
-      _openLocalFileQueue = task.catch(() => {});
+      _openLocalFileQueue = task.catch((e) => {
+        console.warn('[ReaderUi] previous local import failed:', e);
+      });
       return task;
     }
 
@@ -1080,7 +1127,7 @@
           state.prefs = next;
           syncPrefsToControls();
 
-          if (!state.rendition || !state.isBookLoaded || state.isResizing) return;
+          if (!state.rendition || !state.isBookLoaded) return;
 
           if (layoutChanged && _runtime && typeof _runtime.setLayout === 'function') {
             Promise.resolve(_runtime.setLayout(state.prefs.layout)).catch((e) => {
@@ -1159,6 +1206,7 @@
       _preResizeCfi = null;
       _resizeRendition = null;
       _reflowSeq++;
+      _reflowOwner = null;
       state.isResizing = false;
       state.isRestoringPosition = false;
     }
@@ -1166,6 +1214,7 @@
     return {
       mount,
       unmount,
+      cancelReflow,
       bindRuntime,
       setReaderVisible,
       clearReaderError,

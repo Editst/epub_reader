@@ -34,9 +34,11 @@ node --test-name-pattern="ReaderPersistence" test/run_tests.js  # 按名称过�
 | 层                      | 职责                                                                                                       | 关键约束                                                                                                                                                                                                                  |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reader-state.js`       | 状态容器 `createReaderState()`，跨模块纯函数（`safeNavigate`、`isTocHrefMatch`、`getLocationProgress` 等） | 禁止任何 DOM 操作或引用                                                                                                                                                                                                   |
-| `reader-runtime.js`     | epub.js 生命周期、`openBook()`、导航、布局切换、locations 索引生成                                         | `openBook()` 内部队列串行执行，失败事务式回滚并清空半初始化状态；`state.isResizing`/`isLayoutStable` 门控导航；`loadFileByBookId` 用 `openSessionSeq` 代次防止旧任务复活                                                  |
-| `reader-persistence.js` | 阅读位置 / 时长 / 速度持久化                                                                               | 不持有 DOM 引用，一律通过 `ui.*` 委托；`onRelocated` 不在翻页热路径做重排采样，恢复锚点延迟到 `flushPositionSave`/`flushSessionBundle` 按需生成；退出/休眠/切书统一走 `flushSessionBundle(bookId, bundle)` 单事务原子刷盘 |
+| `reader-runtime.js`     | epub.js 生命周期、`openBook()`、导航、布局切换、locations 索引生成                                         | `openBook()` 内部队列串行执行，失败事务式回滚并清空半初始化状态；`state.isResizing`/`isLayoutStable` 门控导航；`loadFileByBookId` 用 `openSessionSeq` 代次防止旧任务复活；`cancelPendingLoad()` 使迟到的缓存加载失效；`appliedLayout` 记录实际生效布局用于失败回滚 |
+| `reader-persistence.js` | 阅读位置 / 时长 / 速度持久化                                                                               | 不持有 DOM 引用，一律通过 `ui.*` 委托；`onRelocated` 不在翻页热路径做重排采样，恢复锚点延迟到 `flushPositionSave`/`flushSessionBundle` 按需生成；位置写入携带 `observedAt` 条件写，阅读计时仅在页面可见且聚焦时累计；退出/休眠/切书统一走 `flushSessionBundle(bookId, bundle)` 单事务原子刷盘 |
 | `reader-ui.js`          | 唯一 DOM 操作入口                                                                                          | 面板互斥与共享遮罩集中管理；显隐一律用 CSS class（`is-hidden`/`is-visible`），例外仅限图片 transform 与弹窗动态定位；字号/行距滑块 `input` 立即视觉更新 + 200ms 防抖重排，`change` 立即 flush 并持久化                    |
+
+`ReaderUi` 的重排锁由 `_reflowOwner` 唯一持有，旧回调不得释放新锁；`cancelReflow()` 在布局切换、切书、rendition 销毁前主动取消在途重排。
 
 新增功能模块必须同步 `reader.html` 加载顺序与 `reader.js` 的 lifecycle wiring；模块统一暴露为 `window.XXX`，IIFE 封装，`init()` 按 document 幂等。
 
@@ -45,10 +47,11 @@ node --test-name-pattern="ReaderPersistence" test/run_tests.js  # 按名称过�
 - **唯一入口**：所有持久化必须经 `EpubStorage`；禁止业务代码直接调用 `chrome.storage.local` 或 `indexedDB`。
 - **分区**：
   - IndexedDB（`DbGateway`，v4，bookId 主键）：`files`（EPUB 二进制，`by_filename` 索引）、`covers`、`locations`。
-  - `chrome.storage.local`：`preferences`、`recentBooks`（≤20）、`bookMeta_<id>`（pos/time/speed）、`highlights_<id>`、`bookmarks_<id>`、`deletedBook_<id>`（删除墓碑）。
+  - `chrome.storage.local`：`preferences`、`recentBooks`（≤20）、`bookMeta_<id>`（pos/time/speed/title/author）、`highlights_<id>`、`bookmarks_<id>`、`deletedBook_<id>`（删除墓碑）。
 - **并发控制**：
   - `preferences` / `recentBooks` / 同书 `bookMeta` 的读改写通过内部队列串行化，禁止裸 `_get → mutate → _set`。
   - 跨标签页用 Web Locks：书籍读写持有 `book:<id>` 共享锁，各资源（meta/highlights/bookmarks/cover/locations/file）另持独占锁；删除与导入持有 `book:<id>` 独占锁。
+  - `savePosition` / `flushSessionBundle` 优先比较已存 `pos.observedAt`，旧记录才回退 `pos.timestamp` 拒绝陈旧写；`saveBookIdentity` 仅补 `title`/`author`，不覆盖位置、时长、速度。
   - `updateHighlights` / `updateBookmarks` 用浅拷贝 Copy-on-Write，mutator 返回 `false` 取消写入。
 - **Book ID**：`SHA-256(filename + 首 64KB 内容)`，通过 `Blob.slice()` 避免整文件读入内存。
 - **LRU 与删除**：`enforceFileLRU(10)` 只淘汰 IndexedDB `files` 缓存，保留进度/标注/书签/封面/locations；`removeBook()` 写删除墓碑后并行清理 7 项资源，等待全部 settled 才释放守卫，同书并发调用复用同一任务。
@@ -59,16 +62,17 @@ node --test-name-pattern="ReaderPersistence" test/run_tests.js  # 按名称过�
 - 复合锚点：主锚点 `pos.cfi = location.start.cfi`；分页模式辅以 `epubjs-displayed-page-v1` locator（`restoreCfi`/页码/`prefsSignature`），仅当 `restoreCfi.sourceCfi === pos.cfi` 才可信。
 - `openBook()` 恢复期间 `state.isRestoringPosition = true` 覆盖 CFI display、字体/布局稳定和必要的同 CFI 重放；中间 `relocated` 不得写 storage。
 - 页码不一致时只允许重放同一个 `displayCfi` 一次，禁止调用 `next()/prev()` 做翻页校正。
+- 位置写入可携带 `observedAt`（观察到该位置的时刻）：提供该字段时，`savePosition` / `flushSessionBundle` 优先比较已存 `pos.observedAt`，旧记录才回退 `pos.timestamp`，防止旧标签关闭覆盖新进度；`resetReadingSession` 同时重置观察时刻与 `isScrubbing`。
 - 窗口 resize / 字号 / 行距 / 字体变更共享 reflow 代次与保护锁（`isResizing`），完成后恢复变化前捕获的锚点；切书必须重置这两个保护标志。
 
 ## 6. 功能模块要点
 
 - **`annotations.js`**：跨章节 DOM 缓存 `_FOOTNOTE_SECTION_CACHE_LIMIT = 5`（LRU）；`_targetIdIndex` 缓存 targetId→section 实现 O(1) 二次定位；识别 `body[name="notes"/"comments"]`、`<dd>`/`<dt>`/`<figure>`/`<figcaption>`；跳转统一走注入的 `navigate()`；弹窗内容经 `<template>` 逐属性清洗后再显示。
-- **`search.js`**：`_SEARCH_MAX_RESULTS = 1000`（每章结果按剩余额度裁剪）；`_SEARCH_TIME_BUDGET_MS = 16` 帧预算让步；查询字符串需转义正则元字符；关闭/切书取消延迟聚焦定时器。
+- **`search.js`**：`_SEARCH_MAX_RESULTS = 1000`（每章结果按剩余额度裁剪）；`_SEARCH_TIME_BUDGET_MS = 16` 帧预算让步；查询字符串需转义正则元字符；关闭/切书取消延迟聚焦定时器，关闭面板同步清理“搜索中...”状态。
 - **`highlights.js`**：`_HIGHLIGHT_RENDER_BATCH_SIZE = 20`，超量走 RAF 分批渲染并校验代次；仅显式 `color === 'transparent'` 视为纯笔记，非法/缺失颜色回退默认可见色。
-- **`bookmarks.js`** / **`toc.js`**：UI 状态更新统一委托 `panelController`；跳转统一走 `ReaderState.safeNavigate`。
-- **`image-viewer.js`**：拖拽平移时临时关闭 CSS transition；缩放范围 `ZOOM_MIN_SCALE=0.2` ~ `ZOOM_MAX_SCALE=8`。
-- **`home.js`**：支持全局拖放导入；单本卡片封面/元数据读取失败只局部降级，不影响整轮流式渲染（`card` 变量需在 `try` 外声明防 TDZ）；标注管理走内存缓存筛选/排序；笔记导出遍历 `getAllHighlights()` 全量字典，无 20 本上限截断。
+- **`bookmarks.js`** / **`toc.js`**：UI 状态更新统一委托 `panelController`；书签匹配精确 CFI 优先，同章节 + 进度 ±0.5% 容差兜底；跳转统一走 `ReaderState.safeNavigate`。
+- **`image-viewer.js`**：拖拽平移时临时关闭 CSS transition；缩放范围 `ZOOM_MIN_SCALE=0.2` ~ `ZOOM_MAX_SCALE=8`；SVG `<image>` 相对 href 按文档 `baseURI` 归一化。
+- **`home.js`**：支持全局拖放导入；文件选择与拖放统一走 `importEpubFiles()`，导入/删除/清空/书架加载失败均提供可见反馈；单本卡片封面/元数据读取失败只局部降级，不影响整轮流式渲染（`card` 变量需在 `try` 外声明防 TDZ）；标注管理走内存缓存筛选/排序，书名通过 `getBookMetaBatch()` 补齐 recentBooks 之外的书籍；笔记导出遍历 `getAllHighlights()` 全量字典，无 20 本上限截断。
 - **`popup.js`**：内联 `<style>`；Action popup 浮窗在原生系统文件框弹出时会失焦并被 Chrome 自动销毁（close-on-deactivate），故“打开文件”直接导航至 `reader/reader.html` 欢迎页发起文件选择，不在瞬态 popup 内部处理文件流。
 
 ## 7. 安全与防御性编程

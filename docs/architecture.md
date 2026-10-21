@@ -1,7 +1,8 @@
 # EPUB Reader — 模块与架构参考
 
-版本：v2.6.7  
-更新：2026-10-17  
+版本：v2.6.8
+
+更新：2026-10-21
 
 本文档包含项目系统架构、核心数据模型、模块接口契约与关键调度约束。
 
@@ -51,7 +52,7 @@ flowchart TB
     end
 
     subgraph PHYSICAL_STORAGE["6. 物理存储介质 (Physical Storage Media)"]
-        CSL[("chrome.storage.local (10MB 配额)<br/>• preferences (全局偏好)<br/>• recentBooks (书架列表)<br/>• bookMeta_&lt;id&gt; (位置/时长/速度)<br/>• highlights_&lt;id&gt; (高亮笔记)<br/>• bookmarks_&lt;id&gt; (书签)<br/>• deletedBook_&lt;id&gt; (删除墓碑)")]
+        CSL[("chrome.storage.local (10MB 配额)<br/>• preferences (全局偏好)<br/>• recentBooks (书架列表)<br/>• bookMeta_&lt;id&gt; (位置/时长/速度/书名作者)<br/>• highlights_&lt;id&gt; (高亮笔记)<br/>• bookmarks_&lt;id&gt; (书签)<br/>• deletedBook_&lt;id&gt; (删除墓碑)")]
         IDB[("IndexedDB: EpubReaderDB (v4)<br/>• files (EPUB 二进制原文件)<br/>• covers (封面 Blob)<br/>• locations (CFI 位置索引 JSON)")]
     end
 
@@ -155,7 +156,8 @@ interface PositionLocator {
 interface BookPosition {
   cfi: string;               // 权威主锚点 (location.start.cfi)
   percentage: number | null; // 0.0 - 100.0 百分比
-  timestamp: number;         // 更新时间戳 (Unix ms)
+  timestamp: number;         // 写入完成时间戳 (Unix ms)
+  observedAt?: number;       // 观察到该位置的时刻 (Unix ms，旧记录可缺省)
   locator?: PositionLocator; // 可选的辅助恢复锚点 locator
 }
 ```
@@ -176,6 +178,8 @@ interface BookMeta {
   pos: BookPosition | null;     // 阅读位置
   time: number;                 // 累计阅读总秒数
   speed: ReadingSpeed;          // 阅读速度与正文元数据
+  title?: string;               // 书名，由 saveBookIdentity 补全
+  author?: string;              // 作者，由 saveBookIdentity 补全
 }
 
 /** 退出/切书/休眠时提交的聚合事务包 */
@@ -242,7 +246,8 @@ interface IEpubStorage {
   getBookMeta(bookId: string): Promise<BookMeta | null>;
   getBookMetaBatch(bookIds: string[]): Promise<Record<string, BookMeta | null>>;
   saveBookMeta(bookId: string, meta: BookMeta): Promise<void>;
-  savePosition(bookId: string, cfi: string, percentage?: number | null, locator?: PositionLocator): Promise<void>;
+  saveBookIdentity(bookId: string, identity: { title?: string; author?: string }): Promise<void>;
+  savePosition(bookId: string, cfi: string, percentage?: number | null, locator?: PositionLocator, observedAt?: number): Promise<void>;
   getPosition(bookId: string): Promise<BookPosition | null>;
   removePosition(bookId: string): Promise<void>;
   getReadingTime(bookId: string): Promise<number>;
@@ -368,6 +373,7 @@ interface IReaderRuntime {
   mount(): Promise<void>;
   unmount(): void;
   openBook(fileData: ArrayBuffer | Uint8Array | Blob, bookId: string, fileName: string, targetCfi?: string | null): Promise<void>;
+  cancelPendingLoad(): void;
   loadFileByBookId(bookId: string, options?: { targetCfi?: string | null }): Promise<void>;
   discardDeletedBook(bookId: string): boolean;
   scheduleLocationsGeneration(task: Function): void;
@@ -395,7 +401,7 @@ interface IReaderRuntime {
 | `POST_OPEN_FOCUS_DELAY_MS` | `300ms` | 书籍打开完成后延迟聚焦时间 |
 | `NAV_DEBOUNCE_MS` | `150ms` | 翻页防连击防抖释放时间 |
 | `RESTORE_DIRECT_REDISPLAY_MAX_ATTEMPTS` | `1` | 首次 display 后同 CFI 直接重放校正上限 |
-| `CONTENT_UNIT_COUNT_BATCH_SIZE` | `8` | 正文统计后台任务让步批次大小 (章节数) |
+| `CONTENT_UNIT_COUNT_BATCH_SIZE` | `2` | 正文统计后台任务让步批次大小 (章节数) |
 
 ---
 
@@ -406,7 +412,7 @@ interface IReaderPersistence {
   mount(): void;
   unmount(): void;
   onRelocated(location: object): void;
-  schedulePositionSave(bookId: string, cfi: string, percent?: number | null, locator?: PositionLocator): void;
+  schedulePositionSave(bookId: string, cfi: string, percent?: number | null, locator?: PositionLocator, observedAt?: number): void;
   flushPositionSave(): Promise<void>;
   flushReadingTime(bookId?: string): Promise<void>;
   flushSpeedSession(newStartProgress?: number | null): Promise<void>;
@@ -430,6 +436,8 @@ interface IReaderPersistence {
 | `READING_TIME_FLUSH_INTERVAL_S` | `10s` | 阅读时长自动落盘周期 |
 | `READING_STATS_UPDATE_INTERVAL_S` | `60s` | 底部 ETA 与平均字速刷新周期 |
 
+位置写入可携带 `observedAt`（观察到该位置的时刻）；提供该字段时，`EpubStorage.savePosition` / `flushSessionBundle` 优先比较已存的 `bookMeta.pos.observedAt`，旧记录缺少该字段时才回退 `bookMeta.pos.timestamp`；若已存观察时刻更晚则跳过写入，避免旧标签页关闭时的陈旧位置覆盖新进度。同书队列仍保证读改写串行。
+
 ---
 
 ### 4.4 ReaderUi (`src/reader/reader-ui.js`)
@@ -438,6 +446,7 @@ interface IReaderPersistence {
 interface IReaderUi {
   mount(): void;
   unmount(): void;
+  cancelReflow(): void;
   bindRuntime(runtime: IReaderRuntime, persistence: IReaderPersistence): void;
   setReaderVisible(isVisible: boolean): void;
   clearReaderError(): void;
@@ -473,6 +482,8 @@ interface IReaderUi {
 | `DEFAULT_LINE_HEIGHT` | `1.8` | 默认行距 |
 | `DEFAULT_THEME` | `'light'` | 默认主题 |
 
+重排上下文 `_beginReflow()` 持有唯一 `_reflowOwner`；`_releaseReflow()` 只在 `_reflowOwner === context` 时释放锁，旧回调不会清掉新重排的 `isResizing`。`cancelReflow()` 在布局切换、切书、rendition 销毁前递增代次并清空 owner。
+
 ---
 
 ## 5. 功能子模块接口规范
@@ -499,7 +510,7 @@ interface LifecycleContext {
 | 模块 | 公开方法签名 | 核心职责与设计约束 |
 |---|---|---|
 | **Highlights** (`highlights.js`) | `init(): void`<br/>`setBookDetails(bookId, rendition): Promise<void>`<br/>`closePanels(): void`<br/>`mount(context): Promise<void>`<br/>`unmount(): void` | • `_HIGHLIGHT_RENDER_BATCH_SIZE = 20` 分批异步挂载<br/>• 仅 `color === 'transparent'` 为纯笔记<br/>• 异步读写绑定 `isCurrentContext` 代次守卫 |
-| **Bookmarks** (`bookmarks.js`) | `init(): void`<br/>`setBook(bookId, rendition): void`<br/>`toggle(cfi, chapter, progress): Promise<void>`<br/>`isBookmarked(cfi): Promise<boolean>`<br/>`loadBookmarks(): Promise<void>`<br/>`renderList(bookmarks): void`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • UI 状态委托 `panelController` 更新<br/>• 读改写采用 Copy-on-Write 机制<br/>• 用户点击跳转直调注入的 `navigate(target)`（扁平化调用栈） |
+| **Bookmarks** (`bookmarks.js`) | `init(): void`<br/>`setBook(bookId, rendition): void`<br/>`toggle(cfi, chapter, progress): Promise<void>`<br/>`isBookmarked(cfi, chapter, progress): Promise<boolean>`<br/>`loadBookmarks(): Promise<void>`<br/>`renderList(bookmarks): void`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • UI 状态委托 `panelController` 更新<br/>• 读改写采用 Copy-on-Write 机制<br/>• 精确 CFI 优先，同章节 + 进度 ±0.5% 容差兜底<br/>• 用户点击跳转直调注入的 `navigate(target)`（扁平化调用栈） |
 | **TOC** (`toc.js`) | `init(): void`<br/>`build(navigation, rendition): void`<br/>`setActive(href): void`<br/>`open(): void`<br/>`close(): void`<br/>`toggle(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 递归解析 epub.js navigation，支持 3 级嵌套<br/>• 目录路径匹配忽略 fragment 并校验边界<br/>• 侧边栏互斥委托 `panelController`<br/>• 目录点击跳转直调注入的 `navigate(target)` |
 | **Search** (`search.js`) | `init(): void`<br/>`setBook(book, rendition): void`<br/>`doSearch(query): Promise<void>`<br/>`togglePanel(): void`<br/>`closePanel(): void`<br/>`reset(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • `_SEARCH_MAX_RESULTS = 1000` 结果上限<br/>• `_SEARCH_TIME_BUDGET_MS = 16ms` 连续帧预算让步<br/>• 搜索词正则元字符安全转义<br/>• 搜索结果跳转直调注入的 `navigate(target)` |
 | **ImageViewer** (`image-viewer.js`) | `init(): void`<br/>`hookRendition(rendition): void`<br/>`open(src): void`<br/>`close(): void`<br/>`zoom(delta): void`<br/>`resetTransform(): void`<br/>`applyTransform(): void`<br/>`mount(context): void`<br/>`unmount(): void` | • 拖拽平移时临时移除 transition 消除橡皮筋冲突<br/>• 缩放范围 `0.2x` ~ `8.0x`<br/>• 滚轮步进 `0.15`，按钮步进 `0.3`<br/>• 生命周期由 `moduleLifecycle` 单轨挂载驱动 |

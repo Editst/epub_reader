@@ -168,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
           await EpubStorage.removeBook(book.id);
         } catch (err) {
           console.warn('[Popup] remove recent book failed:', err);
+          if (typeof alert === 'function') alert('删除失败，请重试');
         } finally {
           releaseCoverObjectUrl(item);
           await loadRecentBooksSafely();

@@ -245,8 +245,16 @@
         if (img.tagName.toLowerCase() === 'img') {
           src = img.src;
         } else {
-          // SVG image element
-          src = img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || img.getAttribute('href');
+          // SVG image element：href 可能是相对路径，先按文档 baseURI 归一化。
+          const rawSrc = img.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || img.getAttribute('href') || '';
+          if (rawSrc) {
+            try {
+              src = new URL(rawSrc, doc.baseURI || contents.document.baseURI).href;
+            } catch (err) {
+              console.warn('[ImageViewer] failed to resolve svg image href:', rawSrc, err);
+              src = '';
+            }
+          }
         }
 
         if (src) {

@@ -626,7 +626,8 @@ test.describe('ReaderPersistence', () => {
       'book-paginated-anchor',
       'epubcfi(/6/8!/4/2)',
       30,
-      state.currentStableLocator
+      state.currentStableLocator,
+      state.currentStableObservedAt
     ]);
 
     await persistence.flushPositionSave();
@@ -769,7 +770,8 @@ test.describe('ReaderPersistence', () => {
       'book-flush-sample',
       'epubcfi(/6/8!/4/2)',
       30,
-      state.currentStableLocator
+      state.currentStableLocator,
+      state.currentStableObservedAt
     ]]);
   });
 
@@ -1089,7 +1091,8 @@ test.describe('ReaderPersistence', () => {
       'book-scrolled-anchor',
       'epubcfi(/6/12!/4/2)',
       45,
-      state.currentStableLocator
+      state.currentStableLocator,
+      state.currentStableObservedAt
     ]]);
   });
 
@@ -1602,7 +1605,8 @@ test.describe('ReaderPersistence', () => {
       'book-same-cfi-new-page',
       'epubcfi(/6/10!/4/2)',
       30,
-      state.currentStableLocator
+      state.currentStableLocator,
+      state.currentStableObservedAt
     ]);
   });
 

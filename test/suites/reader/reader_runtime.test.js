@@ -2390,6 +2390,39 @@ test.describe('ReaderRuntime', () => {
     assert.equal(state.currentBookId, '');
   });
 
+  test.it('cancelPendingLoad 使迟到的缓存加载失效，不覆盖用户新选择 (H1)', async () => {
+    const originalGetFile = EpubStorage.getFile;
+    let resolveFile;
+    EpubStorage.getFile = () => new Promise((resolve) => { resolveFile = resolve; });
+    let epubCalls = 0;
+    let loadErrors = 0;
+    global.ePub = () => { epubCalls++; };
+
+    const state = ReaderState.createReaderState();
+    const runtime = ReaderRuntime.createReaderRuntime({
+      state,
+      ui: {
+        showLoading() {},
+        showLoadError() { loadErrors++; }
+      },
+      persistence: {},
+      moduleLifecycle: { mount() {}, unmount() {} }
+    });
+
+    try {
+      const loadTask = runtime.loadFileByBookId('stale-url-book');
+      runtime.cancelPendingLoad();
+      resolveFile({ filename: 'stale.epub', data: new Uint8Array([1, 2, 3]) });
+      await loadTask;
+    } finally {
+      EpubStorage.getFile = originalGetFile;
+    }
+
+    assert.equal(epubCalls, 0, '被取消的缓存加载不得创建书籍');
+    assert.equal(loadErrors, 0, '主动取消不应显示加载错误');
+    assert.equal(state.currentBookId, '');
+  });
+
   test.it('loadFileByBookId 重新打开缓存时保留 Uint8Array 视图边界', async () => {
     const { document } = createMockDocument(['reader-main', 'book-title', 'chapter-title', 'progress-location']);
     global.document = document;

@@ -4,6 +4,28 @@
 
 ---
 
+## [2.6.8] - 2026-10-21
+
+### fix
+- **重排锁所有权与生命周期根治 (`reader-ui.js`, `reader-runtime.js`)**：重排上下文持有唯一所有权，旧回调不再误清新重排的 `isResizing`；新增 `cancelReflow()`，在布局切换、切书、销毁 rendition 前主动取消在途重排，消除锁永久悬挂导致的翻页/跳转失效。
+- **本地导入取消旧缓存加载 (`reader-ui.js`, `reader-runtime.js`)**：新增 `cancelPendingLoad()`，用户主动选择本地文件时递增 `openSessionSeq`，防止未完成的 URL 书籍加载在导入后入队覆盖本次选择。
+- **跨标签页布局同步不再被本地重排丢弃 (`reader-ui.js`)**：移除 `onChanged` 的 `isResizing` 早退，跨标签布局变化统一走 `setLayout` 的取消重排与代次守卫。
+- **布局回滚使用实际生效布局 (`reader-runtime.js`)**：新增 `appliedLayout`，记录 `openBook`/`setLayout` 真正应用的布局；失败回滚和后续切换不再依据可能被跨标签改写的 `state.prefs.layout`。
+- **位置写入增加观察时刻防旧写覆盖 (`reader-persistence.js`, `reader-state.js`, `storage.js`)**：`savePosition` / `flushSessionBundle` 支持可选 `observedAt`，旧标签关闭时不会把陈旧位置包装成新写入覆盖新进度；`resetReadingSession` 同步重置观察时刻与 `isScrubbing`。
+- **阅读计时仅在页面可见且聚焦时累计 (`reader-persistence.js`)**：避免后台/失焦标签页虚增阅读时长与速度样本。
+- **书签重排后容差匹配 (`bookmarks.js`, `reader-persistence.js`)**：精确 CFI 优先，同章节 + 进度 ±0.5% 兜底；书签按钮状态同步传入章节与进度。
+- **搜索关闭状态清理 (`search.js`)**：按 `isSearching` 或“搜索中...”提示清理状态，避免关闭面板后残留搜索态。
+- **书架导入与错误反馈收敛 (`home.js`, `home.css`, `popup.js`)**：文件选择与拖放统一走 `importEpubFiles()`，先重置 input 再导入；导入按钮使用 `is-importing` class；删除、清空、书架加载失败均给出用户可见反馈。
+- **标注书名补全 (`storage.js`, `reader-runtime.js`, `home.js`)**：新增 `saveBookIdentity()` 仅补书名/作者且不覆盖位置、时长、速度；标注管理与导出通过 `getBookMetaBatch()` 补齐 recentBooks 之外的书籍书名。
+- **移除 Google Fonts 外部依赖 (`home.html`, `manifest.json`)**：删除远程字体样式与 CSP 放行，收紧扩展网络边界。
+- **低风险健壮性修复**：SVG `<image>` 相对 href 按文档 `baseURI` 归一化；`loadAnnotationsSafely` 移除冗余排序参数；修复书架卡片重复 `className` 赋值；移除 `_correctRestoredPage` 死字段；队列尾空 `catch` 改为显式忽略并注明由调用方处理；字体等待与队列失败补充上下文日志。
+
+### test
+- 更新阅读位置持久化断言以覆盖 `observedAt` 参数。
+- 更新 manifest 版本与 CSP 断言，验证不再放行外部字体域名。
+
+---
+
 ## [2.6.7] - 2026-10-17
 
 ### fix

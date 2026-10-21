@@ -27,6 +27,7 @@
       // ── CFI / 导航保护 ────────────────────────────────────────────────────
       currentStableCfi: null,
       currentStableLocator: null,
+      currentStableObservedAt: 0,   // 当前稳定位置被观察到的时刻（多标签防旧写覆盖）
       isResizing:          false,   // 字号/布局重排保护锁（期间忽略 relocated）
       isRestoringPosition: false,   // openBook 位置恢复期间为 true，防止 relocated 覆写已保存进度
       isLayoutStable:      false,   // 字体加载/布局重排完成前为 false，阻止翻页与跳转
@@ -81,10 +82,12 @@
     state.lastPercent          = null;
     state.currentStableCfi     = null;
     state.currentStableLocator = null;
+    state.currentStableObservedAt = 0;
     state.isResizing           = false;
     state.isRestoringPosition  = false;
     state.isRestoreAnchorProtected = false;
     state.isLayoutStable       = false;
+    state.isScrubbing          = false;
     state.navLock              = false;
     state.lastPositionSave     = null;
     state.locationsStatus      = 'idle';
